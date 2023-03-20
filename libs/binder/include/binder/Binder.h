@@ -20,15 +20,16 @@
 #include <stdint.h>
 #include <binder/IBinder.h>
 
-// ---------------------------------------------------------------------------
+#include <binder/libbinder_export.h>
+
+        // ---------------------------------------------------------------------------
 namespace android {
 
 namespace internal {
 class Stability;
 }
 
-class BBinder : public IBinder
-{
+class LIBBINDER_EXPORT BBinder : public IBinder {
 public:
                         BBinder();
 
@@ -100,7 +101,7 @@ public:
     // to another process.
     void setParceled();
 
-    [[nodiscard]] status_t setRpcClientDebug(android::base::unique_fd clientFd,
+    [[nodiscard]] status_t setRpcClientDebug(android::base::unique_fd socketFd,
                                              const sp<IBinder>& keepAliveBinder);
 
 protected:
@@ -138,8 +139,7 @@ private:
 
 // ---------------------------------------------------------------------------
 
-class BpRefBase : public virtual RefBase
-{
+class LIBBINDER_EXPORT BpRefBase : public virtual RefBase {
 protected:
     explicit                BpRefBase(const sp<IBinder>& o);
     virtual                 ~BpRefBase();

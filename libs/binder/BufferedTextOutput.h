@@ -18,8 +18,12 @@
 #define ANDROID_BUFFEREDTEXTOUTPUT_H
 
 #include <binder/TextOutput.h>
+#ifndef _MSC_VER
 #include <sys/uio.h>
+#endif
 #include <utils/Mutex.h>
+
+#include <binder/compatible_porting.h>
 
 // ---------------------------------------------------------------------------
 namespace android {
@@ -42,7 +46,7 @@ public:
     virtual void        popBundle();
     
 protected:
-    virtual status_t    writeLines(const struct iovec& vec, size_t N) = 0;
+    virtual status_t writeLines(const struct iovec_fake& vec, size_t N) = 0;
 
 private:
     struct BufferState;

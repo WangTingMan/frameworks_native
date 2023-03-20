@@ -30,6 +30,8 @@
 
 #include "BuildFlags.h"
 
+#include "binder/windows_porting.h"
+
 //#undef ALOGV
 //#define ALOGV(...) fprintf(stderr, __VA_ARGS__)
 
@@ -118,7 +120,7 @@ void BpBinder::ObjectManager::kill()
 
 sp<BpBinder> BpBinder::create(int32_t handle) {
     if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0 );
         return nullptr;
     }
 
@@ -185,7 +187,7 @@ BpBinder::BpBinder(Handle&& handle)
 
 BpBinder::BpBinder(BinderHandle&& handle, int32_t trackedUid) : BpBinder(Handle(handle)) {
     if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
         return;
     }
 
@@ -316,7 +318,7 @@ status_t BpBinder::transact(
                                             flags);
         } else {
             if constexpr (!kEnableKernelIpc) {
-                LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+                LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
                 return INVALID_OPERATION;
             }
 
@@ -345,11 +347,11 @@ status_t BpBinder::linkToDeath(
 {
     if (isRpcBinder()) {
         if (rpcSession()->getMaxIncomingThreads() < 1) {
-            LOG_ALWAYS_FATAL("Cannot register a DeathRecipient without any incoming connections.");
+            LOG_ALWAYS_FATAL("Cannot register a DeathRecipient without any incoming connections.", 0 );
             return INVALID_OPERATION;
         }
     } else if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
         return INVALID_OPERATION;
     } else {
         if (ProcessState::self()->getThreadPoolMaxTotalThreadCount() == 0) {
@@ -403,7 +405,7 @@ status_t BpBinder::unlinkToDeath(
     wp<DeathRecipient>* outRecipient)
 {
     if (!kEnableKernelIpc && !isRpcBinder()) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
         return INVALID_OPERATION;
     }
 
@@ -445,7 +447,7 @@ status_t BpBinder::unlinkToDeath(
 void BpBinder::sendObituary()
 {
     if (!kEnableKernelIpc && !isRpcBinder()) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
         return;
     }
 
@@ -525,7 +527,7 @@ BpBinder::~BpBinder() {
     if (CC_UNLIKELY(isRpcBinder())) return;
 
     if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
         return;
     }
 
@@ -565,7 +567,7 @@ void BpBinder::onFirstRef() {
     if (CC_UNLIKELY(isRpcBinder())) return;
 
     if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0);
         return;
     }
 
@@ -581,7 +583,7 @@ void BpBinder::onLastStrongRef(const void* /*id*/) {
     }
 
     if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
         return;
     }
 
@@ -619,7 +621,7 @@ bool BpBinder::onIncStrongAttempted(uint32_t /*flags*/, const void* /*id*/)
     if (CC_UNLIKELY(isRpcBinder())) return false;
 
     if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
         return false;
     }
 

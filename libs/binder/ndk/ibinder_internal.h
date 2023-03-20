@@ -29,6 +29,8 @@
 #include <binder/IBinder.h>
 #include <utils/Vector.h>
 
+#include <android/libbinder_ndk_export.h>
+
 inline bool isUserCommand(transaction_code_t code) {
     return code >= FIRST_CALL_TRANSACTION && code <= LAST_CALL_TRANSACTION;
 }
@@ -36,7 +38,7 @@ inline bool isUserCommand(transaction_code_t code) {
 struct ABBinder;
 struct ABpBinder;
 
-struct AIBinder : public virtual ::android::RefBase {
+struct LIBBINDER_NDK_EXPORT AIBinder : public virtual ::android::RefBase {
     explicit AIBinder(const AIBinder_Class* clazz);
     virtual ~AIBinder();
 
@@ -64,7 +66,7 @@ struct AIBinder : public virtual ::android::RefBase {
 };
 
 // This is a local AIBinder object with a known class.
-struct ABBinder : public AIBinder, public ::android::BBinder {
+struct LIBBINDER_NDK_EXPORT ABBinder : public AIBinder, public ::android::BBinder {
     virtual ~ABBinder();
 
     void* getUserData() { return mUserData; }
@@ -91,7 +93,7 @@ struct ABBinder : public AIBinder, public ::android::BBinder {
 
 // This binder object may be remote or local (even though it is 'Bp'). The implication if it is
 // local is that it is an IBinder object created outside of the domain of libbinder_ndk.
-struct ABpBinder : public AIBinder {
+struct LIBBINDER_NDK_EXPORT ABpBinder : public AIBinder {
     // Looks up to see if this object has or is an existing ABBinder or ABpBinder object, otherwise
     // it creates an ABpBinder object.
     static ::android::sp<AIBinder> lookupOrCreateFromBinder(
@@ -108,7 +110,7 @@ struct ABpBinder : public AIBinder {
     ::android::sp<::android::IBinder> mRemote;
 };
 
-struct AIBinder_Class {
+struct LIBBINDER_NDK_EXPORT AIBinder_Class {
     AIBinder_Class(const char* interfaceDescriptor, AIBinder_Class_onCreate onCreate,
                    AIBinder_Class_onDestroy onDestroy, AIBinder_Class_onTransact onTransact);
 
@@ -141,7 +143,7 @@ struct AIBinder_Class {
 //
 // When the AIBinder_DeathRecipient is dropped, so are the actual underlying death recipients. When
 // the IBinder dies, only a wp to it is kept.
-struct AIBinder_DeathRecipient : ::android::RefBase {
+struct LIBBINDER_NDK_EXPORT AIBinder_DeathRecipient : ::android::RefBase {
     // One of these is created for every linkToDeath. This is to be able to recover data when a
     // binderDied receipt only gives us information about the IBinder.
     struct TransferDeathRecipient : ::android::IBinder::DeathRecipient {

@@ -18,10 +18,13 @@
 
 #include <binder/RpcSession.h>
 
+#ifndef _MSC_VER
 #include <dlfcn.h>
-#include <inttypes.h>
 #include <poll.h>
 #include <unistd.h>
+#endif
+
+#include <inttypes.h>
 
 #include <string_view>
 
@@ -146,6 +149,7 @@ status_t RpcSession::setupVsockClient(unsigned int cid, unsigned int port) {
 }
 
 status_t RpcSession::setupInetClient(const char* addr, unsigned int port) {
+#ifndef _MSC_VER
     auto aiStart = InetSocketAddress::getAddrInfo(addr, port);
     if (aiStart == nullptr) return UNKNOWN_ERROR;
     for (auto ai = aiStart.get(); ai != nullptr; ai = ai->ai_next) {
@@ -153,6 +157,7 @@ status_t RpcSession::setupInetClient(const char* addr, unsigned int port) {
         if (status_t status = setupSocketClient(socketAddress); status == OK) return OK;
     }
     ALOGE("None of the socket address resolved for %s:%u can be added as inet client.", addr, port);
+#endif
     return NAME_NOT_FOUND;
 }
 
@@ -162,10 +167,12 @@ status_t RpcSession::setupPreconnectedClient(unique_fd fd, std::function<unique_
             fd = request();
             if (!fd.ok()) return BAD_VALUE;
         }
+#ifndef _MSC_VER
         if (auto res = setNonBlocking(fd); !res.ok()) {
             ALOGE("setupPreconnectedClient: %s", res.error().message().c_str());
             return res.error().code() == 0 ? UNKNOWN_ERROR : -res.error().code();
         }
+#endif
         status_t status = initAndAddConnection(std::move(fd), sessionId, incoming);
         fd = unique_fd(); // Explicitly reset after move to avoid analyzer warning.
         return status;
@@ -175,7 +182,7 @@ status_t RpcSession::setupPreconnectedClient(unique_fd fd, std::function<unique_
 status_t RpcSession::addNullDebuggingClient() {
     // Note: only works on raw sockets.
     if (auto status = initShutdownTrigger(); status != OK) return status;
-
+#ifndef _MSC_VER
     unique_fd serverFd(TEMP_FAILURE_RETRY(open("/dev/null", O_WRONLY | O_CLOEXEC)));
 
     if (serverFd == -1) {
@@ -190,6 +197,9 @@ status_t RpcSession::addNullDebuggingClient() {
         return UNKNOWN_ERROR;
     }
     return addOutgoingConnection(std::move(server), false);
+#else
+    return 0;
+#endif
 }
 
 sp<IBinder> RpcSession::getRootObject() {
@@ -511,11 +521,12 @@ status_t RpcSession::setupClient(const std::function<status_t(const std::vector<
 #else  // BINDER_RPC_SINGLE_THREADED
     size_t outgoingThreads = std::min(numThreadsAvailable, mMaxOutgoingThreads);
 #endif // BINDER_RPC_SINGLE_THREADED
+#ifndef _MSC_VER
     ALOGI_IF(outgoingThreads != numThreadsAvailable,
              "Server hints client to start %zu outgoing threads, but client will only start %zu "
              "because it is preconfigured to start at most %zu outgoing threads.",
              numThreadsAvailable, outgoingThreads, mMaxOutgoingThreads);
-
+#endif
     // TODO(b/189955605): we should add additional sessions dynamically
     // instead of all at once - the other side should be responsible for setting
     // up additional connections. We need to create at least one (unless 0 are
@@ -548,6 +559,7 @@ status_t RpcSession::setupSocketClient(const RpcSocketAddress& addr) {
 status_t RpcSession::setupOneSocketConnection(const RpcSocketAddress& addr,
                                               const std::vector<uint8_t>& sessionId,
                                               bool incoming) {
+#ifndef _MSC_VER
     for (size_t tries = 0; tries < 5; tries++) {
         if (tries > 0) usleep(10000);
 
@@ -600,7 +612,7 @@ status_t RpcSession::setupOneSocketConnection(const RpcSocketAddress& addr,
 
         return initAndAddConnection(std::move(serverFd), sessionId, incoming);
     }
-
+#endif
     ALOGE("Ran out of retries to connect to %s", addr.toString().c_str());
     return UNKNOWN_ERROR;
 }
@@ -610,7 +622,7 @@ status_t RpcSession::initAndAddConnection(unique_fd fd, const std::vector<uint8_
     LOG_ALWAYS_FATAL_IF(mShutdownTrigger == nullptr);
     auto server = mCtx->newTransport(std::move(fd), mShutdownTrigger.get());
     if (server == nullptr) {
-        ALOGE("%s: Unable to set up RpcTransport", __PRETTY_FUNCTION__);
+        ALOGE("%s: Unable to set up RpcTransport", __FUNCTION__);
         return UNKNOWN_ERROR;
     }
 
@@ -631,7 +643,7 @@ status_t RpcSession::initAndAddConnection(unique_fd fd, const std::vector<uint8_
     if (incoming) {
         header.options |= RPC_CONNECTION_OPTION_INCOMING;
     }
-
+#ifndef _MSC_VER
     iovec headerIov{&header, sizeof(header)};
     auto sendHeaderStatus = server->interruptableWriteFully(mShutdownTrigger.get(), &headerIov, 1,
                                                             std::nullopt, nullptr);
@@ -654,7 +666,7 @@ status_t RpcSession::initAndAddConnection(unique_fd fd, const std::vector<uint8_
             return sendSessionIdStatus;
         }
     }
-
+#endif
     LOG_RPC_DETAIL("Socket at client: header sent");
 
     if (incoming) {

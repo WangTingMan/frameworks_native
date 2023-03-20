@@ -86,8 +86,8 @@ binder_status_t WriteArray(AParcel* parcel, const T* array, int32_t length) {
     if (status != STATUS_OK) return status;
     if (length <= 0) return STATUS_OK;
 
-    int32_t size = 0;
-    if (__builtin_smul_overflow(sizeof(T), length, &size)) return STATUS_NO_MEMORY;
+    int32_t size = sizeof(T) * length;
+    //if (__builtin_smul_overflow(sizeof(T), length, &size)) return STATUS_NO_MEMORY;
 
     void* const data = parcel->get()->writeInplace(size);
     if (data == nullptr) return STATUS_NO_MEMORY;
@@ -104,8 +104,8 @@ binder_status_t WriteArray<char16_t>(AParcel* parcel, const char16_t* array, int
     if (status != STATUS_OK) return status;
     if (length <= 0) return STATUS_OK;
 
-    int32_t size = 0;
-    if (__builtin_smul_overflow(sizeof(char16_t), length, &size)) return STATUS_NO_MEMORY;
+    int32_t size = sizeof(char16_t) * length;
+    //if (__builtin_smul_overflow(sizeof(char16_t), length, &size)) return STATUS_NO_MEMORY;
 
     Parcel* rawParcel = parcel->get();
 
@@ -134,8 +134,8 @@ binder_status_t ReadArray(const AParcel* parcel, void* arrayData,
     if (length <= 0) return STATUS_OK;
     if (array == nullptr) return STATUS_NO_MEMORY;
 
-    int32_t size = 0;
-    if (__builtin_smul_overflow(sizeof(T), length, &size)) return STATUS_NO_MEMORY;
+    int32_t size = sizeof(T) * length;
+    //if (__builtin_smul_overflow(sizeof(T), length, &size)) return STATUS_NO_MEMORY;
 
     const void* data = rawParcel->readInplace(size);
     if (data == nullptr) return STATUS_NO_MEMORY;
@@ -162,8 +162,8 @@ binder_status_t ReadArray<char16_t>(const AParcel* parcel, void* arrayData,
     if (length <= 0) return STATUS_OK;
     if (array == nullptr) return STATUS_NO_MEMORY;
 
-    int32_t size = 0;
-    if (__builtin_smul_overflow(sizeof(char16_t), length, &size)) return STATUS_NO_MEMORY;
+    int32_t size = sizeof(char16_t) * length;
+    //if (__builtin_smul_overflow(sizeof(char16_t), length, &size)) return STATUS_NO_MEMORY;
 
     for (int32_t i = 0; i < length; i++) {
         status_t status = rawParcel->readChar(array + i);

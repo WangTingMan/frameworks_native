@@ -18,11 +18,11 @@
 
 #include <stdint.h>
 #include <sys/types.h>
-#include <sys/mman.h>
 
 #include <utils/RefBase.h>
 #include <utils/Errors.h>
 #include <binder/IInterface.h>
+#include <binder/libbinder_export.h>
 
 namespace android {
 
@@ -50,7 +50,7 @@ public:
     size_t  virtualSize() const { return getSize(); }
 };
 
-class BnMemoryHeap : public BnInterface<IMemoryHeap>
+class LIBBINDER_EXPORT BnMemoryHeap : public BnInterface<IMemoryHeap>
 {
 public:
     // NOLINTNEXTLINE(google-default-arguments)
@@ -67,7 +67,7 @@ protected:
 
 // ----------------------------------------------------------------------------
 
-class IMemory : public IInterface
+class LIBBINDER_EXPORT IMemory : public IInterface
 {
 public:
     DECLARE_META_INTERFACE(Memory)
@@ -105,7 +105,7 @@ private:
     void* fastPointer(const sp<IBinder>& heap, ssize_t offset) const;
 };
 
-class BnMemory : public BnInterface<IMemory>
+class LIBBINDER_EXPORT BnMemory : public BnInterface<IMemory>
 {
 public:
     // NOLINTNEXTLINE(google-default-arguments)

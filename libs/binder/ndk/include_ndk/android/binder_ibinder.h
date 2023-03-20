@@ -28,13 +28,43 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#ifndef _MSC_VER
 #include <sys/cdefs.h>
+#endif
 #include <sys/types.h>
 
 #include <android/binder_parcel.h>
 #include <android/binder_status.h>
 
+#include <android/libbinder_ndk_export.h>
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
+
 __BEGIN_DECLS
+
+#if defined(_WIN32)
+#ifndef uid_t
+#define uid_t int
+#endif
+#endif
+
+#ifndef pid_t
+#define pid_t int
+#endif
 
 /**
  * Flags for AIBinder_transact.
@@ -185,7 +215,7 @@ typedef binder_status_t (*AIBinder_Class_onTransact)(AIBinder* binder, transacti
  *
  * \return the class object representing these parameters or null on error.
  */
-__attribute__((warn_unused_result)) AIBinder_Class* AIBinder_Class_define(
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder_Class* AIBinder_Class_define(
         const char* interfaceDescriptor, AIBinder_Class_onCreate onCreate,
         AIBinder_Class_onDestroy onDestroy, AIBinder_Class_onTransact onTransact)
         __INTRODUCED_IN(29);
@@ -216,7 +246,8 @@ typedef binder_status_t (*AIBinder_onDump)(AIBinder* binder, int fd, const char*
  * \param clazz class which should use this dump function
  * \param onDump function to call when an instance of this binder class is being dumped.
  */
-void AIBinder_Class_setOnDump(AIBinder_Class* clazz, AIBinder_onDump onDump) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void AIBinder_Class_setOnDump(AIBinder_Class* clazz, AIBinder_onDump onDump)
+        __INTRODUCED_IN(29);
 
 /**
  * This tells users of this class not to use a transaction header. By default, libbinder_ndk users
@@ -231,7 +262,8 @@ void AIBinder_Class_setOnDump(AIBinder_Class* clazz, AIBinder_onDump onDump) __I
  *
  * \param clazz class to disable interface header on.
  */
-void AIBinder_Class_disableInterfaceTokenHeader(AIBinder_Class* clazz) __INTRODUCED_IN(33);
+LIBBINDER_NDK_EXPORT void AIBinder_Class_disableInterfaceTokenHeader(AIBinder_Class* clazz)
+        __INTRODUCED_IN(33);
 
 /**
  * Creates a new binder object of the appropriate class.
@@ -257,7 +289,8 @@ void AIBinder_Class_disableInterfaceTokenHeader(AIBinder_Class* clazz) __INTRODU
  *
  * \return a binder object representing the newly instantiated object.
  */
-__attribute__((warn_unused_result)) AIBinder* AIBinder_new(const AIBinder_Class* clazz, void* args)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder* AIBinder_new(
+        const AIBinder_Class* clazz, void* args)
         __INTRODUCED_IN(29);
 
 /**
@@ -269,7 +302,7 @@ __attribute__((warn_unused_result)) AIBinder* AIBinder_new(const AIBinder_Class*
  *
  * \return true if the AIBinder represents an object in another process.
  */
-bool AIBinder_isRemote(const AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT bool AIBinder_isRemote(const AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * If this binder is known to be alive. This will not send a transaction to a remote process and
@@ -284,7 +317,7 @@ bool AIBinder_isRemote(const AIBinder* binder) __INTRODUCED_IN(29);
  *
  * \return true if the binder is alive.
  */
-bool AIBinder_isAlive(const AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT bool AIBinder_isAlive(const AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * Built-in transaction for all binder objects. This sends a transaction that will immediately
@@ -297,7 +330,7 @@ bool AIBinder_isAlive(const AIBinder* binder) __INTRODUCED_IN(29);
  *
  * \return STATUS_OK if the ping succeeds.
  */
-binder_status_t AIBinder_ping(AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_ping(AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * Built-in transaction for all binder objects. This dumps information about a given binder.
@@ -313,7 +346,8 @@ binder_status_t AIBinder_ping(AIBinder* binder) __INTRODUCED_IN(29);
  *
  * \return STATUS_OK if dump succeeds (or if there is nothing to dump)
  */
-binder_status_t AIBinder_dump(AIBinder* binder, int fd, const char** args, uint32_t numArgs)
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_dump(AIBinder* binder, int fd, const char** args,
+                                                   uint32_t numArgs)
         __INTRODUCED_IN(29);
 
 /**
@@ -335,7 +369,8 @@ binder_status_t AIBinder_dump(AIBinder* binder, int fd, const char** args, uint3
  *
  * \return STATUS_OK on success.
  */
-binder_status_t AIBinder_linkToDeath(AIBinder* binder, AIBinder_DeathRecipient* recipient,
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_linkToDeath(AIBinder* binder,
+                                                          AIBinder_DeathRecipient* recipient,
                                      void* cookie) __INTRODUCED_IN(29);
 
 /**
@@ -360,7 +395,8 @@ binder_status_t AIBinder_linkToDeath(AIBinder* binder, AIBinder_DeathRecipient* 
  *
  * \return STATUS_OK on success. STATUS_NAME_NOT_FOUND if the binder cannot be found to be unlinked.
  */
-binder_status_t AIBinder_unlinkToDeath(AIBinder* binder, AIBinder_DeathRecipient* recipient,
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_unlinkToDeath(AIBinder* binder,
+                                                            AIBinder_DeathRecipient* recipient,
                                        void* cookie) __INTRODUCED_IN(29);
 
 /**
@@ -374,7 +410,7 @@ binder_status_t AIBinder_unlinkToDeath(AIBinder* binder, AIBinder_DeathRecipient
  *
  * \return calling uid or the current process's UID if this thread isn't processing a transaction.
  */
-uid_t AIBinder_getCallingUid() __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT uid_t AIBinder_getCallingUid() __INTRODUCED_IN(29);
 
 /**
  * This returns the calling PID assuming that this thread is called from a thread that is processing
@@ -390,7 +426,7 @@ uid_t AIBinder_getCallingUid() __INTRODUCED_IN(29);
  * \return calling pid or the current process's PID if this thread isn't processing a transaction.
  * If the transaction being processed is a oneway transaction, then this method will return 0.
  */
-pid_t AIBinder_getCallingPid() __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT pid_t AIBinder_getCallingPid() __INTRODUCED_IN(29);
 
 /**
  * Determine whether the current thread is currently executing an incoming transaction.
@@ -398,7 +434,7 @@ pid_t AIBinder_getCallingPid() __INTRODUCED_IN(29);
  * \return true if the current thread is currently executing an incoming transaction, and false
  * otherwise.
  */
-bool AIBinder_isHandlingTransaction() __INTRODUCED_IN(33);
+LIBBINDER_NDK_EXPORT bool AIBinder_isHandlingTransaction() __INTRODUCED_IN(33);
 
 /**
  * This can only be called if a strong reference to this object already exists in process.
@@ -407,7 +443,7 @@ bool AIBinder_isHandlingTransaction() __INTRODUCED_IN(33);
  *
  * \param binder the binder object to add a refcount to.
  */
-void AIBinder_incStrong(AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void AIBinder_incStrong(AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * This will delete the object and call onDestroy once the refcount reaches zero.
@@ -416,7 +452,7 @@ void AIBinder_incStrong(AIBinder* binder) __INTRODUCED_IN(29);
  *
  * \param binder the binder object to remove a refcount from.
  */
-void AIBinder_decStrong(AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void AIBinder_decStrong(AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * For debugging only!
@@ -428,7 +464,7 @@ void AIBinder_decStrong(AIBinder* binder) __INTRODUCED_IN(29);
  * \return the number of strong-refs on this binder in this process. If binder is null, this will be
  * -1.
  */
-int32_t AIBinder_debugGetRefCount(AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT int32_t AIBinder_debugGetRefCount(AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * This sets the class of an AIBinder object. This checks to make sure the remote object is of
@@ -448,7 +484,7 @@ int32_t AIBinder_debugGetRefCount(AIBinder* binder) __INTRODUCED_IN(29);
  *
  * \return true if the binder has the class clazz and if the association was successful.
  */
-bool AIBinder_associateClass(AIBinder* binder, const AIBinder_Class* clazz) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT bool AIBinder_associateClass(AIBinder* binder, const AIBinder_Class* clazz) __INTRODUCED_IN(29);
 
 /**
  * Returns the class that this binder was constructed with or associated with.
@@ -460,7 +496,7 @@ bool AIBinder_associateClass(AIBinder* binder, const AIBinder_Class* clazz) __IN
  * \return the class that this binder is associated with. If this binder wasn't created with
  * AIBinder_new, and AIBinder_associateClass hasn't been called, then this will return null.
  */
-const AIBinder_Class* AIBinder_getClass(AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT const AIBinder_Class* AIBinder_getClass(AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * Value returned by onCreate for a local binder. For stateless classes (if onCreate returns
@@ -473,7 +509,7 @@ const AIBinder_Class* AIBinder_getClass(AIBinder* binder) __INTRODUCED_IN(29);
  * \return the userdata returned from AIBinder_onCreate when this object was created. This may be
  * null for stateless objects. For remote objects, this is always null.
  */
-void* AIBinder_getUserData(AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void* AIBinder_getUserData(AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * A transaction is a series of calls to these functions which looks this
@@ -506,7 +542,7 @@ void* AIBinder_getUserData(AIBinder* binder) __INTRODUCED_IN(29);
  * \return STATUS_OK on success. This will return STATUS_INVALID_OPERATION if the binder has not yet
  * been associated with a class (see AIBinder_new and AIBinder_associateClass).
  */
-binder_status_t AIBinder_prepareTransaction(AIBinder* binder, AParcel** in) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_prepareTransaction(AIBinder* binder, AParcel** in) __INTRODUCED_IN(29);
 
 /**
  * Transact using a parcel created from AIBinder_prepareTransaction. This actually communicates with
@@ -532,7 +568,7 @@ binder_status_t AIBinder_prepareTransaction(AIBinder* binder, AParcel** in) __IN
  * error codes are written to the output parcel, and the transaction code is reserved for kernel
  * errors or error codes that have been repeated from subsequent transactions.
  */
-binder_status_t AIBinder_transact(AIBinder* binder, transaction_code_t code, AParcel** in,
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_transact(AIBinder* binder, transaction_code_t code, AParcel** in,
                                   AParcel** out, binder_flags_t flags) __INTRODUCED_IN(29);
 
 /**
@@ -545,7 +581,7 @@ binder_status_t AIBinder_transact(AIBinder* binder, transaction_code_t code, APa
  *
  * \return object representing a weak pointer to binder (or null if binder is null).
  */
-__attribute__((warn_unused_result)) AIBinder_Weak* AIBinder_Weak_new(AIBinder* binder)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder_Weak* AIBinder_Weak_new(AIBinder* binder)
         __INTRODUCED_IN(29);
 
 /**
@@ -555,7 +591,7 @@ __attribute__((warn_unused_result)) AIBinder_Weak* AIBinder_Weak_new(AIBinder* b
  *
  * \param weakBinder object created with AIBinder_Weak_new.
  */
-void AIBinder_Weak_delete(AIBinder_Weak* weakBinder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void AIBinder_Weak_delete(AIBinder_Weak* weakBinder) __INTRODUCED_IN(29);
 
 /**
  * If promotion succeeds, result will have one strong refcount added to it. Otherwise, this returns
@@ -567,7 +603,7 @@ void AIBinder_Weak_delete(AIBinder_Weak* weakBinder) __INTRODUCED_IN(29);
  *
  * \return an AIBinder object with one refcount given to the caller or null.
  */
-__attribute__((warn_unused_result)) AIBinder* AIBinder_Weak_promote(AIBinder_Weak* weakBinder)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder* AIBinder_Weak_promote(AIBinder_Weak* weakBinder)
         __INTRODUCED_IN(29);
 
 /**
@@ -604,7 +640,7 @@ typedef void (*AIBinder_DeathRecipient_onBinderUnlinked)(void* cookie) __INTRODU
  *
  * \return the newly constructed object (or null if onBinderDied is null).
  */
-__attribute__((warn_unused_result)) AIBinder_DeathRecipient* AIBinder_DeathRecipient_new(
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder_DeathRecipient* AIBinder_DeathRecipient_new(
         AIBinder_DeathRecipient_onBinderDied onBinderDied) __INTRODUCED_IN(29);
 
 /**
@@ -637,7 +673,7 @@ __attribute__((warn_unused_result)) AIBinder_DeathRecipient* AIBinder_DeathRecip
  * \param recipient the DeathRecipient to set the onUnlinked callback for.
  * \param onUnlinked the callback to call when a binder is unlinked from recipient.
  */
-void AIBinder_DeathRecipient_setOnUnlinked(AIBinder_DeathRecipient* recipient,
+LIBBINDER_NDK_EXPORT void AIBinder_DeathRecipient_setOnUnlinked(AIBinder_DeathRecipient* recipient,
                                            AIBinder_DeathRecipient_onBinderUnlinked onUnlinked)
         __INTRODUCED_IN(33);
 
@@ -653,7 +689,7 @@ void AIBinder_DeathRecipient_setOnUnlinked(AIBinder_DeathRecipient* recipient,
  *
  * \param recipient the binder to delete (previously created with AIBinder_DeathRecipient_new).
  */
-void AIBinder_DeathRecipient_delete(AIBinder_DeathRecipient* recipient) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void AIBinder_DeathRecipient_delete(AIBinder_DeathRecipient* recipient) __INTRODUCED_IN(29);
 
 /**
  * Gets the extension registered with AIBinder_setExtension.
@@ -669,7 +705,7 @@ void AIBinder_DeathRecipient_delete(AIBinder_DeathRecipient* recipient) __INTROD
  * \return error of getting the interface (may be a transaction error if this is
  * remote binder). STATUS_UNEXPECTED_NULL if binder is null.
  */
-binder_status_t AIBinder_getExtension(AIBinder* binder, AIBinder** outExt) __INTRODUCED_IN(30);
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_getExtension(AIBinder* binder, AIBinder** outExt) __INTRODUCED_IN(30);
 
 /**
  * Gets the extension of a binder interface. This allows a downstream developer to add
@@ -722,7 +758,7 @@ binder_status_t AIBinder_getExtension(AIBinder* binder, AIBinder** outExt) __INT
  * \return OK on success, STATUS_INVALID_OPERATION if binder is not local, STATUS_UNEXPECTED_NULL
  * if either binder is null.
  */
-binder_status_t AIBinder_setExtension(AIBinder* binder, AIBinder* ext) __INTRODUCED_IN(30);
+LIBBINDER_NDK_EXPORT binder_status_t AIBinder_setExtension(AIBinder* binder, AIBinder* ext) __INTRODUCED_IN(30);
 
 /**
  * Retrieve the class descriptor for the class.
@@ -737,7 +773,7 @@ binder_status_t AIBinder_setExtension(AIBinder* binder, AIBinder* ext) __INTRODU
  * be the same value (not necessarily pointer equal) as is passed into
  * AIBinder_Class_define. Format is utf-8.
  */
-const char* AIBinder_Class_getDescriptor(const AIBinder_Class* clazz) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT const char* AIBinder_Class_getDescriptor(const AIBinder_Class* clazz) __INTRODUCED_IN(31);
 
 /**
  * Whether AIBinder is less than another.
@@ -759,7 +795,7 @@ const char* AIBinder_Class_getDescriptor(const AIBinder_Class* clazz) __INTRODUC
  *
  * \return whether "lhs < rhs" is true
  */
-bool AIBinder_lt(const AIBinder* lhs, const AIBinder* rhs) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT bool AIBinder_lt(const AIBinder* lhs, const AIBinder* rhs) __INTRODUCED_IN(31);
 
 /**
  * Clone an AIBinder_Weak. Useful because even if a weak binder promotes to a
@@ -773,7 +809,7 @@ bool AIBinder_lt(const AIBinder* lhs, const AIBinder* rhs) __INTRODUCED_IN(31);
  * \return clone of the input parameter. This must be deleted with
  * AIBinder_Weak_delete. Null if weak input parameter is also null.
  */
-AIBinder_Weak* AIBinder_Weak_clone(const AIBinder_Weak* weak) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT AIBinder_Weak* AIBinder_Weak_clone(const AIBinder_Weak* weak) __INTRODUCED_IN(31);
 
 /**
  * Whether AIBinder_Weak is less than another.
@@ -808,7 +844,7 @@ AIBinder_Weak* AIBinder_Weak_clone(const AIBinder_Weak* weak) __INTRODUCED_IN(31
  *
  * \return whether "lhs < rhs" is true
  */
-bool AIBinder_Weak_lt(const AIBinder_Weak* lhs, const AIBinder_Weak* rhs) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT bool AIBinder_Weak_lt(const AIBinder_Weak* lhs, const AIBinder_Weak* rhs) __INTRODUCED_IN(31);
 
 __END_DECLS
 

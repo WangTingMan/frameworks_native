@@ -303,7 +303,7 @@ void printHexData(int32_t indent, const void *buf, size_t length,
 
 ssize_t getBinderKernelReferences(size_t count, uintptr_t* buf) {
     if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0);
         return 0;
     }
 

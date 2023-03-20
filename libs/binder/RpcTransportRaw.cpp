@@ -16,8 +16,9 @@
 
 #define LOG_TAG "RpcRawTransport"
 #include <log/log.h>
-
+#ifndef _MSC_VER
 #include <poll.h>
+#endif
 #include <stddef.h>
 
 #include <binder/RpcTransportRaw.h>
@@ -39,6 +40,7 @@ public:
     explicit RpcTransportRaw(android::base::unique_fd socket) : mSocket(std::move(socket)) {}
     status_t pollRead(void) override {
         uint8_t buf;
+#ifndef _MSC_VER
         ssize_t ret = TEMP_FAILURE_RETRY(
                 ::recv(mSocket.get(), &buf, sizeof(buf), MSG_PEEK | MSG_DONTWAIT));
         if (ret < 0) {
@@ -52,17 +54,17 @@ public:
         } else if (ret == 0) {
             return DEAD_OBJECT;
         }
-
+#endif
         return OK;
     }
 
     status_t interruptableWriteFully(
-            FdTrigger* fdTrigger, iovec* iovs, int niovs,
+            FdTrigger* fdTrigger, iovec_fake* iovs, int niovs,
             const std::optional<android::base::function_ref<status_t()>>& altPoll,
             const std::vector<std::variant<base::unique_fd, base::borrowed_fd>>* ancillaryFds)
             override {
         bool sentFds = false;
-        auto send = [&](iovec* iovs, int niovs) -> ssize_t {
+        auto send = [&]( iovec_fake* iovs, int niovs) -> ssize_t {
             if (ancillaryFds != nullptr && !ancillaryFds->empty() && !sentFds) {
                 if (ancillaryFds->size() > kMaxFdsPerMsg) {
                     // This shouldn't happen because we check the FD count in RpcState.
@@ -81,7 +83,7 @@ public:
                                         ancillaryFds->at(i));
                 }
                 const size_t fdsByteSize = sizeof(int) * ancillaryFds->size();
-
+#ifndef _MSC_VER
                 alignas(struct cmsghdr) char msgControlBuf[CMSG_SPACE(sizeof(int) * kMaxFdsPerMsg)];
 
                 msghdr msg{
@@ -105,8 +107,12 @@ public:
                     sentFds = true;
                 }
                 return processedSize;
+#else
+                return 0;
+#endif
             }
 
+#ifndef _MSC_VER
             msghdr msg{
                     .msg_iov = iovs,
                     // posix uses int, glibc uses size_t.  niovs is a
@@ -114,16 +120,25 @@ public:
                     .msg_iovlen = static_cast<decltype(msg.msg_iovlen)>(niovs),
             };
             return TEMP_FAILURE_RETRY(sendmsg(mSocket.get(), &msg, MSG_NOSIGNAL));
+#else
+            return 0;
+#endif
+
         };
+#ifndef _MSC_VER
         return interruptableReadOrWrite(mSocket.get(), fdTrigger, iovs, niovs, send, "sendmsg",
                                         POLLOUT, altPoll);
+#else
+        return 0;
+#endif
     }
 
     status_t interruptableReadFully(
-            FdTrigger* fdTrigger, iovec* iovs, int niovs,
+            FdTrigger* fdTrigger, iovec_fake* iovs, int niovs,
             const std::optional<android::base::function_ref<status_t()>>& altPoll,
             std::vector<std::variant<base::unique_fd, base::borrowed_fd>>* ancillaryFds) override {
-        auto recv = [&](iovec* iovs, int niovs) -> ssize_t {
+        auto recv = [&]( iovec_fake* iovs, int niovs) -> ssize_t {
+#ifndef _MSC_VER
             if (ancillaryFds != nullptr) {
                 int fdBuffer[kMaxFdsPerMsg];
                 alignas(struct cmsghdr) char msgControlBuf[CMSG_SPACE(sizeof(fdBuffer))];
@@ -172,9 +187,16 @@ public:
                     .msg_iovlen = static_cast<decltype(msg.msg_iovlen)>(niovs),
             };
             return TEMP_FAILURE_RETRY(recvmsg(mSocket.get(), &msg, MSG_NOSIGNAL));
+#else
+            return 0;
+#endif
         };
+#ifndef _MSC_VER
         return interruptableReadOrWrite(mSocket.get(), fdTrigger, iovs, niovs, recv, "recvmsg",
                                         POLLIN, altPoll);
+#else
+        return 0;
+#endif
     }
 
 private:

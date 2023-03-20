@@ -17,23 +17,23 @@
 #define LOG_TAG "IMemory"
 
 #include <atomic>
-#include <stdatomic.h>
 
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include <binder/IMemory.h>
 #include <binder/Parcel.h>
 #include <log/log.h>
 
 #include <utils/Mutex.h>
+#include <utils/StrongPointer.h>
 
 #include <map>
+
+#include "native_binder_operator_win.h"
 
 #define VERBOSE   0
 
@@ -110,7 +110,11 @@ private:
     void assertMapped() const;
     void assertReallyMapped() const;
 
+#ifdef _WIN32
+    NativeBinderOperatorWin mHeapId;
+#else
     mutable std::atomic<int32_t> mHeapId;
+#endif
     mutable void*       mBase;
     mutable size_t      mSize;
     mutable uint32_t    mFlags;
@@ -145,7 +149,7 @@ void* IMemory::fastPointer(const sp<IBinder>& binder, ssize_t offset) const
 {
     sp<IMemoryHeap> realHeap = BpMemoryHeap::get_heap(binder);
     void* const base = realHeap->base();
-    if (base == MAP_FAILED)
+    if (base == nullptr)
         return nullptr;
     return static_cast<char*>(base) + offset;
 }
@@ -153,8 +157,8 @@ void* IMemory::fastPointer(const sp<IBinder>& binder, ssize_t offset) const
 void* IMemory::unsecurePointer() const {
     ssize_t offset;
     sp<IMemoryHeap> heap = getMemory(&offset);
-    void* const base = heap!=nullptr ? heap->base() : MAP_FAILED;
-    if (base == MAP_FAILED)
+    void* const base = heap!=nullptr ? heap->base() : nullptr;
+    if (base == nullptr )
         return nullptr;
     return static_cast<char*>(base) + offset;
 }
@@ -256,17 +260,23 @@ status_t BnMemory::onTransact(
 
 BpMemoryHeap::BpMemoryHeap(const sp<IBinder>& impl)
     : BpInterface<IMemoryHeap>(impl),
-        mHeapId(-1), mBase(MAP_FAILED), mSize(0), mFlags(0), mOffset(0), mRealHeap(false)
+#ifndef _WIN32
+        mHeapId(-1),
+#endif
+    mBase(nullptr), mSize(0), mFlags(0), mOffset(0), mRealHeap(false)
 {
 }
 
 BpMemoryHeap::~BpMemoryHeap() {
-    int32_t heapId = mHeapId.load(memory_order_relaxed);
+#ifdef _WIN32
+    mHeapId.ReleaseResource();
+#else
+    int32_t heapId = mHeapId.load(std::memory_order_relaxed);
     if (heapId != -1) {
         close(heapId);
         if (mRealHeap) {
             // by construction we're the last one
-            if (mBase != MAP_FAILED) {
+            if (mBase != nullptr ) {
                 sp<IBinder> binder = IInterface::asBinder(this);
 
                 if (VERBOSE) {
@@ -282,38 +292,58 @@ BpMemoryHeap::~BpMemoryHeap() {
             free_heap(binder);
         }
     }
+#endif
 }
 
 void BpMemoryHeap::assertMapped() const
 {
-    int32_t heapId = mHeapId.load(memory_order_acquire);
+#ifdef _WIN32
+    if( mHeapId.IsValid() )
+    {
+        return;
+    }
+#else
+    int32_t heapId = mHeapId.load( std::memory_order_acquire);
     if (heapId == -1) {
+#endif
         sp<IBinder> binder(IInterface::asBinder(const_cast<BpMemoryHeap*>(this)));
         sp<BpMemoryHeap> heap = sp<BpMemoryHeap>::cast(find_heap(binder));
         heap->assertReallyMapped();
-        if (heap->mBase != MAP_FAILED) {
+        if (heap->mBase != nullptr ) {
             Mutex::Autolock _l(mLock);
-            if (mHeapId.load(memory_order_relaxed) == -1) {
+
+#ifdef _WIN32
+            if( !mHeapId.IsValid() ) {
+#else
+            if (mHeapId.load( std::memory_order_relaxed) == -1) {
+#endif
                 mBase   = heap->mBase;
                 mSize   = heap->mSize;
                 mOffset = heap->mOffset;
-                int fd = fcntl(heap->mHeapId.load(memory_order_relaxed), F_DUPFD_CLOEXEC, 0);
+#ifndef _WIN32
+                int fd = fcntl(heap->mHeapId.load( std::memory_order_relaxed), F_DUPFD_CLOEXEC, 0);
                 ALOGE_IF(fd==-1, "cannot dup fd=%d",
-                        heap->mHeapId.load(memory_order_relaxed));
-                mHeapId.store(fd, memory_order_release);
+                        heap->mHeapId.load( std::memory_order_relaxed));
+                mHeapId.store(fd, std::memory_order_release);
+#endif
             }
         } else {
             // something went wrong
             free_heap(binder);
         }
+#ifndef _WIN32
     }
+#endif
 }
 
 void BpMemoryHeap::assertReallyMapped() const
 {
-    int32_t heapId = mHeapId.load(memory_order_acquire);
+#ifdef _WIN32
+    if( !mHeapId.IsValid() ) {
+#else
+    int32_t heapId = mHeapId.load( std::memory_order_acquire);
     if (heapId == -1) {
-
+#endif
         // remote call without mLock held, worse case scenario, we end up
         // calling transact() from multiple threads, but that's not a problem,
         // only mmap below must be in the critical section.
@@ -336,18 +366,23 @@ void BpMemoryHeap::assertReallyMapped() const
         }
 
         Mutex::Autolock _l(mLock);
-        if (mHeapId.load(memory_order_relaxed) == -1) {
+#ifdef _WIN32
+        if( !mHeapId.IsValid() ) {
+#else
+        if (mHeapId.load( std::memory_order_relaxed) == -1) {
             int fd = fcntl(parcel_fd, F_DUPFD_CLOEXEC, 0);
             ALOGE_IF(fd == -1, "cannot dup fd=%d, size=%zu, err=%d (%s)",
-                    parcel_fd, size, err, strerror(errno));
+                parcel_fd, size, err, strerror( errno ) );
+#endif
 
+#ifndef _WIN32
             int access = PROT_READ;
             if (!(flags & READ_ONLY)) {
                 access |= PROT_WRITE;
             }
             mRealHeap = true;
             mBase = mmap(nullptr, size, access, MAP_SHARED, fd, offset);
-            if (mBase == MAP_FAILED) {
+            if (mBase == nullptr ) {
                 ALOGE("cannot map BpMemoryHeap (binder=%p), size=%zu, fd=%d (%s)",
                         IInterface::asBinder(this).get(), size, fd, strerror(errno));
                 close(fd);
@@ -355,8 +390,9 @@ void BpMemoryHeap::assertReallyMapped() const
                 mSize = size;
                 mFlags = flags;
                 mOffset = offset;
-                mHeapId.store(fd, memory_order_release);
+                mHeapId.store(fd, std::memory_order_release);
             }
+#endif
         }
     }
 }
@@ -364,11 +400,16 @@ void BpMemoryHeap::assertReallyMapped() const
 int BpMemoryHeap::getHeapID() const {
     assertMapped();
     // We either stored mHeapId ourselves, or loaded it with acquire semantics.
-    return mHeapId.load(memory_order_relaxed);
+#ifdef _WIN32
+    return mHeapId.GetId();
+#else
+    return mHeapId.load( std::memory_order_relaxed);
+#endif
 }
 
 void* BpMemoryHeap::getBase() const {
     assertMapped();
+    LOG_ALWAYS_FATAL( "No implementation", 1 );
     return mBase;
 }
 
@@ -443,7 +484,7 @@ sp<IMemoryHeap> HeapCache::find_heap(const sp<IBinder>& binder)
                 binder.get(), info.heap.get(),
                 static_cast<BpMemoryHeap*>(info.heap.get())->mSize,
                 static_cast<BpMemoryHeap*>(info.heap.get())
-                    ->mHeapId.load(memory_order_relaxed),
+                    ->mHeapId.GetId(),
                 info.count);
         ++info.count;
         return info.heap;
@@ -476,7 +517,7 @@ void HeapCache::free_heap(const wp<IBinder>& binder)
                         binder.unsafe_get(), info.heap.get(),
                         static_cast<BpMemoryHeap*>(info.heap.get())->mSize,
                         static_cast<BpMemoryHeap*>(info.heap.get())
-                            ->mHeapId.load(memory_order_relaxed),
+                            ->mHeapId.GetId(),
                         info.count);
                 rel = i->second.heap;
                 mHeapCache.erase(i);
@@ -506,8 +547,10 @@ void HeapCache::dump_heaps()
         const heap_info_t& info = i.second;
         BpMemoryHeap const* h(static_cast<BpMemoryHeap const *>(info.heap.get()));
         ALOGD("hey=%p, heap=%p, count=%d, (fd=%d, base=%p, size=%zu)", i.first.unsafe_get(),
-              info.heap.get(), info.count, h->mHeapId.load(memory_order_relaxed), h->mBase,
-              h->mSize);
+              info.heap.get(), info.count,
+                h->mHeapId.GetId(),
+                h->mBase,
+                h->mSize);
     }
 }
 

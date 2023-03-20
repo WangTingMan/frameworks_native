@@ -28,7 +28,29 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
+#ifndef _MSC_VER
 #include <sys/cdefs.h>
+#endif
+
+#include <base\logging.h>
+
+#include <android\libbinder_ndk_export.h>
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
 
 __BEGIN_DECLS
 
@@ -39,10 +61,10 @@ __BEGIN_DECLS
 #endif
 
 #ifndef __assert
-#define __assert(a, b, c)          \
-    do {                           \
-        syslog(LOG_ERR, a ": " c); \
-        abort();                   \
+#define __assert(a, b, c) \
+    do {                  \
+        LOG(FATAL) << c;  \
+        abort();          \
     } while (false)
 #endif
 
@@ -53,6 +75,15 @@ __BEGIN_DECLS
 #endif  // __BIONIC__
 
 /**
+ * winnt.h contains this definition, so we need to undef it.
+ */
+#ifdef _MSC_VER
+#ifdef STATUS_NO_MEMORY
+#undef STATUS_NO_MEMORY
+#endif
+#endif
+
+/**
  * Low-level status types for use in binder. This is the least preferable way to
  * return an error for binder services (where binder_exception_t should be used,
  * particularly EX_SERVICE_SPECIFIC).
@@ -60,7 +91,7 @@ __BEGIN_DECLS
 enum {
     STATUS_OK = 0,
 
-    STATUS_UNKNOWN_ERROR = (-2147483647 - 1),  // INT32_MIN value
+    STATUS_UNKNOWN_ERROR = 0,//(-2147483647 - 1),  // INT32_MIN value
     STATUS_NO_MEMORY = -ENOMEM,
     STATUS_INVALID_OPERATION = -ENOSYS,
     STATUS_BAD_VALUE = -EINVAL,
@@ -138,7 +169,7 @@ typedef struct AStatus AStatus;
  *
  * \return a newly constructed status object that the caller owns.
  */
-__attribute__((warn_unused_result)) AStatus* AStatus_newOk() __INTRODUCED_IN(29);
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AStatus* AStatus_newOk() __INTRODUCED_IN(29);
 
 /**
  * New status with exception code.
@@ -150,7 +181,7 @@ __attribute__((warn_unused_result)) AStatus* AStatus_newOk() __INTRODUCED_IN(29)
  *
  * \return a newly constructed status object that the caller owns.
  */
-__attribute__((warn_unused_result)) AStatus* AStatus_fromExceptionCode(binder_exception_t exception)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AStatus* AStatus_fromExceptionCode(binder_exception_t exception)
         __INTRODUCED_IN(29);
 
 /**
@@ -164,7 +195,7 @@ __attribute__((warn_unused_result)) AStatus* AStatus_fromExceptionCode(binder_ex
  *
  * \return a newly constructed status object that the caller owns.
  */
-__attribute__((warn_unused_result)) AStatus* AStatus_fromExceptionCodeWithMessage(
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AStatus* AStatus_fromExceptionCodeWithMessage(
         binder_exception_t exception, const char* message) __INTRODUCED_IN(29);
 
 /**
@@ -178,7 +209,7 @@ __attribute__((warn_unused_result)) AStatus* AStatus_fromExceptionCodeWithMessag
  *
  * \return a newly constructed status object that the caller owns.
  */
-__attribute__((warn_unused_result)) AStatus* AStatus_fromServiceSpecificError(
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AStatus* AStatus_fromServiceSpecificError(
         int32_t serviceSpecific) __INTRODUCED_IN(29);
 
 /**
@@ -193,7 +224,7 @@ __attribute__((warn_unused_result)) AStatus* AStatus_fromServiceSpecificError(
  *
  * \return a newly constructed status object that the caller owns.
  */
-__attribute__((warn_unused_result)) AStatus* AStatus_fromServiceSpecificErrorWithMessage(
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AStatus* AStatus_fromServiceSpecificErrorWithMessage(
         int32_t serviceSpecific, const char* message) __INTRODUCED_IN(29);
 
 /**
@@ -208,7 +239,7 @@ __attribute__((warn_unused_result)) AStatus* AStatus_fromServiceSpecificErrorWit
  *
  * \return a newly constructed status object that the caller owns.
  */
-__attribute__((warn_unused_result)) AStatus* AStatus_fromStatus(binder_status_t status)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AStatus* AStatus_fromStatus(binder_status_t status)
         __INTRODUCED_IN(29);
 
 /**
@@ -221,7 +252,7 @@ __attribute__((warn_unused_result)) AStatus* AStatus_fromStatus(binder_status_t 
  *
  * \return whether the status represents a successful transaction. For more details, see below.
  */
-bool AStatus_isOk(const AStatus* status) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT bool AStatus_isOk(const AStatus* status) __INTRODUCED_IN(29);
 
 /**
  * The exception that this status object represents.
@@ -232,7 +263,7 @@ bool AStatus_isOk(const AStatus* status) __INTRODUCED_IN(29);
  *
  * \return the exception code that this object represents.
  */
-binder_exception_t AStatus_getExceptionCode(const AStatus* status) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_exception_t AStatus_getExceptionCode(const AStatus* status) __INTRODUCED_IN(29);
 
 /**
  * The service specific error if this object represents one. This function will only ever return a
@@ -246,7 +277,7 @@ binder_exception_t AStatus_getExceptionCode(const AStatus* status) __INTRODUCED_
  *
  * \return the service-specific error code if the exception code is EX_SERVICE_SPECIFIC or 0.
  */
-int32_t AStatus_getServiceSpecificError(const AStatus* status) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT int32_t AStatus_getServiceSpecificError(const AStatus* status) __INTRODUCED_IN(29);
 
 /**
  * The status if this object represents one. This function will only ever return a non-zero result
@@ -260,7 +291,7 @@ int32_t AStatus_getServiceSpecificError(const AStatus* status) __INTRODUCED_IN(2
  *
  * \return the status code if the exception code is EX_TRANSACTION_FAILED or 0.
  */
-binder_status_t AStatus_getStatus(const AStatus* status) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AStatus_getStatus(const AStatus* status) __INTRODUCED_IN(29);
 
 /**
  * If there is a message associated with this status, this will return that message. If there is no
@@ -274,7 +305,7 @@ binder_status_t AStatus_getStatus(const AStatus* status) __INTRODUCED_IN(29);
  *
  * \return the message associated with this error.
  */
-const char* AStatus_getMessage(const AStatus* status) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT const char* AStatus_getMessage(const AStatus* status) __INTRODUCED_IN(29);
 
 /**
  * Get human-readable description for debugging.
@@ -285,7 +316,7 @@ const char* AStatus_getMessage(const AStatus* status) __INTRODUCED_IN(29);
  *
  * \return a description, must be deleted with AStatus_deleteDescription.
  */
-__attribute__((warn_unused_result)) const char* AStatus_getDescription(const AStatus* status)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT const char* AStatus_getDescription(const AStatus* status)
         __INTRODUCED_IN(30);
 
 /**
@@ -293,7 +324,7 @@ __attribute__((warn_unused_result)) const char* AStatus_getDescription(const ASt
  *
  * \param description value from AStatus_getDescription
  */
-void AStatus_deleteDescription(const char* description) __INTRODUCED_IN(30);
+LIBBINDER_NDK_EXPORT void AStatus_deleteDescription(const char* description) __INTRODUCED_IN(30);
 
 /**
  * Deletes memory associated with the status instance.
@@ -302,7 +333,7 @@ void AStatus_deleteDescription(const char* description) __INTRODUCED_IN(30);
  *
  * \param status the status to delete, returned from AStatus_newOk or one of the AStatus_from* APIs.
  */
-void AStatus_delete(AStatus* status) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void AStatus_delete(AStatus* status) __INTRODUCED_IN(29);
 
 __END_DECLS
 

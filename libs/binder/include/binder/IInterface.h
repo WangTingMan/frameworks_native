@@ -20,12 +20,13 @@
 
 #include <assert.h>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 
 // ----------------------------------------------------------------------
 
-class IInterface : public virtual RefBase
-{
+class LIBBINDER_EXPORT IInterface : public virtual RefBase {
 public:
             IInterface();
             static sp<IBinder>  asBinder(const IInterface*);

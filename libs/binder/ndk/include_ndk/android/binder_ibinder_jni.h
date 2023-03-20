@@ -28,9 +28,17 @@
 
 #include <android/binder_ibinder.h>
 
+#if __has_include(<jni.h>)
 #include <jni.h>
+#else
+#include <android/binder_fake_jni.h>
+#endif
 
-__BEGIN_DECLS
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#endif
 
 /**
  * Converts an android.os.IBinder object into an AIBinder* object.
@@ -47,7 +55,7 @@ __BEGIN_DECLS
  * \return an AIBinder object representing the Java binder object. If either parameter is null, or
  * the Java object is of the wrong type, this will return null.
  */
-__attribute__((warn_unused_result)) AIBinder* AIBinder_fromJavaBinder(JNIEnv* env, jobject binder)
+/*__attribute__((warn_unused_result))*/ AIBinder* AIBinder_fromJavaBinder(JNIEnv* env, jobject binder)
         __INTRODUCED_IN(29);
 
 /**
@@ -69,9 +77,13 @@ __attribute__((warn_unused_result)) AIBinder* AIBinder_fromJavaBinder(JNIEnv* en
  *
  * \return an android.os.IBinder object or null if the parameters were null.
  */
-__attribute__((warn_unused_result)) jobject AIBinder_toJavaBinder(JNIEnv* env, AIBinder* binder)
+/*__attribute__((warn_unused_result))*/ jobject AIBinder_toJavaBinder(JNIEnv* env, AIBinder* binder)
         __INTRODUCED_IN(29);
 
-__END_DECLS
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#endif
 
 /** @} */

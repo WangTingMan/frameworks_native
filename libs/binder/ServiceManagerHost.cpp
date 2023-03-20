@@ -31,7 +31,8 @@ const void* kDeviceServiceExtraId = "DeviceServiceExtra";
 
 // Parse stdout of program execution to string. If any error, return 0.
 unsigned int parsePortNumber(const std::string& out, const std::string& what) {
-    auto trimmed = android::base::Trim(out);
+    std::string temp = out;
+    auto trimmed = android::base::Trim(std::move(temp));
     unsigned int port = 0;
     if (!android::base::ParseUint(trimmed, &port)) {
         int savedErrno = errno;
@@ -63,11 +64,13 @@ private:
 std::optional<AdbForwarder> AdbForwarder::forward(unsigned int devicePort) {
     auto result =
             execute({"adb", "forward", "tcp:0", "tcp:" + std::to_string(devicePort)}, nullptr);
+#ifndef _MSC_VER
     if (!result.ok()) {
         ALOGE("Unable to run `adb forward tcp:0 tcp:%d`: %s", devicePort,
               result.error().message().c_str());
         return std::nullopt;
     }
+#endif
     // Must end with exit code 0 (`has_value() && value() == 0`)
     if (result->exitCode.value_or(1) != 0) {
         ALOGE("Unable to run `adb forward tcp:0 tcp:%d`, command exits with %s", devicePort,
@@ -94,11 +97,13 @@ AdbForwarder::~AdbForwarder() {
     if (!mPort.has_value()) return;
 
     auto result = execute({"adb", "forward", "--remove", "tcp:" + std::to_string(*mPort)}, nullptr);
+#ifndef _MSC_VER
     if (!result.ok()) {
         ALOGE("Unable to run `adb forward --remove tcp:%d`: %s", *mPort,
               result.error().message().c_str());
         return;
     }
+#endif
     // Must end with exit code 0 (`has_value() && value() == 0`)
     if (result->exitCode.value_or(1) != 0) {
         ALOGE("Unable to run `adb forward --remove tcp:%d`, command exits with %s", *mPort,
@@ -130,11 +135,12 @@ sp<IBinder> getDeviceService(std::vector<std::string>&& serviceDispatcherArgs,
     serviceDispatcherArgs.insert(serviceDispatcherArgs.begin(), prefix.begin(), prefix.end());
 
     auto result = execute(std::move(serviceDispatcherArgs), &CommandResult::stdoutEndsWithNewLine);
+#ifndef _MSC_VER
     if (!result.ok()) {
         ALOGE("%s", result.error().message().c_str());
         return nullptr;
     }
-
+#endif
     // `servicedispatcher` process must be alive to keep the port open.
     if (result->exitCode.has_value()) {
         ALOGE("Command exits with: %s", result->toString().c_str());

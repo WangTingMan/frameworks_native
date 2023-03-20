@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <chrono>
+#include <thread>
 #include <mutex>
 #include <binder/PermissionController.h>
 #include <binder/Binder.h>
@@ -44,7 +46,7 @@ sp<IPermissionController> PermissionController::getService()
                 service = nullptr;
                 break;
             }
-            sleep(1);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         } else {
             service = interface_cast<IPermissionController>(binder);
             mService = service;

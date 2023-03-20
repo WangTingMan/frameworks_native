@@ -30,12 +30,13 @@
 
 #include <functional>
 #include <type_traits>
+ #include <binder/libbinder_export.h>
 
 namespace android {
 namespace SafeInterface {
 
 // ParcelHandler is responsible for writing/reading various types to/from a Parcel in a generic way
-class ParcelHandler {
+class LIBBINDER_EXPORT ParcelHandler {
 public:
     explicit ParcelHandler(const char* logTag) : mLogTag(logTag) {}
 

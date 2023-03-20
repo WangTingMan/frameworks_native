@@ -17,6 +17,24 @@
 #pragma once
 
 #include <android/binder_ibinder.h>
+#include <android/binder_status.h>
+#include <android/libbinder_ndk_export.h>
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
 
 __BEGIN_DECLS
 
@@ -48,7 +66,8 @@ typedef binder_status_t (*AIBinder_handleShellCommand)(AIBinder* binder, int in,
  * \param handleShellCommand function to call when a shell transaction is
  * received
  */
-__attribute__((weak)) void AIBinder_Class_setHandleShellCommand(
+/*__attribute__((weak))*/ LIBBINDER_NDK_EXPORT void AIBinder_Class_setHandleShellCommand(
         AIBinder_Class* clazz, AIBinder_handleShellCommand handleShellCommand) __INTRODUCED_IN(30);
 
 __END_DECLS
+

@@ -20,13 +20,13 @@
 #include <stdint.h>
 
 #include <binder/IMemory.h>
-
+#include <binder/libbinder_export.h>
 
 namespace android {
 
 // ---------------------------------------------------------------------------
 
-class MemoryBase : public BnMemory 
+class LIBBINDER_EXPORT MemoryBase : public BnMemory 
 {
 public:
     MemoryBase(const sp<IMemoryHeap>& heap, ssize_t offset, size_t size);

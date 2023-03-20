@@ -18,11 +18,13 @@
 
 #include <binder/IInterface.h>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 
 // ----------------------------------------------------------------------
 
-class IResultReceiver : public IInterface
+class LIBBINDER_EXPORT IResultReceiver : public IInterface
 {
 public:
     DECLARE_META_INTERFACE(ResultReceiver)
@@ -36,7 +38,7 @@ public:
 
 // ----------------------------------------------------------------------
 
-class BnResultReceiver : public BnInterface<IResultReceiver>
+class LIBBINDER_EXPORT BnResultReceiver : public BnInterface<IResultReceiver>
 {
 public:
     // NOLINTNEXTLINE(google-default-arguments)

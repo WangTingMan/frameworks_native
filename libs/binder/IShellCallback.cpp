@@ -16,7 +16,6 @@
 
 #define LOG_TAG "ShellCallback"
 
-#include <unistd.h>
 #include <fcntl.h>
 
 #include <binder/IShellCallback.h>
@@ -47,7 +46,11 @@ public:
         remote()->transact(OP_OPEN_OUTPUT_FILE, data, &reply, 0);
         reply.readExceptionCode();
         int fd = reply.readParcelFileDescriptor();
+#ifdef _WIN32
+        return fd;
+#else
         return fd >= 0 ? fcntl(fd, F_DUPFD_CLOEXEC, 0) : fd;
+#endif
 
     }
 };
@@ -76,7 +79,9 @@ status_t BnShellCallback::onTransact(
                     reply->writeInt32(0);
                 }
             } else if (fd >= 0) {
+#ifndef _WIN32
                 close(fd);
+#endif
             }
             return NO_ERROR;
         } break;

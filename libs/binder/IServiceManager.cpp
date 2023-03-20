@@ -19,7 +19,6 @@
 #include <binder/IServiceManager.h>
 
 #include <inttypes.h>
-#include <unistd.h>
 
 #include <android-base/properties.h>
 #include <android/os/BnServiceCallback.h>
@@ -41,6 +40,9 @@
 #endif
 
 #include "Static.h"
+
+#include <chrono>
+#include <thread>
 
 namespace android {
 
@@ -156,7 +158,7 @@ sp<IServiceManager> defaultServiceManager()
             sm = interface_cast<AidlServiceManager>(ProcessState::self()->getContextObject(nullptr));
             if (sm == nullptr) {
                 ALOGE("Waiting 1s on context object on %s.", ProcessState::self()->getDriverName().c_str());
-                sleep(1);
+                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
 
@@ -174,7 +176,7 @@ void setDefaultServiceManager(const sp<IServiceManager>& sm) {
     });
 
     if (!called) {
-        LOG_ALWAYS_FATAL("setDefaultServiceManager() called after defaultServiceManager().");
+        LOG_ALWAYS_FATAL("setDefaultServiceManager() called after defaultServiceManager().",0);
     }
 }
 
@@ -247,7 +249,7 @@ bool checkPermission(const String16& permission, pid_t pid, uid_t uid, bool logP
                 ALOGI("Waiting to check permission %s from uid=%d pid=%d",
                         String8(permission).string(), uid, pid);
             }
-            sleep(1);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         } else {
             pc = interface_cast<IPermissionController>(binder);
             // Install the new permission controller, and try again.
@@ -292,7 +294,7 @@ sp<IBinder> ServiceManagerShim::getService(const String16& name) const
 #endif
     }
     // retry interval in millisecond; note that vendor services stay at 100ms
-    const useconds_t sleepTime = gSystemBootCompleted ? 1000 : 100;
+    const uint32_t sleepTime = gSystemBootCompleted ? 1000 : 100;
 
     ALOGI("Waiting for service '%s' on '%s'...", String8(name).string(),
           ProcessState::self()->getDriverName().c_str());
@@ -300,7 +302,7 @@ sp<IBinder> ServiceManagerShim::getService(const String16& name) const
     int n = 0;
     while (uptimeMillis() - startTime < timeout) {
         n++;
-        usleep(1000*sleepTime);
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
 
         sp<IBinder> svc = checkService(name);
         if (svc != nullptr) {

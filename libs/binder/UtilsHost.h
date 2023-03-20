@@ -21,10 +21,14 @@
 #include <string>
 #include <variant>
 #include <vector>
+#include <functional>
+#include <memory>
 
+#ifndef _MSC_VER
 #include <android-base/macros.h>
 #include <android-base/result.h>
 #include <android-base/unique_fd.h>
+#endif
 
 /**
  * Log a lot more information about host-device binder communication, when debugging issues.
@@ -37,6 +41,10 @@
 #define LOG_HOST(...) ALOGV(__VA_ARGS__) // for type checking
 #endif
 
+#ifndef pid_t
+#define pid_t int
+#endif
+
 namespace android {
 
 struct CommandResult {
@@ -45,10 +53,10 @@ struct CommandResult {
     std::optional<pid_t> pid;
     std::string stdoutStr;
     std::string stderrStr;
-
+#ifndef _MSC_VER
     android::base::unique_fd outPipe;
     android::base::unique_fd errPipe;
-
+#endif
     CommandResult() = default;
     CommandResult(CommandResult&& other) noexcept { (*this) = std::move(other); }
     CommandResult& operator=(CommandResult&& other) noexcept {
@@ -67,7 +75,9 @@ struct CommandResult {
     }
 
 private:
+#ifndef _MSC_VER
     DISALLOW_COPY_AND_ASSIGN(CommandResult);
+#endif
 };
 
 std::ostream& operator<<(std::ostream& os, const CommandResult& res);
@@ -94,6 +104,6 @@ std::ostream& operator<<(std::ostream& os, const CommandResult& res);
 //
 // If the parent process has encountered any errors for system calls, return ExecuteError with
 // the proper errno set.
-android::base::Result<CommandResult> execute(std::vector<std::string> argStringVec,
+std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
                                              const std::function<bool(const CommandResult&)>& end);
 } // namespace android

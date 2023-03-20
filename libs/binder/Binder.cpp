@@ -48,7 +48,7 @@ namespace android {
 #ifdef __LP64__
 static_assert(sizeof(IBinder) == 24);
 static_assert(sizeof(BBinder) == 40);
-#else
+#elif __LP32__
 static_assert(sizeof(IBinder) == 12);
 static_assert(sizeof(BBinder) == 20);
 #endif
@@ -461,6 +461,21 @@ int BBinder::getMinSchedulerPriority() {
     Extras* e = mExtras.load(std::memory_order_acquire);
     if (e == nullptr) return 0;
     return e->mPriority;
+}
+#else
+
+void BBinder::setMinSchedulerPolicy(int policy, int priority) {
+
+}
+
+int BBinder::getMinSchedulerPolicy()
+{
+    return 0;
+}
+
+int BBinder::getMinSchedulerPriority()
+{
+    return 0;
 }
 #endif // __linux__
 

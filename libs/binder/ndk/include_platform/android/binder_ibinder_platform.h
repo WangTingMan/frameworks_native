@@ -18,6 +18,22 @@
 
 #include <android/binder_ibinder.h>
 
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
+
 __BEGIN_DECLS
 
 // platform values for binder_flags_t
@@ -39,7 +55,7 @@ enum {
  *
  * \param binder local server binder to request security contexts on
  */
-__attribute__((weak)) void AIBinder_setRequestingSid(AIBinder* binder, bool requestingSid)
+/*__attribute__((weak))*/ void AIBinder_setRequestingSid(AIBinder* binder, bool requestingSid)
         __INTRODUCED_IN(31);
 
 /**
@@ -53,7 +69,7 @@ __attribute__((weak)) void AIBinder_setRequestingSid(AIBinder* binder, bool requ
  * \return security context or null if unavailable. The lifetime of this context
  * is the lifetime of the transaction.
  */
-__attribute__((weak, warn_unused_result)) const char* AIBinder_getCallingSid() __INTRODUCED_IN(31);
+/*__attribute__((weak, warn_unused_result))*/ const char* AIBinder_getCallingSid() __INTRODUCED_IN(31);
 
 /**
  * Sets a minimum scheduler policy for all transactions coming into this
@@ -81,3 +97,4 @@ void AIBinder_setMinSchedulerPolicy(AIBinder* binder, int policy, int priority) 
 void AIBinder_setInheritRt(AIBinder* binder, bool inheritRt) __INTRODUCED_IN(33);
 
 __END_DECLS
+

@@ -18,12 +18,16 @@
 
 #include <android-base/file.h>
 #include <string.h>
+#include <base/rand_util.h>
 
+#ifndef _MSC_VER
 using android::base::ErrnoError;
 using android::base::Result;
+#endif
 
 namespace android {
 
+#ifndef _MSC_VER
 Result<void> setNonBlocking(android::base::borrowed_fd fd) {
     int flags = TEMP_FAILURE_RETRY(fcntl(fd.get(), F_GETFL));
     if (flags == -1) {
@@ -34,8 +38,13 @@ Result<void> setNonBlocking(android::base::borrowed_fd fd) {
     }
     return {};
 }
+#endif
 
 status_t getRandomBytes(uint8_t* data, size_t size) {
+
+#ifdef _MSC_VER
+    ::base::RandBytes( (void*)data, size );
+#else
     int ret = TEMP_FAILURE_RETRY(open("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
     if (ret == -1) {
         return -errno;
@@ -45,6 +54,7 @@ status_t getRandomBytes(uint8_t* data, size_t size) {
     if (!base::ReadFully(fd, data, size)) {
         return -errno;
     }
+#endif
     return OK;
 }
 

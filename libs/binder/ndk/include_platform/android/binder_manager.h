@@ -18,7 +18,27 @@
 
 #include <android/binder_ibinder.h>
 #include <android/binder_status.h>
+#ifndef _MSC_VER
 #include <sys/cdefs.h>
+#endif
+
+#include <android/libbinder_ndk_export.h>
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
 
 __BEGIN_DECLS
 
@@ -34,7 +54,7 @@ __BEGIN_DECLS
  *
  * \return EX_NONE on success.
  */
-__attribute__((warn_unused_result)) binder_exception_t AServiceManager_addService(
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT binder_exception_t AServiceManager_addService(
         AIBinder* binder, const char* instance) __INTRODUCED_IN(29);
 
 /**
@@ -47,7 +67,8 @@ __attribute__((warn_unused_result)) binder_exception_t AServiceManager_addServic
  *
  * \param instance identifier of the service used to lookup the service.
  */
-__attribute__((warn_unused_result)) AIBinder* AServiceManager_checkService(const char* instance)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder* AServiceManager_checkService(
+        const char* instance)
         __INTRODUCED_IN(29);
 
 /**
@@ -68,7 +89,8 @@ __attribute__((warn_unused_result)) AIBinder* AServiceManager_checkService(const
  *
  * \param instance identifier of the service used to lookup the service.
  */
-__attribute__((warn_unused_result)) AIBinder* AServiceManager_getService(const char* instance)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder* AServiceManager_getService(
+        const char* instance)
         __INTRODUCED_IN(29);
 
 /**
@@ -87,7 +109,8 @@ __attribute__((warn_unused_result)) AIBinder* AServiceManager_getService(const c
  *
  * \return STATUS_OK on success.
  */
-binder_status_t AServiceManager_registerLazyService(AIBinder* binder, const char* instance)
+LIBBINDER_NDK_EXPORT binder_status_t AServiceManager_registerLazyService(AIBinder* binder,
+                                                                         const char* instance)
         __INTRODUCED_IN(31);
 
 /**
@@ -104,7 +127,8 @@ binder_status_t AServiceManager_registerLazyService(AIBinder* binder, const char
  *
  * \return service if registered, null if not.
  */
-__attribute__((warn_unused_result)) AIBinder* AServiceManager_waitForService(const char* instance)
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder*
+AServiceManager_waitForService(const char* instance)
         __INTRODUCED_IN(31);
 
 /**
@@ -115,7 +139,7 @@ __attribute__((warn_unused_result)) AIBinder* AServiceManager_waitForService(con
  * \return true on success, meaning AServiceManager_waitForService should always
  *    be able to return the service.
  */
-bool AServiceManager_isDeclared(const char* instance) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT bool AServiceManager_isDeclared(const char* instance) __INTRODUCED_IN(31);
 
 /**
  * Returns all declared instances for a particular interface.
@@ -129,7 +153,8 @@ bool AServiceManager_isDeclared(const char* instance) __INTRODUCED_IN(31);
  * \param context to pass to callback
  * \param callback taking instance (e.g. 'foo') and context
  */
-void AServiceManager_forEachDeclaredInstance(const char* interface, void* context,
+LIBBINDER_NDK_EXPORT void AServiceManager_forEachDeclaredInstance(
+        const char* interface, void* context,
                                              void (*callback)(const char*, void*))
         __INTRODUCED_IN(31);
 
@@ -140,7 +165,8 @@ void AServiceManager_forEachDeclaredInstance(const char* interface, void* contex
  *
  * \return whether the interface is updatable via APEX
  */
-bool AServiceManager_isUpdatableViaApex(const char* instance) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT bool AServiceManager_isUpdatableViaApex(const char* instance)
+        __INTRODUCED_IN(31);
 
 /**
  * Prevent lazy services without client from shutting down their process
@@ -151,7 +177,8 @@ bool AServiceManager_isUpdatableViaApex(const char* instance) __INTRODUCED_IN(31
  *
  * \param persist 'true' if the process should not exit.
  */
-void AServiceManager_forceLazyServicesPersist(bool persist) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT void AServiceManager_forceLazyServicesPersist(bool persist)
+        __INTRODUCED_IN(31);
 
 /**
  * Set a callback that is invoked when the active service count (i.e. services with clients)
@@ -177,7 +204,8 @@ void AServiceManager_forceLazyServicesPersist(bool persist) __INTRODUCED_IN(31);
  * 1 - Perform some additional operations before exiting;
  * 2 - Prevent the process from exiting by returning "true" from the callback.
  */
-void AServiceManager_setActiveServicesCallback(bool (*callback)(bool, void*), void* context)
+LIBBINDER_NDK_EXPORT void AServiceManager_setActiveServicesCallback(bool (*callback)(bool, void*),
+                                                                    void* context)
         __INTRODUCED_IN(31);
 
 /**
@@ -185,13 +213,13 @@ void AServiceManager_setActiveServicesCallback(bool (*callback)(bool, void*), vo
  *
  * \return true on success.
  */
-bool AServiceManager_tryUnregister() __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT bool AServiceManager_tryUnregister() __INTRODUCED_IN(31);
 
 /**
  * Re-register services that were unregistered by 'tryUnregister'.
  * This method should be called in the case 'tryUnregister' fails
  * (and should be called on the same thread).
  */
-void AServiceManager_reRegister() __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT void AServiceManager_reRegister() __INTRODUCED_IN(31);
 
 __END_DECLS

@@ -15,12 +15,13 @@
  */
 #pragma once
 
-#include <pthread.h>
+#include <thread>
 
 #include <android-base/threads.h>
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <thread>
 
 namespace android {

@@ -20,6 +20,12 @@
 #include <utils/String16.h>
 #include <optional>
 
+#include <binder/libbinder_export.h>
+
+#ifndef uid_t
+#define uid_t int32_t
+#endif
+
 namespace android {
 
 // ----------------------------------------------------------------------
@@ -29,7 +35,7 @@ namespace android {
  *
  * IInterface is only for legacy ABI compatibility
  */
-class IServiceManager : public IInterface
+class LIBBINDER_EXPORT IServiceManager : public IInterface
 {
 public:
     // for ABI compatibility
@@ -142,7 +148,7 @@ public:
     virtual std::vector<ServiceDebugInfo> getServiceDebugInfo() = 0;
 };
 
-sp<IServiceManager> defaultServiceManager();
+LIBBINDER_EXPORT sp<IServiceManager> defaultServiceManager();
 
 /**
  * Directly set the default service manager. Only used for testing.
@@ -150,7 +156,7 @@ sp<IServiceManager> defaultServiceManager();
  * *before* any call to defaultServiceManager(); if the latter is
  * called first, setDefaultServiceManager() will abort.
  */
-void setDefaultServiceManager(const sp<IServiceManager>& sm);
+LIBBINDER_EXPORT void setDefaultServiceManager(const sp<IServiceManager>& sm);
 
 template<typename INTERFACE>
 sp<INTERFACE> waitForService(const String16& name) {
@@ -197,10 +203,10 @@ status_t getService(const String16& name, sp<INTERFACE>* outService)
     return NAME_NOT_FOUND;
 }
 
-bool checkCallingPermission(const String16& permission);
-bool checkCallingPermission(const String16& permission,
+LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission);
+LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission,
                             int32_t* outPid, int32_t* outUid);
-bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
+LIBBINDER_EXPORT bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
                      bool logPermissionFailure = true);
 
 #ifndef __ANDROID__
@@ -221,7 +227,7 @@ bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
 struct RpcDelegateServiceManagerOptions {
     std::optional<size_t> maxOutgoingThreads;
 };
-sp<IServiceManager> createRpcDelegateServiceManager(
+LIBBINDER_EXPORT sp<IServiceManager> createRpcDelegateServiceManager(
         const RpcDelegateServiceManagerOptions& options);
 #endif
 

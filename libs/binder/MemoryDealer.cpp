@@ -28,14 +28,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <string.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/mman.h>
 #include <sys/file.h>
+#else
+#include <binder\windows_porting.h>
+#endif
 
 namespace android {
 // ----------------------------------------------------------------------------
@@ -154,10 +160,10 @@ private:
     void     dump_l(const char* what) const;
     void     dump_l(String8& res, const char* what) const;
 
-    static const int    kMemoryAlign;
-    mutable Mutex       mLock;
-    LinkedList<chunk_t> mList;
-    size_t              mHeapSize;
+    static const uint32_t   kMemoryAlign;
+    mutable Mutex           mLock;
+    LinkedList<chunk_t>     mList;
+    size_t                  mHeapSize;
 };
 
 // ----------------------------------------------------------------------------
@@ -272,7 +278,7 @@ size_t MemoryDealer::getAllocationAlignment()
 // ----------------------------------------------------------------------------
 
 // align all the memory blocks on a cache-line boundary
-const int SimpleBestFitAllocator::kMemoryAlign = 32;
+const uint32_t SimpleBestFitAllocator::kMemoryAlign = 32;
 
 SimpleBestFitAllocator::SimpleBestFitAllocator(size_t size)
 {
@@ -329,11 +335,12 @@ ssize_t SimpleBestFitAllocator::alloc(size_t size, uint32_t flags)
     chunk_t* free_chunk = nullptr;
     chunk_t* cur = mList.head();
 
-    size_t pagesize = getpagesize();
+    uint32_t  pagesize = getpagesize();
     while (cur) {
-        int extra = 0;
+        uint32_t  extra = 0;
+        int64_t temp = cur->start;
         if (flags & PAGE_ALIGNED)
-            extra = ( -cur->start & ((pagesize/kMemoryAlign)-1) ) ;
+            extra = ( -temp & ((pagesize/kMemoryAlign)-1u) ) ;
 
         // best fit
         if (cur->free && (cur->size >= (size+extra))) {
@@ -352,9 +359,10 @@ ssize_t SimpleBestFitAllocator::alloc(size_t size, uint32_t flags)
         free_chunk->free = 0;
         free_chunk->size = size;
         if (free_size > size) {
-            int extra = 0;
+            size_t extra = 0;
+            int64_t temp = free_chunk->start;
             if (flags & PAGE_ALIGNED)
-                extra = ( -free_chunk->start & ((pagesize/kMemoryAlign)-1) ) ;
+                extra = ( -temp & ((pagesize/kMemoryAlign)-1u) ) ;
             if (extra) {
                 chunk_t* split = new chunk_t(free_chunk->start, extra);
                 free_chunk->start += extra;

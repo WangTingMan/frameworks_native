@@ -17,9 +17,11 @@
 #define LOG_TAG "RpcServer"
 
 #include <inttypes.h>
+#ifndef _MSC_VER
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#endif
 
 #include <thread>
 #include <vector>
@@ -67,14 +69,15 @@ status_t RpcServer::setupUnixDomainServer(const char* path) {
 
 status_t RpcServer::setupVsockServer(unsigned int port) {
     // realizing value w/ this type at compile time to avoid ubsan abort
-    constexpr unsigned int kAnyCid = VMADDR_CID_ANY;
+    constexpr unsigned int kAnyCid = static_cast<uint32_t>( 0/*VMADDR_CID_ANY*/ );
 
     return setupSocketServer(VsockSocketAddress(kAnyCid, port));
 }
 
 status_t RpcServer::setupInetServer(const char* address, unsigned int port,
                                     unsigned int* assignedPort) {
-    if (assignedPort != nullptr) *assignedPort = 0;
+    if( assignedPort != nullptr ) *assignedPort = 0;
+#ifndef _MSC_VER
     auto aiStart = InetSocketAddress::getAddrInfo(address, port);
     if (aiStart == nullptr) return UNKNOWN_ERROR;
     for (auto ai = aiStart.get(); ai != nullptr; ai = ai->ai_next) {
@@ -82,7 +85,6 @@ status_t RpcServer::setupInetServer(const char* address, unsigned int port,
         if (status_t status = setupSocketServer(socketAddress); status != OK) {
             continue;
         }
-
         LOG_ALWAYS_FATAL_IF(socketAddress.addr()->sa_family != AF_INET, "expecting inet");
         sockaddr_in addr{};
         socklen_t len = sizeof(addr);
@@ -102,9 +104,9 @@ status_t RpcServer::setupInetServer(const char* address, unsigned int port,
         if (assignedPort != nullptr) {
             *assignedPort = realPort;
         }
-
         return OK;
-    }
+}
+#endif
     ALOGE("None of the socket address resolved for %s:%u can be set up as inet server.", address,
           port);
     return UNKNOWN_ERROR;
@@ -188,7 +190,8 @@ void RpcServer::join() {
         LOG_ALWAYS_FATAL_IF(mShutdownTrigger == nullptr, "Cannot create join signaler");
     }
 
-    status_t status;
+    status_t status = 0;
+#ifndef _MSC_VER
     while ((status = mShutdownTrigger->triggerablePoll(mServer, POLLIN)) == OK) {
         std::array<uint8_t, kRpcAddressSize> addr;
         static_assert(addr.size() >= sizeof(sockaddr_storage), "kRpcAddressSize is too small");
@@ -219,6 +222,8 @@ void RpcServer::join() {
             rpcJoinIfSingleThreaded(threadRef);
         }
     }
+#endif
+
     LOG_RPC_DETAIL("RpcServer::join exiting with %s", statusToString(status).c_str());
 
     if constexpr (kEnableRpcThreads) {
@@ -317,7 +322,9 @@ void RpcServer::establishConnection(
     }
 
     RpcConnectionHeader header;
+    memset( &header, 0x00, sizeof( RpcConnectionHeader ) );
     if (status == OK) {
+#ifndef _MSC_VER
         iovec iov{&header, sizeof(header)};
         status = client->interruptableReadFully(server->mShutdownTrigger.get(), &iov, 1,
                                                 std::nullopt, /*ancillaryFds=*/nullptr);
@@ -326,6 +333,7 @@ void RpcServer::establishConnection(
                   statusToString(status).c_str());
             // still need to cleanup before we can return
         }
+#endif
     }
 
     std::vector<uint8_t> sessionId;
@@ -333,6 +341,7 @@ void RpcServer::establishConnection(
         if (header.sessionIdSize > 0) {
             if (header.sessionIdSize == kSessionIdBytes) {
                 sessionId.resize(header.sessionIdSize);
+#ifndef _MSC_VER
                 iovec iov{sessionId.data(), sessionId.size()};
                 status = client->interruptableReadFully(server->mShutdownTrigger.get(), &iov, 1,
                                                         std::nullopt, /*ancillaryFds=*/nullptr);
@@ -341,6 +350,7 @@ void RpcServer::establishConnection(
                           statusToString(status).c_str());
                     // still need to cleanup before we can return
                 }
+#endif
             } else {
                 ALOGE("Malformed session ID. Expecting session ID of size %zu but got %" PRIu16,
                       kSessionIdBytes, header.sessionIdSize);
@@ -363,10 +373,11 @@ void RpcServer::establishConnection(
             RpcNewSessionResponse response{
                     .version = protocolVersion,
             };
-
+#ifndef _MSC_VER
             iovec iov{&response, sizeof(response)};
             status = client->interruptableWriteFully(server->mShutdownTrigger.get(), &iov, 1,
                                                      std::nullopt, nullptr);
+#endif
             if (status != OK) {
                 ALOGE("Failed to send new session response: %s", statusToString(status).c_str());
                 // still need to cleanup before we can return
@@ -487,7 +498,7 @@ void RpcServer::establishConnection(
 status_t RpcServer::setupSocketServer(const RpcSocketAddress& addr) {
     LOG_RPC_DETAIL("Setting up socket server %s", addr.toString().c_str());
     LOG_ALWAYS_FATAL_IF(hasServer(), "Each RpcServer can only have one server.");
-
+#ifndef _MSC_VER
     unique_fd serverFd(TEMP_FAILURE_RETRY(
             socket(addr.addr()->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)));
     if (serverFd == -1) {
@@ -511,13 +522,13 @@ status_t RpcServer::setupSocketServer(const RpcSocketAddress& addr) {
         ALOGE("Could not listen socket at %s: %s", addr.toString().c_str(), strerror(savedErrno));
         return -savedErrno;
     }
-
     LOG_RPC_DETAIL("Successfully setup socket server %s", addr.toString().c_str());
 
     if (status_t status = setupExternalServer(std::move(serverFd)); status != OK) {
         ALOGE("Another thread has set up server while calling setupSocketServer. Race?");
         return status;
     }
+#endif
     return OK;
 }
 

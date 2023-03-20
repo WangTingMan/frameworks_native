@@ -36,13 +36,13 @@
 #define VM_SOCKETS_VERSION_MAJOR(_v) (((_v)&0x00FF0000) >> 16)
 #define VM_SOCKETS_VERSION_MINOR(_v) (((_v)&0x0000FFFF))
 struct sockaddr_vm {
-    sa_family_t svm_family;
+    unsigned int svm_family;
     // NOLINTNEXTLINE(google-runtime-int)
     unsigned short svm_reserved1;
     unsigned int svm_port;
     unsigned int svm_cid;
     // NOLINTNEXTLINE(google-runtime-int)
-    unsigned char svm_zero[sizeof(struct sockaddr) - sizeof(sa_family_t) - sizeof(unsigned short) -
+    unsigned char svm_zero[sizeof(struct sockaddr) - sizeof( unsigned int ) - sizeof(unsigned short) -
                            sizeof(unsigned int) - sizeof(unsigned int)];
 };
 #define IOCTL_VM_SOCKETS_GET_LOCAL_CID _IO(7, 0xb9)

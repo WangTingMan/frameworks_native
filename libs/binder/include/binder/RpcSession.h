@@ -27,6 +27,8 @@
 #include <optional>
 #include <vector>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 
 class Parcel;
@@ -52,7 +54,7 @@ constexpr uint32_t RPC_WIRE_PROTOCOL_VERSION_RPC_HEADER_FEATURE_EXPLICIT_PARCEL_
  * and a server. Multiple connections are needed for multiple parallel "binder"
  * calls which may also have nested calls.
  */
-class RpcSession final : public virtual RefBase {
+class LIBBINDER_EXPORT RpcSession final : public virtual RefBase {
 public:
     static constexpr size_t kDefaultMaxOutgoingThreads = 10;
 

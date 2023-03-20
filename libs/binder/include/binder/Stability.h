@@ -18,7 +18,7 @@
 
 #include <binder/IBinder.h>
 #include <string>
-
+#include <binder/libbinder_export.h>
 namespace android {
 
 class BpBinder;
@@ -48,7 +48,7 @@ namespace internal {
 // libbinder for regular binder calls, and everything on the system uses the
 // same copy of libbinder.
 
-class Stability final {
+class LIBBINDER_EXPORT Stability final {
 public:
     // Given a binder interface at a certain stability, there may be some
     // requirements associated with that higher stability level. For instance, a

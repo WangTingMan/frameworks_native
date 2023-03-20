@@ -16,17 +16,19 @@
 
 #pragma once
 
+#include <atomic>
+
 #include <stdlib.h>
 #include <stdint.h>
 
 #include <binder/IMemory.h>
-
+#include <binder/libbinder_export.h>
 
 namespace android {
 
 // ---------------------------------------------------------------------------
 
-class MemoryHeapBase : public BnMemoryHeap
+class LIBBINDER_EXPORT MemoryHeapBase : public BnMemoryHeap
 {
 public:
     static constexpr auto MEMFD_ALLOW_SEALING_FLAG = 0x00000800;
@@ -96,7 +98,7 @@ protected:
 private:
     status_t mapfd(int fd, bool writeableByCaller, size_t size, off_t offset = 0);
 
-    int         mFD;
+    std::atomic_int32_t         mFD;
     size_t      mSize;
     void*       mBase;
     uint32_t    mFlags;

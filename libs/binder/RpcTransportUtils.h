@@ -16,13 +16,16 @@
 #pragma once
 
 #include <android-base/unique_fd.h>
+#ifndef _MSC_VER
 #include <poll.h>
+#endif
 
 #include "FdTrigger.h"
 #include "RpcState.h"
 
 namespace android {
 
+#ifndef _MSC_VER
 template <typename SendOrReceive>
 status_t interruptableReadOrWrite(
         int socketFd, FdTrigger* fdTrigger, iovec* iovs, int niovs, SendOrReceive sendOrReceiveFun,
@@ -105,5 +108,6 @@ status_t interruptableReadOrWrite(
         }
     }
 }
+#endif
 
 } // namespace android

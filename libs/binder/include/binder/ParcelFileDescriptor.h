@@ -19,6 +19,7 @@
 #include <android-base/unique_fd.h>
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
+#include <binder/libbinder_export.h>
 
 namespace android {
 namespace os {
@@ -26,7 +27,7 @@ namespace os {
 /*
  * C++ implementation of the Java class android.os.ParcelFileDescriptor
  */
-class ParcelFileDescriptor : public android::Parcelable {
+class LIBBINDER_EXPORT ParcelFileDescriptor : public android::Parcelable {
 public:
     ParcelFileDescriptor();
     explicit ParcelFileDescriptor(android::base::unique_fd fd);

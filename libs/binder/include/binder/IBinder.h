@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <android-base/unique_fd.h>
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 #include <utils/String16.h>
@@ -24,12 +23,19 @@
 
 #include <functional>
 
+#include <android-base\unique_fd.h>
+#include <binder/libbinder_export.h>
+
 // linux/binder.h defines this, but we don't want to include it here in order to
 // avoid exporting the kernel headers
 #ifndef B_PACK_CHARS
 #define B_PACK_CHARS(c1, c2, c3, c4) \
     ((((c1)<<24)) | (((c2)<<16)) | (((c3)<<8)) | (c4))
 #endif  // B_PACK_CHARS
+
+#ifndef pid_t
+#define pid_t int
+#endif
 
 // ---------------------------------------------------------------------------
 namespace android {
@@ -48,7 +54,7 @@ class IShellCallback;
  * (method calls, property get and set) is down through a low-level
  * protocol implemented on top of the transact() API.
  */
-class [[clang::lto_visibility_public]] IBinder : public virtual RefBase
+class [[clang::lto_visibility_public]] LIBBINDER_EXPORT IBinder : public virtual RefBase
 {
 public:
     enum {

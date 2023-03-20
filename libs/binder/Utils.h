@@ -15,12 +15,16 @@
  */
 
 #include <stddef.h>
+#ifndef _MSC_VER
 #include <sys/uio.h>
+#endif
 #include <cstdint>
 #include <optional>
 
 #include <log/log.h>
 #include <utils/Errors.h>
+
+#include <binder/compatible_porting.h>
 
 #define TEST_AND_RETURN(value, expr)            \
     do {                                        \
@@ -43,7 +47,7 @@ struct Span {
 
     size_t byteSize() { return size * sizeof(T); }
 
-    iovec toIovec() { return {const_cast<std::remove_const_t<T>*>(data), byteSize()}; }
+    iovec_fake toIovec() { return {const_cast<std::remove_const_t<T>*>(data), byteSize()}; }
 
     // Truncates `this` to a length of `offset` and returns a span with the
     // remainder.

@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <variant>
 #include <vector>
+#include <optional>
 
 #include <android-base/unique_fd.h>
 #include <cutils/native_handle.h>
@@ -32,7 +33,14 @@
 #include <utils/Flattenable.h>
 
 #include <binder/IInterface.h>
-#include <binder/Parcelable.h>
+#include <binder/Parcelable.h> 
+#include <binder/compatible_porting.h>
+
+#include <binder/libbinder_export.h>
+
+#ifndef uid_t
+#define uid_t int
+#endif
 
 #ifdef BINDER_IPC_32BIT
 //NOLINTNEXTLINE(google-runtime-int) b/173188702
@@ -59,7 +67,7 @@ namespace binder {
 class Status;
 }
 
-class Parcel {
+class LIBBINDER_EXPORT Parcel {
     friend class IPCThreadState;
     friend class RpcState;
 
@@ -1184,10 +1192,12 @@ private:
         c->clear(); // must clear before resizing/reserving otherwise move ctors may be called.
         if constexpr (is_pointer_equivalent_array_v<T>) {
             // could consider POD without gaps and alignment of 4.
-            size_t dataLen;
+            size_t dataLen = size * sizeof( T );
+#ifndef _MSC_VER
             if (__builtin_mul_overflow(size, sizeof(T), &dataLen)) {
                 return -EOVERFLOW;
             }
+#endif
             auto data = reinterpret_cast<const T*>(readInplace(dataLen));
             if (data == nullptr) return BAD_VALUE;
             // std::vector::insert and similar methods will require type-dependent
@@ -1310,7 +1320,11 @@ private:
         // same order as `mObjectPositions`.
         //
         // Boxed to save space. Lazy allocated.
+#ifdef _MSC_VER
+        std::unique_ptr<std::vector<fake_file_descriptor>> mFds;
+#else
         std::unique_ptr<std::vector<std::variant<base::unique_fd, base::borrowed_fd>>> mFds;
+#endif
     };
     std::variant<KernelFields, RpcFields> mVariantFields;
 

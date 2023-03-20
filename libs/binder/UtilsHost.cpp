@@ -15,11 +15,12 @@
  */
 
 #include "UtilsHost.h"
-
-#include <poll.h>
+#ifndef _MSC_VER
+#include <poll.h> 
+#include <sys/wait.h>
+#endif
 #include <string.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 
 #include <sstream>
 
@@ -30,10 +31,10 @@ namespace android {
 CommandResult::~CommandResult() {
     if (!pid.has_value()) return;
     if (*pid == 0) {
-        ALOGW("%s: PID is unexpectedly 0, won't kill it", __PRETTY_FUNCTION__);
+        ALOGW("%s: PID is unexpectedly 0, won't kill it", __FUNCTION__ );
         return;
     }
-
+#ifndef _MSC_VER
     ALOGE_IF(kill(*pid, SIGKILL) != 0, "kill(%d): %s", *pid, strerror(errno));
 
     while (pid.has_value()) {
@@ -57,6 +58,7 @@ CommandResult::~CommandResult() {
             ALOGW("%s: pid %d continued", __PRETTY_FUNCTION__, *pid);
         }
     }
+#endif
 }
 
 std::ostream& operator<<(std::ostream& os, const CommandResult& res) {
@@ -72,14 +74,14 @@ std::string CommandResult::toString() const {
     return ss.str();
 }
 
-android::base::Result<CommandResult> execute(std::vector<std::string> argStringVec,
+std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
                                              const std::function<bool(const CommandResult&)>& end) {
     // turn vector<string> into null-terminated char* vector.
     std::vector<char*> argv;
     argv.reserve(argStringVec.size() + 1);
     for (auto& arg : argStringVec) argv.push_back(arg.data());
     argv.push_back(nullptr);
-
+#ifndef _MSC_VER
     CommandResult ret;
     android::base::unique_fd outWrite;
     if (!android::base::Pipe(&ret.outPipe, &outWrite))
@@ -173,5 +175,8 @@ android::base::Result<CommandResult> execute(std::vector<std::string> argStringV
     }
 
     return ret;
+#else
+    return nullptr;
+#endif
 }
 } // namespace android

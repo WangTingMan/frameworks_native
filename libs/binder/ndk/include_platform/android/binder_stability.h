@@ -17,6 +17,23 @@
 #pragma once
 
 #include <android/binder_ibinder.h>
+#include <android/libbinder_ndk_export.h>
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
 
 __BEGIN_DECLS
 
@@ -66,7 +83,7 @@ enum {
 /**
  * This interface has the stability of the system image.
  */
-__attribute__((weak)) void AIBinder_markSystemStability(AIBinder* binder);
+/*__attribute__((weak))*/ LIBBINDER_NDK_EXPORT void AIBinder_markSystemStability(AIBinder* binder);
 
 static inline void AIBinder_markCompilationUnitStability(AIBinder* binder) {
     if (AIBinder_markSystemStability == nullptr) return;
@@ -80,7 +97,7 @@ static inline void AIBinder_markCompilationUnitStability(AIBinder* binder) {
  * VINTF stability binder is required to be in the VINTF manifest. This API
  * can be called to use that same interface within the system partition.
  */
-void AIBinder_forceDowngradeToSystemStability(AIBinder* binder);
+LIBBINDER_NDK_EXPORT void AIBinder_forceDowngradeToSystemStability(AIBinder* binder);
 
 static inline void AIBinder_forceDowngradeToLocalStability(AIBinder* binder) {
     AIBinder_forceDowngradeToSystemStability(binder);
@@ -101,6 +118,7 @@ static inline void AIBinder_forceDowngradeToLocalStability(AIBinder* binder) {
 #if defined(__ANDROID_MIN_SDK_VERSION__) && __ANDROID_MIN_SDK_VERSION__ < 30
 __attribute__((weak))
 #endif  // defined(__ANDROID_MIN_SDK_VERSION__) && __ANDROID_MIN_SDK_VERSION__ < 30
-void AIBinder_markVintfStability(AIBinder* binder);
+LIBBINDER_NDK_EXPORT void AIBinder_markVintfStability(AIBinder* binder);
 
 __END_DECLS
+

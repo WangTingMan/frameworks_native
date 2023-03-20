@@ -17,9 +17,28 @@
 #pragma once
 
 #include <stdint.h>
+#ifndef _MSC_VER
 #include <sys/cdefs.h>
+#endif
 
 #include <android/binder_status.h>
+#include <android/libbinder_ndk_export.h>
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
 
 __BEGIN_DECLS
 
@@ -29,18 +48,18 @@ __BEGIN_DECLS
  * When using this, it is expected that ABinderProcess_setupPolling and
  * ABinderProcess_handlePolledCommands are not used.
  */
-void ABinderProcess_startThreadPool();
+LIBBINDER_NDK_EXPORT void ABinderProcess_startThreadPool();
 /**
  * This sets the maximum number of threads that can be started in the threadpool. By default, after
  * startThreadPool is called, this is 15. If it is called additional times, it will only prevent
  * the kernel from starting new threads and will not delete already existing threads.
  */
-bool ABinderProcess_setThreadPoolMaxThreadCount(uint32_t numThreads);
+LIBBINDER_NDK_EXPORT bool ABinderProcess_setThreadPoolMaxThreadCount(uint32_t numThreads);
 /**
  * This adds the current thread to the threadpool. This may cause the threadpool to exceed the
  * maximum size.
  */
-void ABinderProcess_joinThreadPool();
+LIBBINDER_NDK_EXPORT void ABinderProcess_joinThreadPool();
 
 /**
  * This gives you an fd to wait on. Whenever data is available on the fd,
@@ -55,7 +74,7 @@ void ABinderProcess_joinThreadPool();
  * process.
  * \return STATUS_OK on success
  */
-__attribute__((weak)) binder_status_t ABinderProcess_setupPolling(int* fd) __INTRODUCED_IN(31);
+/*__attribute__((weak))*/ LIBBINDER_NDK_EXPORT binder_status_t ABinderProcess_setupPolling(int* fd) __INTRODUCED_IN(31);
 
 /**
  * This will handle all queued binder commands in this process and then return.
@@ -63,6 +82,7 @@ __attribute__((weak)) binder_status_t ABinderProcess_setupPolling(int* fd) __INT
  *
  * \return STATUS_OK on success
  */
-__attribute__((weak)) binder_status_t ABinderProcess_handlePolledCommands() __INTRODUCED_IN(31);
+/*__attribute__((weak))*/ LIBBINDER_NDK_EXPORT binder_status_t ABinderProcess_handlePolledCommands() __INTRODUCED_IN(31);
 
 __END_DECLS
+

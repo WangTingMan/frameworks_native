@@ -22,6 +22,9 @@
 #include <map>
 #include <unordered_map>
 #include <variant>
+#include <optional>
+
+#include <binder/libbinder_export.h>
 
 // ---------------------------------------------------------------------------
 namespace android {
@@ -35,7 +38,7 @@ class ProcessState;
 
 using binder_proxy_limit_callback = void(*)(int);
 
-class BpBinder : public IBinder
+class LIBBINDER_EXPORT BpBinder : public IBinder
 {
 public:
     /**

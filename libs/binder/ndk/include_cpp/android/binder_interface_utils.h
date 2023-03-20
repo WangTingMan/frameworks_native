@@ -35,6 +35,10 @@
 #define HAS_BINDER_SHELL_COMMAND
 #endif  //_has_include
 
+#ifdef interface
+#undef interface
+#endif
+
 #include <assert.h>
 
 #include <memory>

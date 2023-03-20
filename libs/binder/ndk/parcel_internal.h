@@ -18,7 +18,9 @@
 
 #include <android/binder_parcel.h>
 
+#ifndef _MSC_VER
 #include <sys/cdefs.h>
+#endif
 
 #include <binder/Parcel.h>
 #include "ibinder_internal.h"

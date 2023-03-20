@@ -17,8 +17,10 @@
 
 #include <memory>
 
+#ifndef _MSC_VER
 #include <android-base/result.h>
 #include <android-base/unique_fd.h>
+#endif
 #include <utils/Errors.h>
 
 namespace android {
@@ -53,14 +55,22 @@ public:
      *   true - time to read!
      *   false - trigger happened
      */
+#ifdef _MSC_VER
+#else
     [[nodiscard]] status_t triggerablePoll(base::borrowed_fd fd, int16_t event);
+#endif
 
 private:
 #ifdef BINDER_RPC_SINGLE_THREADED
     bool mTriggered = false;
 #else
+
+#ifdef _MSC_VER
+#else
     base::unique_fd mWrite;
     base::unique_fd mRead;
+#endif
+
 #endif
 };
 } // namespace android

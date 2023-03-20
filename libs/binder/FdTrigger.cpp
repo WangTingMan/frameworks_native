@@ -19,7 +19,9 @@
 
 #include "FdTrigger.h"
 
+#ifndef _MSC_VER
 #include <poll.h>
+#endif
 
 #include <android-base/macros.h>
 
@@ -29,10 +31,14 @@ namespace android {
 std::unique_ptr<FdTrigger> FdTrigger::make() {
     auto ret = std::make_unique<FdTrigger>();
 #ifndef BINDER_RPC_SINGLE_THREADED
+
+#ifndef _MSC_VER
     if (!android::base::Pipe(&ret->mRead, &ret->mWrite)) {
         ALOGE("Could not create pipe %s", strerror(errno));
         return nullptr;
     }
+#endif
+
 #endif
     return ret;
 }
@@ -41,7 +47,11 @@ void FdTrigger::trigger() {
 #ifdef BINDER_RPC_SINGLE_THREADED
     mTriggered = true;
 #else
+
+#ifndef _MSC_VER
     mWrite.reset();
+#endif
+
 #endif
 }
 
@@ -49,10 +59,18 @@ bool FdTrigger::isTriggered() {
 #ifdef BINDER_RPC_SINGLE_THREADED
     return mTriggered;
 #else
+
+#ifdef _MSC_VER
+    return false;
+#else
     return mWrite == -1;
+#endif
+
 #endif
 }
 
+#ifdef _MSC_VER
+#else
 status_t FdTrigger::triggerablePoll(base::borrowed_fd fd, int16_t event) {
 #ifdef BINDER_RPC_SINGLE_THREADED
     if (mTriggered) {
@@ -114,5 +132,6 @@ status_t FdTrigger::triggerablePoll(base::borrowed_fd fd, int16_t event) {
     // This is a very common case, so don't log.
     return DEAD_OBJECT;
 }
+#endif
 
 } // namespace android

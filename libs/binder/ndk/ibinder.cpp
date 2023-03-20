@@ -29,6 +29,12 @@
 #include <binder/IResultReceiver.h>
 #include <private/android_filesystem_config.h>
 
+#ifdef _MSC_VER
+#ifdef ERROR
+#undef ERROR
+#endif
+#endif
+
 using DeathRecipient = ::android::IBinder::DeathRecipient;
 
 using ::android::IBinder;

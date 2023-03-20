@@ -33,7 +33,10 @@
 
 #include <assert.h>
 
+#if __has_include(<unistd.h>)
 #include <unistd.h>
+#endif
+
 #include <cstddef>
 #include <string>
 
@@ -64,6 +67,17 @@ class SpAIBinder {
      * This will delete the underlying object if it exists. See operator=.
      */
     SpAIBinder(const SpAIBinder& other) { *this = other; }
+
+    SpAIBinder(SpAIBinder&& other) noexcept {
+        mBinder = other.mBinder;
+        other.mBinder = nullptr;
+    }
+
+    SpAIBinder& operator=(SpAIBinder&& other) noexcept {
+        mBinder = other.mBinder;
+        other.mBinder = nullptr;
+        return other;
+    }
 
     /**
      * This deletes the underlying object if it exists. See set.
@@ -356,10 +370,13 @@ namespace internal {
 
 static void closeWithError(int fd) {
     if (fd == -1) return;
+#ifdef _MSC_VER
+#else
     int ret = close(fd);
     if (ret != 0) {
         syslog(LOG_ERR, "Could not close FD %d: %s", fd, strerror(errno));
     }
+#endif
 }
 
 }  // namespace internal
@@ -378,7 +395,12 @@ class ScopedFileDescriptor : public impl::ScopedAResource<int, internal::closeWi
     ScopedFileDescriptor(ScopedFileDescriptor&&) = default;
     ScopedFileDescriptor& operator=(ScopedFileDescriptor&&) = default;
 
-    ScopedFileDescriptor dup() const { return ScopedFileDescriptor(::dup(get())); }
+    ScopedFileDescriptor dup() const { return ScopedFileDescriptor(
+#ifdef _MSC_VER
+#else
+        ::dup(get())
+#endif
+    ); }
 
     bool operator!=(const ScopedFileDescriptor& rhs) const { return get() != rhs.get(); }
     bool operator<(const ScopedFileDescriptor& rhs) const { return get() < rhs.get(); }

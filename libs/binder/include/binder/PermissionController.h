@@ -20,11 +20,11 @@
 
 #include <binder/IPermissionController.h>
 #include <utils/Mutex.h>
-
+#include <binder/libbinder_export.h>
 // ---------------------------------------------------------------------------
 namespace android {
 
-class PermissionController
+class LIBBINDER_EXPORT PermissionController
 {
 public:
 

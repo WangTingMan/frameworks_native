@@ -30,8 +30,12 @@
 #include <utils/Errors.h>
 
 #include <binder/RpcCertificateFormat.h>
+#include <binder/compatible_porting.h>
+#include <binder/libbinder_export.h>
 
+#ifndef _MSC_VER
 #include <sys/uio.h>
+#endif
 
 namespace android {
 
@@ -39,7 +43,7 @@ class FdTrigger;
 
 // Represents a socket connection.
 // No thread-safety is guaranteed for these APIs.
-class RpcTransport {
+class LIBBINDER_EXPORT RpcTransport {
 public:
     virtual ~RpcTransport() = default;
 
@@ -73,11 +77,11 @@ public:
      *   error - interrupted (failure or trigger)
      */
     [[nodiscard]] virtual status_t interruptableWriteFully(
-            FdTrigger *fdTrigger, iovec *iovs, int niovs,
+            FdTrigger *fdTrigger, iovec_fake* iovs, int niovs,
             const std::optional<android::base::function_ref<status_t()>> &altPoll,
             const std::vector<std::variant<base::unique_fd, base::borrowed_fd>> *ancillaryFds) = 0;
     [[nodiscard]] virtual status_t interruptableReadFully(
-            FdTrigger *fdTrigger, iovec *iovs, int niovs,
+            FdTrigger *fdTrigger, iovec_fake* iovs, int niovs,
             const std::optional<android::base::function_ref<status_t()>> &altPoll,
             std::vector<std::variant<base::unique_fd, base::borrowed_fd>> *ancillaryFds) = 0;
 
@@ -87,7 +91,7 @@ protected:
 
 // Represents the context that generates the socket connection.
 // All APIs are thread-safe. See RpcTransportCtxRaw and RpcTransportCtxTls for details.
-class RpcTransportCtx {
+class LIBBINDER_EXPORT RpcTransportCtx {
 public:
     virtual ~RpcTransportCtx() = default;
 
@@ -112,7 +116,7 @@ protected:
 
 // A factory class that generates RpcTransportCtx.
 // All APIs are thread-safe.
-class RpcTransportCtxFactory {
+class LIBBINDER_EXPORT RpcTransportCtxFactory {
 public:
     virtual ~RpcTransportCtxFactory() = default;
     // Creates server context.

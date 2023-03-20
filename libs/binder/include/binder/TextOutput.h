@@ -22,11 +22,12 @@
 #include <stdint.h>
 #include <string.h>
 #include <sstream>
+#include <binder/libbinder_export.h>
 
 // ---------------------------------------------------------------------------
 namespace android {
 
-class TextOutput
+class LIBBINDER_EXPORT TextOutput
 {
 public:
                         TextOutput();
@@ -82,7 +83,7 @@ TextOutput& operator<<(TextOutput& to, const T& val)
 
 TextOutput& operator<<(TextOutput& to, TextOutputManipFunc func);
 
-class TypeCode
+class LIBBINDER_EXPORT TypeCode
 {
 public:
     inline explicit TypeCode(uint32_t code);
@@ -96,7 +97,7 @@ private:
 
 TextOutput& operator<<(TextOutput& to, const TypeCode& val);
 
-class HexDump
+class LIBBINDER_EXPORT HexDump
 {
 public:
     HexDump(const void *buf, size_t size, size_t bytesPerLine=16);

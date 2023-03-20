@@ -22,6 +22,8 @@
 #include <binder/Status.h>
 #include <utils/StrongPointer.h>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 namespace binder {
 namespace internal {
@@ -41,7 +43,7 @@ class ClientCounterCallback;
  *
  * For more information on init .rc configuration, see system/core/init/README.md
  **/
-class LazyServiceRegistrar {
+class LIBBINDER_EXPORT LazyServiceRegistrar {
    public:
      static LazyServiceRegistrar& getInstance();
      status_t registerService(const sp<IBinder>& service,

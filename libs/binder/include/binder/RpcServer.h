@@ -23,8 +23,11 @@
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 
+#include <bitset>
 #include <mutex>
 #include <thread>
+
+#include <binder/libbinder_export.h>
 
 namespace android {
 
@@ -44,7 +47,7 @@ class RpcSocketAddress;
  *     }
  *     server->join();
  */
-class RpcServer final : public virtual RefBase, private RpcSession::EventListener {
+class LIBBINDER_EXPORT RpcServer final : public virtual RefBase, private RpcSession::EventListener {
 public:
     static sp<RpcServer> make(
             std::unique_ptr<RpcTransportCtxFactory> rpcTransportCtxFactory = nullptr);

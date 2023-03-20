@@ -17,12 +17,18 @@
 
 #include <string>
 
+#ifndef _MSC_VER
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/un.h>
+#else
+#include "binder/windows_porting.h"
+#include <WinSock2.h>
+#include <afunix.h>
+#endif
+#include <sys/types.h>
 
 #include "vm_sockets.h"
 
@@ -86,6 +92,7 @@ public:
     [[nodiscard]] const sockaddr* addr() const override { return mSockAddr; }
     [[nodiscard]] size_t addrSize() const override { return mSize; }
 
+#ifndef _MSC_VER
     using AddrInfo = std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>;
     static AddrInfo getAddrInfo(const char* addr, unsigned int port) {
         addrinfo hint{
@@ -105,6 +112,7 @@ public:
         }
         return AddrInfo(aiStart, &freeaddrinfo);
     }
+#endif
 
 private:
     const sockaddr* mSockAddr;

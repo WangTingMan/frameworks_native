@@ -18,20 +18,29 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/memfd.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#ifndef _WIN32
+#include <linux/memfd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
 #include <sys/syscall.h>
-#include <sys/types.h>
 #include <unistd.h>
+#else
+#include <binder/windows_porting.h>
+#endif
 
 #include <binder/MemoryHeapBase.h>
 #include <cutils/ashmem.h>
 #include <cutils/atomic.h>
 #include <log/log.h>
+
+#ifndef MAP_FAILED
+#define MAP_FAILED 0
+#endif
 
 namespace android {
 
@@ -101,12 +110,13 @@ MemoryHeapBase::MemoryHeapBase(const char* device, size_t size, uint32_t flags)
       mDevice(nullptr), mNeedUnmap(false), mOffset(0)
 {
     if (flags & (FORCE_MEMFD | MEMFD_ALLOW_SEALING_FLAG)) {
-        LOG_ALWAYS_FATAL("FORCE_MEMFD, MEMFD_ALLOW_SEALING only valid with creating constructor");
+        LOG_ALWAYS_FATAL("FORCE_MEMFD, MEMFD_ALLOW_SEALING only valid with creating constructor",1);
     }
     int open_flags = O_RDWR;
     if (flags & NO_CACHING)
         open_flags |= O_SYNC;
 
+#ifndef _MSC_VER
     int fd = open(device, open_flags);
     ALOGE_IF(fd<0, "error opening %s: %s", device, strerror(errno));
     if (fd >= 0) {
@@ -116,6 +126,7 @@ MemoryHeapBase::MemoryHeapBase(const char* device, size_t size, uint32_t flags)
             mDevice = device;
         }
     }
+#endif
 }
 
 MemoryHeapBase::MemoryHeapBase(int fd, size_t size, uint32_t flags, off_t offset)
@@ -123,11 +134,15 @@ MemoryHeapBase::MemoryHeapBase(int fd, size_t size, uint32_t flags, off_t offset
       mDevice(nullptr), mNeedUnmap(false), mOffset(0)
 {
     if (flags & (FORCE_MEMFD | MEMFD_ALLOW_SEALING_FLAG)) {
-        LOG_ALWAYS_FATAL("FORCE_MEMFD, MEMFD_ALLOW_SEALING only valid with creating constructor");
+        LOG_ALWAYS_FATAL("FORCE_MEMFD, MEMFD_ALLOW_SEALING only valid with creating constructor",0);
     }
     const size_t pagesize = getpagesize();
     size = ((size + pagesize-1) & ~(pagesize-1));
+#ifdef _WIN32
+    ALOGF( "Error, no implementation here" );
+#else
     mapfd(fcntl(fd, F_DUPFD_CLOEXEC, 0), false, size, offset);
+#endif
 }
 
 status_t MemoryHeapBase::init(int fd, void *base, size_t size, int flags, const char* device)
@@ -165,8 +180,13 @@ status_t MemoryHeapBase::mapfd(int fd, bool writeableByCaller, size_t size, off_
         if (writeableByCaller || (mFlags & READ_ONLY) == 0) {
             prot |= PROT_WRITE;
         }
-        void* base = (uint8_t*)mmap(nullptr, size,
+        void* base = nullptr;
+#ifdef _WIN32
+        ALOGF( "No implementation here!" );
+#else
+        base = ( uint8_t* )mmap( nullptr, size,
                 prot, MAP_SHARED, fd, offset);
+#endif
         if (base == MAP_FAILED) {
             ALOGE("mmap(fd=%d, size=%zu) failed (%s)",
                     fd, size, strerror(errno));
@@ -193,11 +213,16 @@ MemoryHeapBase::~MemoryHeapBase()
 
 void MemoryHeapBase::dispose()
 {
-    int fd = android_atomic_or(-1, &mFD);
+    int fd = 0; // android_atomic_or( -1, &mFD );
+    fd = mFD.fetch_or( -1 );
     if (fd >= 0) {
         if (mNeedUnmap) {
+#ifdef _WIN32
+            ALOGF( "No implementation here!" );
+#else
             //ALOGD("munmap(fd=%d, base=%p, size=%zu)", fd, mBase, mSize);
             munmap(mBase, mSize);
+#endif
         }
         mBase = nullptr;
         mSize = 0;
@@ -209,7 +234,9 @@ int MemoryHeapBase::getHeapID() const {
     return mFD;
 }
 
-void* MemoryHeapBase::getBase() const {
+void* MemoryHeapBase::getBase() const
+{
+    LOG_ALWAYS_FATAL( "No implementation", 1 );
     return mBase;
 }
 

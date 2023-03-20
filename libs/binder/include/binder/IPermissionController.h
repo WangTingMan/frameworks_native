@@ -21,11 +21,17 @@
 #include <binder/IInterface.h>
 #include <stdlib.h>
 
+#include <binder/libbinder_export.h>
+
+#ifndef uid_t
+#define uid_t int32_t
+#endif
+
 namespace android {
 
 // ----------------------------------------------------------------------
 
-class IPermissionController : public IInterface
+class LIBBINDER_EXPORT IPermissionController : public IInterface
 {
 public:
     DECLARE_META_INTERFACE(PermissionController)
@@ -51,7 +57,7 @@ public:
 
 // ----------------------------------------------------------------------
 
-class BnPermissionController : public BnInterface<IPermissionController>
+class LIBBINDER_EXPORT BnPermissionController : public BnInterface<IPermissionController>
 {
 public:
     // NOLINTNEXTLINE(google-default-arguments)

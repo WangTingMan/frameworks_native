@@ -32,7 +32,11 @@
 #ifdef LOG_PRI
 #undef LOG_PRI
 #endif
+#if __has_include(<syslog.h>)
 #include <syslog.h>
+#else
+#include <log/log.h>
+#endif
 #pragma pop_macro("LOG_PRI")
 
 /** @} */

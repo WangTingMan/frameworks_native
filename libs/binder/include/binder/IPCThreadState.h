@@ -21,8 +21,12 @@
 #include <binder/ProcessState.h>
 #include <utils/Vector.h>
 
+#include <binder/libbinder_export.h>
+
 #if defined(_WIN32)
+#ifndef uid_t
 typedef  int  uid_t;
+#endif
 #endif
 
 // ---------------------------------------------------------------------------
@@ -32,7 +36,7 @@ namespace android {
  * Kernel binder thread state. All operations here refer to kernel binder. This
  * object is allocated per-thread.
  */
-class IPCThreadState
+class LIBBINDER_EXPORT IPCThreadState
 {
 public:
     using CallRestriction = ProcessState::CallRestriction;

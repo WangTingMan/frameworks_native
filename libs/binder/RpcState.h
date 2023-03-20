@@ -25,7 +25,9 @@
 #include <optional>
 #include <queue>
 
+#ifndef _MSC_VER
 #include <sys/uio.h>
+#endif
 
 namespace android {
 
@@ -186,13 +188,13 @@ private:
 
     [[nodiscard]] status_t rpcSend(
             const sp<RpcSession::RpcConnection>& connection, const sp<RpcSession>& session,
-            const char* what, iovec* iovs, int niovs,
+            const char* what, iovec_fake* iovs, int niovs,
             const std::optional<android::base::function_ref<status_t()>>& altPoll,
             const std::vector<std::variant<base::unique_fd, base::borrowed_fd>>* ancillaryFds =
                     nullptr);
     [[nodiscard]] status_t rpcRec(
             const sp<RpcSession::RpcConnection>& connection, const sp<RpcSession>& session,
-            const char* what, iovec* iovs, int niovs,
+            const char* what, iovec_fake* iovs, int niovs,
             std::vector<std::variant<base::unique_fd, base::borrowed_fd>>* ancillaryFds = nullptr);
 
     [[nodiscard]] status_t waitForReply(const sp<RpcSession::RpcConnection>& connection,

@@ -22,6 +22,8 @@
 #include <binder/IMemory.h>
 #include <binder/MemoryHeapBase.h>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 // ----------------------------------------------------------------------------
 
@@ -29,7 +31,7 @@ class SimpleBestFitAllocator;
 
 // ----------------------------------------------------------------------------
 
-class MemoryDealer : public RefBase
+class LIBBINDER_EXPORT MemoryDealer : public RefBase
 {
 public:
     explicit MemoryDealer(size_t size, const char* name = nullptr,

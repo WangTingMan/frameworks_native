@@ -18,6 +18,22 @@
 
 #include <android/binder_parcel.h>
 
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
+
 __BEGIN_DECLS
 
 #if !defined(__ANDROID_APEX__) && !defined(__ANDROID_VNDK__)
@@ -45,3 +61,4 @@ bool AParcel_getAllowFds(const AParcel*);
 void AParcel_markSensitive(const AParcel* parcel);
 
 __END_DECLS
+

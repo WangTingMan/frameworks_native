@@ -173,7 +173,7 @@ std::map<std::string, ClientCounterCallbackImpl::Service>::iterator ClientCounte
         return it;
     }
     LOG_ALWAYS_FATAL("Got callback on service which we did not register: %s", String8(service->getInterfaceDescriptor()).c_str());
-    __builtin_unreachable();
+    //__builtin_unreachable();
 }
 
 void ClientCounterCallbackImpl::forcePersist(bool persist) {
@@ -210,7 +210,7 @@ void ClientCounterCallbackImpl::reRegisterLocked() {
 
         if (!registerServiceLocked(entry.service, name, entry.allowIsolated, entry.dumpFlags)) {
             // Must restart. Otherwise, clients will never be able to get a hold of this service.
-            LOG_ALWAYS_FATAL("Bad state: could not re-register services");
+            LOG_ALWAYS_FATAL("Bad state: could not re-register services",1);
         }
 
         entry.registered = true;

@@ -19,11 +19,12 @@
 #ifndef __ANDROID_VNDK__
 
 #include <stdint.h>
-#include <unistd.h>
 
 #include <utils/String16.h>
 #include <utils/Singleton.h>
 #include <utils/SortedVector.h>
+
+#include <binder/libbinder_export.h>
 
 namespace android {
 // ---------------------------------------------------------------------------
@@ -39,7 +40,7 @@ namespace android {
  *
  */
 
-class PermissionCache : Singleton<PermissionCache> {
+class LIBBINDER_EXPORT PermissionCache : Singleton<PermissionCache> {
     struct Entry {
         String16    name;
         uid_t       uid;

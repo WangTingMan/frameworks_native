@@ -37,6 +37,8 @@
 #include <type_traits>
 #include <vector>
 
+#include <log\log.h>
+
 namespace ndk {
 
 namespace {

@@ -29,8 +29,20 @@
 #undef B_PACK_CHARS
 #endif
 
+#ifndef _MSC_VER
 #include <linux/android/binder.h>
 #include <sys/ioctl.h>
+#endif
+
+#include <cstdint>
+
+#ifndef __u32
+#define __u32 uint32_t
+#endif
+
+#ifndef __s32
+#define __s32 int32_t
+#endif
 
 #ifndef BR_FROZEN_REPLY
 // Temporary definition of BR_FROZEN_REPLY. For production

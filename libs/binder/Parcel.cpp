@@ -20,15 +20,20 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#include <pthread.h>
+#include <thread>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef _MSC_VER
 #include <sys/mman.h>
 #include <sys/resource.h>
+#include <unistd.h>
+#else
+#include <linux\binder.h>
+#endif
+
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include <binder/Binder.h>
 #include <binder/BpBinder.h>
@@ -46,7 +51,8 @@
 #include <utils/Log.h>
 #include <utils/String16.h>
 #include <utils/String8.h>
-#include <utils/misc.h>
+#include <utils/misc.h> 
+#include <utils/uitils_overflow_check_ms.h>
 
 #include "RpcState.h"
 #include "Static.h"
@@ -61,7 +67,9 @@
 // file that depends on kernel binder, including the header itself,
 // is conditional on BINDER_WITH_KERNEL_IPC.
 #ifdef BINDER_WITH_KERNEL_IPC
+#if __has_include(<linux/sched.h>)
 #include <linux/sched.h>
+#endif
 #include "binder_module.h"
 #else  // BINDER_WITH_KERNEL_IPC
 // Needed by {read,write}Pointer
@@ -87,6 +95,10 @@ static size_t pad_size(size_t s) {
     return PAD_SIZE_UNSAFE(s);
 }
 
+#ifndef B_PACK_CHARS
+#define B_PACK_CHARS(c1, c2, c3, c4) ((((c1) << 24)) | (((c2) << 16)) | (((c3) << 8)) | (c4))
+#endif
+
 // Note: must be kept in sync with android/os/StrictMode.java's PENALTY_GATHER
 #define STRICT_MODE_PENALTY_GATHER (1 << 31)
 
@@ -95,7 +107,7 @@ namespace android {
 // many things compile this into prebuilts on the stack
 #ifdef __LP64__
 static_assert(sizeof(Parcel) == 120);
-#else
+#elif __LP32__
 static_assert(sizeof(Parcel) == 60);
 #endif
 
@@ -125,7 +137,7 @@ static void acquire_object(const sp<ProcessState>& proc, const flat_binder_objec
             }
             return;
         case BINDER_TYPE_HANDLE: {
-            const sp<IBinder> b = proc->getStrongProxyForHandle(obj.handle);
+            const sp<IBinder> b = proc->getStrongProxyForHandle(obj.binder_internal_handle);
             if (b != nullptr) {
                 LOG_REFS("Parcel %p acquiring reference on remote %p", who, b.get());
                 b->incStrong(who);
@@ -150,7 +162,7 @@ static void release_object(const sp<ProcessState>& proc, const flat_binder_objec
             }
             return;
         case BINDER_TYPE_HANDLE: {
-            const sp<IBinder> b = proc->getStrongProxyForHandle(obj.handle);
+            const sp<IBinder> b = proc->getStrongProxyForHandle(obj.binder_internal_handle);
             if (b != nullptr) {
                 LOG_REFS("Parcel %p releasing reference on remote %p", who, b.get());
                 b->decStrong(who);
@@ -159,7 +171,7 @@ static void release_object(const sp<ProcessState>& proc, const flat_binder_objec
         }
         case BINDER_TYPE_FD: {
             if (obj.cookie != 0) { // owned
-                close(obj.handle);
+                porting_binder::close_binder(obj.binder_internal_handle);
             }
             return;
         }
@@ -251,7 +263,7 @@ status_t Parcel::flattenBinder(const sp<IBinder>& binder) {
             obj.hdr.type = BINDER_TYPE_HANDLE;
             obj.binder = 0; /* Don't pass uninitialized stack data to a remote process */
             obj.flags = 0;
-            obj.handle = handle;
+            obj.binder_internal_handle = handle;
             obj.cookie = 0;
         } else {
             int policy = local->getMinSchedulerPolicy();
@@ -286,7 +298,7 @@ status_t Parcel::flattenBinder(const sp<IBinder>& binder) {
 
     return finishFlattenBinder(binder);
 #else  // BINDER_WITH_KERNEL_IPC
-    LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+    LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0);
     return INVALID_OPERATION;
 #endif // BINDER_WITH_KERNEL_IPC
 }
@@ -330,7 +342,7 @@ status_t Parcel::unflattenBinder(sp<IBinder>* out) const
             }
             case BINDER_TYPE_HANDLE: {
                 sp<IBinder> binder =
-                    ProcessState::self()->getStrongProxyForHandle(flat->handle);
+                        ProcessState::self()->getStrongProxyForHandle(flat->binder_internal_handle);
                 return finishUnflattenBinder(binder, out);
             }
         }
@@ -555,7 +567,9 @@ status_t Parcel::appendFrom(const Parcel* parcel, size_t offset, size_t len) {
                     // If this is a file descriptor, we need to dup it so the
                     // new Parcel now owns its own fd, and can declare that we
                     // officially know we have fds.
-                    flat->handle = fcntl(flat->handle, F_DUPFD_CLOEXEC, 0);
+                    flat->binder_internal_handle =
+                            porting_binder::fcntl_binder(flat->binder_internal_handle,
+                                                       F_DUPFD_CLOEXEC, 0);
                     flat->cookie = 1;
                     kernelFields->mHasFds = kernelFields->mFdsKnown = true;
                     if (!mAllowFds) {
@@ -613,11 +627,13 @@ status_t Parcel::appendFrom(const Parcel* parcel, size_t offset, size_t len) {
                 if (status_t status = readInt32(&fdIndex); status != OK) {
                     return status;
                 }
+#ifndef _MSC_VER
                 const auto& oldFd = otherRpcFields->mFds->at(fdIndex);
                 // To match kernel binder behavior, we always dup, even if the
                 // FD was unowned in the source parcel.
                 rpcFields->mFds->emplace_back(
                         base::unique_fd(fcntl(toRawFd(oldFd), F_DUPFD_CLOEXEC, 0)));
+#endif
                 // Fixup the index in the data.
                 mDataPos = newDataPos + 4;
                 if (status_t status = writeInt32(rpcFields->mFds->size() - 1); status != OK) {
@@ -736,11 +752,13 @@ std::vector<int> Parcel::debugReadAllFileDescriptors() const {
         }
         setDataPosition(initPosition);
 #else
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0);
 #endif
     } else if (const auto* rpcFields = maybeRpcFields(); rpcFields && rpcFields->mFds) {
         for (const auto& fd : *rpcFields->mFds) {
+#ifndef _MSC_VER
             ret.push_back(toRawFd(fd));
+#endif
         }
     }
 
@@ -1076,16 +1094,16 @@ restart_write:
 
         // Need to pad at end?
         if (padded != len) {
-#if BYTE_ORDER == BIG_ENDIAN
-            static const uint32_t mask[4] = {
-                0x00000000, 0xffffff00, 0xffff0000, 0xff000000
-            };
-#endif
-#if BYTE_ORDER == LITTLE_ENDIAN
+// #if BYTE_ORDER == BIG_ENDIAN
+//             static const uint32_t mask[4] = {
+//                 0x00000000, 0xffffff00, 0xffff0000, 0xff000000
+//             };
+// #endif
+//#if BYTE_ORDER == LITTLE_ENDIAN
             static const uint32_t mask[4] = {
                 0x00000000, 0x00ffffff, 0x0000ffff, 0x000000ff
             };
-#endif
+//#endif
             //printf("Applying pad mask: %p to %p\n", (void*)mask[padded-len],
             //    *reinterpret_cast<void**>(data+padded-4));
             *reinterpret_cast<uint32_t*>(data+padded-4) &= mask[padded-len];
@@ -1453,7 +1471,9 @@ status_t Parcel::writeFileDescriptor(int fd, bool takeOwnership) {
                     return err;
                 }
                 rpcFields->mObjectPositions.push_back(dataPos);
+#ifndef _MSC_VER
                 rpcFields->mFds->push_back(std::move(fdVariant));
+#endif
                 return OK;
             }
         }
@@ -1464,11 +1484,11 @@ status_t Parcel::writeFileDescriptor(int fd, bool takeOwnership) {
     obj.hdr.type = BINDER_TYPE_FD;
     obj.flags = 0x7f | FLAT_BINDER_FLAG_ACCEPTS_FDS;
     obj.binder = 0; /* Don't pass uninitialized stack data to a remote process */
-    obj.handle = fd;
+    obj.binder_internal_handle = fd;
     obj.cookie = takeOwnership ? 1 : 0;
     return writeObject(obj, true);
 #else  // BINDER_WITH_KERNEL_IPC
-    LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+    LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0);
     (void)fd;
     (void)takeOwnership;
     return INVALID_OPERATION;
@@ -1477,6 +1497,7 @@ status_t Parcel::writeFileDescriptor(int fd, bool takeOwnership) {
 
 status_t Parcel::writeDupFileDescriptor(int fd)
 {
+#ifndef _MSC_VER
     int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (dupFd < 0) {
         return -errno;
@@ -1486,6 +1507,10 @@ status_t Parcel::writeDupFileDescriptor(int fd)
         close(dupFd);
     }
     return err;
+#else
+    return 0;
+#endif
+
 }
 
 status_t Parcel::writeParcelFileDescriptor(int fd, bool takeOwnership)
@@ -1496,6 +1521,7 @@ status_t Parcel::writeParcelFileDescriptor(int fd, bool takeOwnership)
 
 status_t Parcel::writeDupParcelFileDescriptor(int fd)
 {
+#ifndef _MSC_VER
     int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (dupFd < 0) {
         return -errno;
@@ -1505,6 +1531,9 @@ status_t Parcel::writeDupParcelFileDescriptor(int fd)
         close(dupFd);
     }
     return err;
+#else
+    return 0;
+#endif
 }
 
 status_t Parcel::writeUniqueFileDescriptor(const base::unique_fd& fd) {
@@ -1535,7 +1564,7 @@ status_t Parcel::writeBlob(size_t len, bool mutableCopy, WritableBlob* outBlob)
     ALOGV("writeBlob: write to ashmem");
     int fd = ashmem_create_region("Parcel Blob", len);
     if (fd < 0) return NO_MEMORY;
-
+#ifndef _MSC_VER
     int result = ashmem_set_prot_region(fd, PROT_READ | PROT_WRITE);
     if (result < 0) {
         status = result;
@@ -1562,7 +1591,10 @@ status_t Parcel::writeBlob(size_t len, bool mutableCopy, WritableBlob* outBlob)
         }
         ::munmap(ptr, len);
     }
-    ::close(fd);
+    ::close( fd );
+#else
+    return 0;
+#endif
     return status;
 }
 
@@ -1817,8 +1849,10 @@ status_t Parcel::readOutVectorSizeWithCheck(size_t elmSize, int32_t* size) const
     // approximation, can't know max element size (e.g. if it makes heap
     // allocations)
     static_assert(sizeof(int) == sizeof(int32_t), "Android is LP64");
-    int32_t allocationSize;
-    if (__builtin_smul_overflow(elmSize, *size, &allocationSize)) return NO_MEMORY;
+    int32_t allocationSize = (elmSize) *( * size );
+#ifndef _MSC_VER
+    if ( __builtin_mul_overflow(elmSize, *size, &allocationSize)) return NO_MEMORY;
+#endif
 
     // High limit of 1MB since something this big could never be returned. Could
     // probably scope this down, but might impact very specific usecases.
@@ -2198,6 +2232,7 @@ native_handle* Parcel::readNativeHandle() const
     }
 
     for (int i=0 ; err==NO_ERROR && i<numFds ; i++) {
+#ifndef _MSC_VER
         h->data[i] = fcntl(readFileDescriptor(), F_DUPFD_CLOEXEC, 0);
         if (h->data[i] < 0) {
             for (int j = 0; j < i; j++) {
@@ -2206,6 +2241,7 @@ native_handle* Parcel::readNativeHandle() const
             native_handle_delete(h);
             return nullptr;
         }
+#endif
     }
     err = read(h->data + numFds, sizeof(int)*numInts);
     if (err != NO_ERROR) {
@@ -2238,19 +2274,23 @@ int Parcel::readFileDescriptor() const {
                   fdIndex, rpcFields->mFds ? rpcFields->mFds->size() : 0);
             return BAD_VALUE;
         }
+#ifndef _MSC_VER
         return toRawFd(rpcFields->mFds->at(fdIndex));
+#else
+        return 0;
+#endif
     }
 
 #ifdef BINDER_WITH_KERNEL_IPC
     const flat_binder_object* flat = readObject(true);
 
     if (flat && flat->hdr.type == BINDER_TYPE_FD) {
-        return flat->handle;
+        return flat->binder_internal_handle;
     }
 
     return BAD_TYPE;
 #else  // BINDER_WITH_KERNEL_IPC
-    LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+    LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0);
     return INVALID_OPERATION;
 #endif // BINDER_WITH_KERNEL_IPC
 }
@@ -2268,6 +2308,8 @@ int Parcel::readParcelFileDescriptor() const {
             DETACHED = 2,
         };
 
+#ifndef _MSC_VER
+
 #if BYTE_ORDER == BIG_ENDIAN
         const int32_t message = ParcelFileDescriptorStatus::DETACHED;
 #endif
@@ -2283,6 +2325,7 @@ int Parcel::readParcelFileDescriptor() const {
                 written, strerror(errno));
             return BAD_TYPE;
         }
+#endif // !_MSC_VER
     }
     return fd;
 }
@@ -2294,13 +2337,13 @@ status_t Parcel::readUniqueFileDescriptor(base::unique_fd* val) const
     if (got == BAD_TYPE) {
         return BAD_TYPE;
     }
-
+#ifndef _MSC_VER
     val->reset(fcntl(got, F_DUPFD_CLOEXEC, 0));
 
     if (val->get() < 0) {
         return BAD_VALUE;
     }
-
+#endif
     return OK;
 }
 
@@ -2311,9 +2354,9 @@ status_t Parcel::readUniqueParcelFileDescriptor(base::unique_fd* val) const
     if (got == BAD_TYPE) {
         return BAD_TYPE;
     }
-
+#ifndef _MSC_VER
     val->reset(fcntl(got, F_DUPFD_CLOEXEC, 0));
-
+#endif
     if (val->get() < 0) {
         return BAD_VALUE;
     }
@@ -2350,11 +2393,13 @@ status_t Parcel::readBlob(size_t len, ReadableBlob* outBlob) const
         ALOGE("request size %zu does not match fd size %d", len, size);
         return BAD_VALUE;
     }
+#ifndef _MSC_VER
     void* ptr = ::mmap(nullptr, len, isMutable ? PROT_READ | PROT_WRITE : PROT_READ,
             MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) return NO_MEMORY;
 
     outBlob->init(fd, ptr, len, isMutable);
+#endif
     return NO_ERROR;
 }
 
@@ -2387,6 +2432,7 @@ status_t Parcel::read(FlattenableHelperInterface& val) const
     status_t err = NO_ERROR;
     for (size_t i=0 ; i<fd_count && err==NO_ERROR ; i++) {
         int fd = this->readFileDescriptor();
+#ifndef _MSC_VER
         if (fd < 0 || ((fds[i] = fcntl(fd, F_DUPFD_CLOEXEC, 0)) < 0)) {
             err = BAD_VALUE;
             ALOGE("fcntl(F_DUPFD_CLOEXEC) failed in Parcel::read, i is %zu, fds[i] is %d, fd_count is %zu, error: %s",
@@ -2396,6 +2442,7 @@ status_t Parcel::read(FlattenableHelperInterface& val) const
                 close(fds[j]);
             }
         }
+#endif
     }
 
     if (err == NO_ERROR) {
@@ -2490,11 +2537,11 @@ void Parcel::closeFileDescriptors() {
                     reinterpret_cast<flat_binder_object*>(mData + kernelFields->mObjects[i]);
             if (flat->hdr.type == BINDER_TYPE_FD) {
                 // ALOGI("Closing fd: %ld", flat->handle);
-                close(flat->handle);
+                porting_binder::close_binder(flat->binder_internal_handle);
             }
         }
 #else  // BINDER_WITH_KERNEL_IPC
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
+        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0);
 #endif // BINDER_WITH_KERNEL_IPC
     } else if (auto* rpcFields = maybeRpcFields()) {
         rpcFields->mFds.reset();
@@ -2622,7 +2669,9 @@ status_t Parcel::rpcSetDataReference(
     }
     if (!ancillaryFds.empty()) {
         rpcFields->mFds = std::make_unique<decltype(rpcFields->mFds)::element_type>();
+#ifndef _MSC_VER
         *rpcFields->mFds = std::move(ancillaryFds);
+#endif
     }
 
     return OK;
@@ -2960,7 +3009,7 @@ status_t Parcel::continueWrite(size_t desired)
             kernelFields->mNextObjectHint = 0;
             kernelFields->mObjectsSorted = false;
 #else  // BINDER_WITH_KERNEL_IPC
-            LOG_ALWAYS_FATAL("Non-zero numObjects for RPC Parcel");
+            LOG_ALWAYS_FATAL("Non-zero numObjects for RPC Parcel",0);
 #endif // BINDER_WITH_KERNEL_IPC
         }
         if (rpcFields) {
@@ -3102,8 +3151,9 @@ size_t Parcel::getOpenAshmemSize() const
 
         // cookie is compared against zero for historical reasons
         // > obj.cookie = takeOwnership ? 1 : 0;
-        if (flat->hdr.type == BINDER_TYPE_FD && flat->cookie != 0 && ashmem_valid(flat->handle)) {
-            int size = ashmem_get_size_region(flat->handle);
+        if (flat->hdr.type == BINDER_TYPE_FD && flat->cookie != 0 &&
+            ashmem_valid(flat->binder_internal_handle)) {
+            int size = ashmem_get_size_region(flat->binder_internal_handle);
             if (__builtin_add_overflow(openAshmemSize, size, &openAshmemSize)) {
                 ALOGE("Overflow when computing ashmem size.");
                 return SIZE_MAX;
@@ -3126,7 +3176,9 @@ Parcel::Blob::~Blob() {
 
 void Parcel::Blob::release() {
     if (mFd != -1 && mData) {
+#ifndef _MSC_VER
         ::munmap(mData, mSize);
+#endif
     }
     clear();
 }

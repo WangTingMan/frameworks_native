@@ -18,13 +18,18 @@
 #include <stddef.h>
 #include <cstdint>
 
+#ifndef _MSC_VER
 #include <android-base/result.h>
 #include <android-base/unique_fd.h>
+#endif
+
 #include <utils/Errors.h>
 
 namespace android {
 
+#ifndef _MSC_VER
 android::base::Result<void> setNonBlocking(android::base::borrowed_fd fd);
+#endif
 
 status_t getRandomBytes(uint8_t* data, size_t size);
 

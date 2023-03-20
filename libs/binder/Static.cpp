@@ -36,7 +36,7 @@ public:
     virtual ~LogTextOutput() { }
 
 protected:
-    virtual status_t writeLines(const struct iovec& vec, size_t N)
+    virtual status_t writeLines(const struct iovec_fake& vec, size_t N)
     {
         //android_writevLog(&vec, N);       <-- this is now a no-op
         if (N != 1) ALOGI("WARNING: writeLines N=%zu\n", N);
@@ -52,9 +52,10 @@ public:
     virtual ~FdTextOutput() { }
 
 protected:
-    virtual status_t writeLines(const struct iovec& vec, size_t N)
+    virtual status_t writeLines(const struct iovec_fake& vec, size_t N)
     {
-        ssize_t ret = writev(mFD, &vec, N);
+        ssize_t ret = 0;
+        //writev(mFD, &vec, N);
         if (ret == -1) return -errno;
         if (static_cast<size_t>(ret) != N) return UNKNOWN_ERROR;
         return NO_ERROR;
@@ -65,7 +66,7 @@ private:
 };
 
 TextOutput& alog(*new LogTextOutput());
-TextOutput& aout(*new FdTextOutput(STDOUT_FILENO));
-TextOutput& aerr(*new FdTextOutput(STDERR_FILENO));
+TextOutput& aout(*new FdTextOutput(0));
+TextOutput& aerr(*new FdTextOutput(1));
 
 }   // namespace android

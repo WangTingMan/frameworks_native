@@ -28,12 +28,35 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#ifndef _MSC_VER
 #include <sys/cdefs.h>
+#endif
 
 #include <android/binder_status.h>
+#include <android/libbinder_ndk_export.h>
 
 struct AIBinder;
 typedef struct AIBinder AIBinder;
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS
+#endif
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#ifndef __END_DECLS
+#define __END_DECLS
+#endif
+#endif
 
 __BEGIN_DECLS
 
@@ -54,7 +77,7 @@ typedef struct AParcel AParcel;
  * \param parcel A parcel returned by AIBinder_prepareTransaction or AIBinder_transact when a
  * transaction is being aborted.
  */
-void AParcel_delete(AParcel* parcel) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT void AParcel_delete(AParcel* parcel) __INTRODUCED_IN(29);
 
 /**
  * Sets the position within the parcel.
@@ -72,7 +95,7 @@ void AParcel_delete(AParcel* parcel) __INTRODUCED_IN(29);
  *
  * \return STATUS_OK on success. If position is negative, then STATUS_BAD_VALUE will be returned.
  */
-binder_status_t AParcel_setDataPosition(const AParcel* parcel, int32_t position)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_setDataPosition(const AParcel* parcel, int32_t position)
         __INTRODUCED_IN(29);
 
 /**
@@ -88,7 +111,7 @@ binder_status_t AParcel_setDataPosition(const AParcel* parcel, int32_t position)
  * is X, writeBool is called, and then position is Y, readBool can be called from position X will
  * return the same value, and then position will be Y.
  */
-int32_t AParcel_getDataPosition(const AParcel* parcel) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT int32_t AParcel_getDataPosition(const AParcel* parcel) __INTRODUCED_IN(29);
 
 /**
  * This is called to allocate a buffer for a C-style string (null-terminated). The returned buffer
@@ -188,7 +211,7 @@ typedef bool (*AParcel_parcelableArrayAllocator)(void* arrayData, int32_t length
  *
  * \return status (usually returned from other parceling functions). STATUS_OK for success.
  */
-typedef binder_status_t (*AParcel_writeParcelableElement)(AParcel* parcel, const void* arrayData,
+typedef LIBBINDER_NDK_EXPORT binder_status_t (*AParcel_writeParcelableElement)(AParcel* parcel, const void* arrayData,
                                                           size_t index);
 
 /**
@@ -202,7 +225,7 @@ typedef binder_status_t (*AParcel_writeParcelableElement)(AParcel* parcel, const
  *
  * \return status (usually returned from other parceling functions). STATUS_OK for success.
  */
-typedef binder_status_t (*AParcel_readParcelableElement)(const AParcel* parcel, void* arrayData,
+typedef LIBBINDER_NDK_EXPORT binder_status_t (*AParcel_readParcelableElement)(const AParcel* parcel, void* arrayData,
                                                          size_t index);
 
 // @START-PRIMITIVE-VECTOR-GETTERS
@@ -407,7 +430,7 @@ typedef bool (*AParcel_byteArrayAllocator)(void* arrayData, int32_t length, int8
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeStrongBinder(AParcel* parcel, AIBinder* binder) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeStrongBinder(AParcel* parcel, AIBinder* binder) __INTRODUCED_IN(29);
 
 /**
  * Reads an AIBinder from the next location in a non-null parcel. One strong ref-count of ownership
@@ -420,7 +443,7 @@ binder_status_t AParcel_writeStrongBinder(AParcel* parcel, AIBinder* binder) __I
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_readStrongBinder(const AParcel* parcel, AIBinder** binder)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readStrongBinder(const AParcel* parcel, AIBinder** binder)
         __INTRODUCED_IN(29);
 
 /**
@@ -436,7 +459,7 @@ binder_status_t AParcel_readStrongBinder(const AParcel* parcel, AIBinder** binde
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeParcelFileDescriptor(AParcel* parcel, int fd) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeParcelFileDescriptor(AParcel* parcel, int fd) __INTRODUCED_IN(29);
 
 /**
  * Reads an int from the next location in a non-null parcel.
@@ -453,14 +476,14 @@ binder_status_t AParcel_writeParcelFileDescriptor(AParcel* parcel, int fd) __INT
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_readParcelFileDescriptor(const AParcel* parcel, int* fd)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readParcelFileDescriptor(const AParcel* parcel, int* fd)
         __INTRODUCED_IN(29);
 
 /**
  * Writes an AStatus object to the next location in a non-null parcel.
  *
  * If the status is considered to be a low-level status and has no additional information other
- * than a binder_status_t (for instance, if it is created with AStatus_fromStatus), then that
+ * than a LIBBINDER_NDK_EXPORT binder_status_t (for instance, if it is created with AStatus_fromStatus), then that
  * status will be returned from this method and nothing will be written to the parcel. If either
  * this happens or if writing the status object itself fails, the return value from this function
  * should be propagated to the client, and AParcel_readStatusHeader shouldn't be called.
@@ -472,7 +495,7 @@ binder_status_t AParcel_readParcelFileDescriptor(const AParcel* parcel, int* fd)
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeStatusHeader(AParcel* parcel, const AStatus* status)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeStatusHeader(AParcel* parcel, const AStatus* status)
         __INTRODUCED_IN(29);
 
 /**
@@ -486,7 +509,7 @@ binder_status_t AParcel_writeStatusHeader(AParcel* parcel, const AStatus* status
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_readStatusHeader(const AParcel* parcel, AStatus** status)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readStatusHeader(const AParcel* parcel, AStatus** status)
         __INTRODUCED_IN(29);
 
 /**
@@ -502,7 +525,7 @@ binder_status_t AParcel_readStatusHeader(const AParcel* parcel, AStatus** status
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeString(AParcel* parcel, const char* string, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeString(AParcel* parcel, const char* string, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -521,7 +544,7 @@ binder_status_t AParcel_writeString(AParcel* parcel, const char* string, int32_t
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_readString(const AParcel* parcel, void* stringData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readString(const AParcel* parcel, void* stringData,
                                    AParcel_stringAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -542,7 +565,7 @@ binder_status_t AParcel_readString(const AParcel* parcel, void* stringData,
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeStringArray(AParcel* parcel, const void* arrayData, int32_t length,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeStringArray(AParcel* parcel, const void* arrayData, int32_t length,
                                          AParcel_stringArrayElementGetter getter)
         __INTRODUCED_IN(29);
 
@@ -567,7 +590,7 @@ binder_status_t AParcel_writeStringArray(AParcel* parcel, const void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readStringArray(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readStringArray(const AParcel* parcel, void* arrayData,
                                         AParcel_stringArrayAllocator allocator,
                                         AParcel_stringArrayElementAllocator elementAllocator)
         __INTRODUCED_IN(29);
@@ -585,7 +608,7 @@ binder_status_t AParcel_readStringArray(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeParcelableArray(AParcel* parcel, const void* arrayData, int32_t length,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeParcelableArray(AParcel* parcel, const void* arrayData, int32_t length,
                                              AParcel_writeParcelableElement elementWriter)
         __INTRODUCED_IN(29);
 
@@ -605,7 +628,7 @@ binder_status_t AParcel_writeParcelableArray(AParcel* parcel, const void* arrayD
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readParcelableArray(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readParcelableArray(const AParcel* parcel, void* arrayData,
                                             AParcel_parcelableArrayAllocator allocator,
                                             AParcel_readParcelableElement elementReader)
         __INTRODUCED_IN(29);
@@ -621,7 +644,7 @@ binder_status_t AParcel_readParcelableArray(const AParcel* parcel, void* arrayDa
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeInt32(AParcel* parcel, int32_t value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeInt32(AParcel* parcel, int32_t value) __INTRODUCED_IN(29);
 
 /**
  * Writes uint32_t value to the next location in a non-null parcel.
@@ -633,7 +656,7 @@ binder_status_t AParcel_writeInt32(AParcel* parcel, int32_t value) __INTRODUCED_
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeUint32(AParcel* parcel, uint32_t value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeUint32(AParcel* parcel, uint32_t value) __INTRODUCED_IN(29);
 
 /**
  * Writes int64_t value to the next location in a non-null parcel.
@@ -645,7 +668,7 @@ binder_status_t AParcel_writeUint32(AParcel* parcel, uint32_t value) __INTRODUCE
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeInt64(AParcel* parcel, int64_t value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeInt64(AParcel* parcel, int64_t value) __INTRODUCED_IN(29);
 
 /**
  * Writes uint64_t value to the next location in a non-null parcel.
@@ -657,7 +680,7 @@ binder_status_t AParcel_writeInt64(AParcel* parcel, int64_t value) __INTRODUCED_
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeUint64(AParcel* parcel, uint64_t value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeUint64(AParcel* parcel, uint64_t value) __INTRODUCED_IN(29);
 
 /**
  * Writes float value to the next location in a non-null parcel.
@@ -669,7 +692,7 @@ binder_status_t AParcel_writeUint64(AParcel* parcel, uint64_t value) __INTRODUCE
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeFloat(AParcel* parcel, float value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeFloat(AParcel* parcel, float value) __INTRODUCED_IN(29);
 
 /**
  * Writes double value to the next location in a non-null parcel.
@@ -681,7 +704,7 @@ binder_status_t AParcel_writeFloat(AParcel* parcel, float value) __INTRODUCED_IN
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeDouble(AParcel* parcel, double value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeDouble(AParcel* parcel, double value) __INTRODUCED_IN(29);
 
 /**
  * Writes bool value to the next location in a non-null parcel.
@@ -693,7 +716,7 @@ binder_status_t AParcel_writeDouble(AParcel* parcel, double value) __INTRODUCED_
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeBool(AParcel* parcel, bool value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeBool(AParcel* parcel, bool value) __INTRODUCED_IN(29);
 
 /**
  * Writes char16_t value to the next location in a non-null parcel.
@@ -705,7 +728,7 @@ binder_status_t AParcel_writeBool(AParcel* parcel, bool value) __INTRODUCED_IN(2
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeChar(AParcel* parcel, char16_t value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeChar(AParcel* parcel, char16_t value) __INTRODUCED_IN(29);
 
 /**
  * Writes int8_t value to the next location in a non-null parcel.
@@ -717,7 +740,7 @@ binder_status_t AParcel_writeChar(AParcel* parcel, char16_t value) __INTRODUCED_
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeByte(AParcel* parcel, int8_t value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeByte(AParcel* parcel, int8_t value) __INTRODUCED_IN(29);
 
 /**
  * Reads into int32_t value from the next location in a non-null parcel.
@@ -729,7 +752,7 @@ binder_status_t AParcel_writeByte(AParcel* parcel, int8_t value) __INTRODUCED_IN
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readInt32(const AParcel* parcel, int32_t* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readInt32(const AParcel* parcel, int32_t* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into uint32_t value from the next location in a non-null parcel.
@@ -741,7 +764,7 @@ binder_status_t AParcel_readInt32(const AParcel* parcel, int32_t* value) __INTRO
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readUint32(const AParcel* parcel, uint32_t* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readUint32(const AParcel* parcel, uint32_t* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into int64_t value from the next location in a non-null parcel.
@@ -753,7 +776,7 @@ binder_status_t AParcel_readUint32(const AParcel* parcel, uint32_t* value) __INT
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readInt64(const AParcel* parcel, int64_t* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readInt64(const AParcel* parcel, int64_t* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into uint64_t value from the next location in a non-null parcel.
@@ -765,7 +788,7 @@ binder_status_t AParcel_readInt64(const AParcel* parcel, int64_t* value) __INTRO
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readUint64(const AParcel* parcel, uint64_t* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readUint64(const AParcel* parcel, uint64_t* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into float value from the next location in a non-null parcel.
@@ -777,7 +800,7 @@ binder_status_t AParcel_readUint64(const AParcel* parcel, uint64_t* value) __INT
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readFloat(const AParcel* parcel, float* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readFloat(const AParcel* parcel, float* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into double value from the next location in a non-null parcel.
@@ -789,7 +812,7 @@ binder_status_t AParcel_readFloat(const AParcel* parcel, float* value) __INTRODU
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readDouble(const AParcel* parcel, double* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readDouble(const AParcel* parcel, double* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into bool value from the next location in a non-null parcel.
@@ -801,7 +824,7 @@ binder_status_t AParcel_readDouble(const AParcel* parcel, double* value) __INTRO
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readBool(const AParcel* parcel, bool* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readBool(const AParcel* parcel, bool* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into char16_t value from the next location in a non-null parcel.
@@ -813,7 +836,7 @@ binder_status_t AParcel_readBool(const AParcel* parcel, bool* value) __INTRODUCE
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readChar(const AParcel* parcel, char16_t* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readChar(const AParcel* parcel, char16_t* value) __INTRODUCED_IN(29);
 
 /**
  * Reads into int8_t value from the next location in a non-null parcel.
@@ -825,7 +848,7 @@ binder_status_t AParcel_readChar(const AParcel* parcel, char16_t* value) __INTRO
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readByte(const AParcel* parcel, int8_t* value) __INTRODUCED_IN(29);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readByte(const AParcel* parcel, int8_t* value) __INTRODUCED_IN(29);
 
 /**
  * Writes an array of int32_t to the next location in a non-null parcel.
@@ -838,7 +861,7 @@ binder_status_t AParcel_readByte(const AParcel* parcel, int8_t* value) __INTRODU
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeInt32Array(AParcel* parcel, const int32_t* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeInt32Array(AParcel* parcel, const int32_t* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -852,7 +875,7 @@ binder_status_t AParcel_writeInt32Array(AParcel* parcel, const int32_t* arrayDat
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeUint32Array(AParcel* parcel, const uint32_t* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeUint32Array(AParcel* parcel, const uint32_t* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -866,7 +889,7 @@ binder_status_t AParcel_writeUint32Array(AParcel* parcel, const uint32_t* arrayD
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeInt64Array(AParcel* parcel, const int64_t* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeInt64Array(AParcel* parcel, const int64_t* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -880,7 +903,7 @@ binder_status_t AParcel_writeInt64Array(AParcel* parcel, const int64_t* arrayDat
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeUint64Array(AParcel* parcel, const uint64_t* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeUint64Array(AParcel* parcel, const uint64_t* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -894,7 +917,7 @@ binder_status_t AParcel_writeUint64Array(AParcel* parcel, const uint64_t* arrayD
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeFloatArray(AParcel* parcel, const float* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeFloatArray(AParcel* parcel, const float* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -908,7 +931,7 @@ binder_status_t AParcel_writeFloatArray(AParcel* parcel, const float* arrayData,
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeDoubleArray(AParcel* parcel, const double* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeDoubleArray(AParcel* parcel, const double* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -926,7 +949,7 @@ binder_status_t AParcel_writeDoubleArray(AParcel* parcel, const double* arrayDat
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeBoolArray(AParcel* parcel, const void* arrayData, int32_t length,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeBoolArray(AParcel* parcel, const void* arrayData, int32_t length,
                                        AParcel_boolArrayGetter getter) __INTRODUCED_IN(29);
 
 /**
@@ -940,7 +963,7 @@ binder_status_t AParcel_writeBoolArray(AParcel* parcel, const void* arrayData, i
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeCharArray(AParcel* parcel, const char16_t* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeCharArray(AParcel* parcel, const char16_t* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -954,7 +977,7 @@ binder_status_t AParcel_writeCharArray(AParcel* parcel, const char16_t* arrayDat
  *
  * \return STATUS_OK on successful write.
  */
-binder_status_t AParcel_writeByteArray(AParcel* parcel, const int8_t* arrayData, int32_t length)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_writeByteArray(AParcel* parcel, const int8_t* arrayData, int32_t length)
         __INTRODUCED_IN(29);
 
 /**
@@ -972,7 +995,7 @@ binder_status_t AParcel_writeByteArray(AParcel* parcel, const int8_t* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readInt32Array(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readInt32Array(const AParcel* parcel, void* arrayData,
                                        AParcel_int32ArrayAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -990,7 +1013,7 @@ binder_status_t AParcel_readInt32Array(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readUint32Array(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readUint32Array(const AParcel* parcel, void* arrayData,
                                         AParcel_uint32ArrayAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -1008,7 +1031,7 @@ binder_status_t AParcel_readUint32Array(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readInt64Array(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readInt64Array(const AParcel* parcel, void* arrayData,
                                        AParcel_int64ArrayAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -1026,7 +1049,7 @@ binder_status_t AParcel_readInt64Array(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readUint64Array(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readUint64Array(const AParcel* parcel, void* arrayData,
                                         AParcel_uint64ArrayAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -1044,7 +1067,7 @@ binder_status_t AParcel_readUint64Array(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readFloatArray(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readFloatArray(const AParcel* parcel, void* arrayData,
                                        AParcel_floatArrayAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -1062,7 +1085,7 @@ binder_status_t AParcel_readFloatArray(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readDoubleArray(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readDoubleArray(const AParcel* parcel, void* arrayData,
                                         AParcel_doubleArrayAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -1081,7 +1104,7 @@ binder_status_t AParcel_readDoubleArray(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readBoolArray(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readBoolArray(const AParcel* parcel, void* arrayData,
                                       AParcel_boolArrayAllocator allocator,
                                       AParcel_boolArraySetter setter) __INTRODUCED_IN(29);
 
@@ -1100,7 +1123,7 @@ binder_status_t AParcel_readBoolArray(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readCharArray(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readCharArray(const AParcel* parcel, void* arrayData,
                                       AParcel_charArrayAllocator allocator) __INTRODUCED_IN(29);
 
 /**
@@ -1118,7 +1141,7 @@ binder_status_t AParcel_readCharArray(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on successful read.
  */
-binder_status_t AParcel_readByteArray(const AParcel* parcel, void* arrayData,
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_readByteArray(const AParcel* parcel, void* arrayData,
                                       AParcel_byteArrayAllocator allocator) __INTRODUCED_IN(29);
 
 // @END-PRIMITIVE-READ-WRITE
@@ -1132,7 +1155,7 @@ binder_status_t AParcel_readByteArray(const AParcel* parcel, void* arrayData,
  *
  * \return STATUS_OK on success.
  */
-binder_status_t AParcel_reset(AParcel* parcel) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_reset(AParcel* parcel) __INTRODUCED_IN(31);
 
 /**
  * Gets the size of the parcel.
@@ -1143,7 +1166,7 @@ binder_status_t AParcel_reset(AParcel* parcel) __INTRODUCED_IN(31);
  *
  * \return The size of the parcel.
  */
-int32_t AParcel_getDataSize(const AParcel* parcel) __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT int32_t AParcel_getDataSize(const AParcel* parcel) __INTRODUCED_IN(31);
 
 /**
  * Copy the data of a parcel to other parcel.
@@ -1157,7 +1180,7 @@ int32_t AParcel_getDataSize(const AParcel* parcel) __INTRODUCED_IN(31);
  *
  * \return STATUS_OK on success.
  */
-binder_status_t AParcel_appendFrom(const AParcel* from, AParcel* to, int32_t start, int32_t size)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_appendFrom(const AParcel* from, AParcel* to, int32_t start, int32_t size)
         __INTRODUCED_IN(31);
 
 /**
@@ -1167,7 +1190,7 @@ binder_status_t AParcel_appendFrom(const AParcel* from, AParcel* to, int32_t sta
  *
  * \return A parcel which is not related to any IBinder objects.
  */
-AParcel* AParcel_create() __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT AParcel* AParcel_create() __INTRODUCED_IN(31);
 
 /**
  * Marshals the raw bytes of the Parcel to a buffer.
@@ -1190,7 +1213,7 @@ AParcel* AParcel_create() __INTRODUCED_IN(31);
  * \return STATUS_OK on success, STATUS_INVALID_OPERATION if parcel contains binders or file
  * descriptors. STATUS_BAD_VALUE if the buffer size is less than parcel size.
  */
-binder_status_t AParcel_marshal(const AParcel* parcel, uint8_t* buffer, size_t start, size_t len)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_marshal(const AParcel* parcel, uint8_t* buffer, size_t start, size_t len)
         __INTRODUCED_IN(33);
 
 /**
@@ -1204,7 +1227,7 @@ binder_status_t AParcel_marshal(const AParcel* parcel, uint8_t* buffer, size_t s
  *
  * \return STATUS_OK on success.
  */
-binder_status_t AParcel_unmarshal(AParcel* parcel, const uint8_t* buffer, size_t len)
+LIBBINDER_NDK_EXPORT binder_status_t AParcel_unmarshal(AParcel* parcel, const uint8_t* buffer, size_t len)
         __INTRODUCED_IN(33);
 
 __END_DECLS
