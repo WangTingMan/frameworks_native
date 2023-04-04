@@ -26,6 +26,12 @@
 #define uid_t int32_t
 #endif
 
+#ifdef _MSC_VER
+#ifdef interface
+#undef interface
+#endif
+#endif
+
 namespace android {
 
 // ----------------------------------------------------------------------

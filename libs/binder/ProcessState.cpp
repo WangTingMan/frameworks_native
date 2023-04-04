@@ -18,11 +18,9 @@
 
 #include <binder/ProcessState.h>
 
-#ifndef _MSC_VER
 #include <android-base/result.h>
 #include <android-base/scopeguard.h>
 #include <android-base/strings.h>
-#endif
 
 #include <binder/BpBinder.h>
 #include <binder/IPCThreadState.h>
@@ -46,6 +44,8 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#else
+#include <linux/binder.h>
 #endif
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -187,9 +187,7 @@ void ProcessState::childPostFork() {
         gProcess->mForked = true;
 
         // "O_CLOFORK"
-#ifndef _MSC_VER
-        close(gProcess->mDriverFD);
-#endif
+        porting_binder::close_binder(gProcess->mDriverFD);
         gProcess->mDriverFD = -1;
     }
     gProcessMutex.unlock();
@@ -212,25 +210,23 @@ bool ProcessState::becomeContextManager()
 {
     int result = 0;
     AutoMutex _l(mLock);
-#ifndef _MSC_VER
     flat_binder_object obj {
         .flags = FLAT_BINDER_FLAG_TXN_SECURITY_CTX,
     };
 
-    result = ioctl(mDriverFD, BINDER_SET_CONTEXT_MGR_EXT, &obj);
+    result = porting_binder::fcntl_binder(mDriverFD, BINDER_SET_CONTEXT_MGR_EXT, &obj);
 
     // fallback to original method
     if (result != 0) {
         android_errorWriteLog(0x534e4554, "121035042");
 
         int unused = 0;
-        result = ioctl(mDriverFD, BINDER_SET_CONTEXT_MGR, &unused);
+        result = porting_binder::fcntl_binder(mDriverFD, BINDER_SET_CONTEXT_MGR, &unused);
     }
 
     if (result == -1) {
         ALOGE("Binder ioctl to become context manager failed: %s\n", strerror(errno));
     }
-#endif
     return result == 0;
 }
 
@@ -243,13 +239,12 @@ bool ProcessState::becomeContextManager()
 ssize_t ProcessState::getKernelReferences(size_t buf_count, uintptr_t* buf)
 {
     size_t count = 0;
-#ifndef _MSC_VER
     binder_node_debug_info info = {};
 
     uintptr_t* end = buf ? buf + buf_count : nullptr;
 
     do {
-        status_t result = ioctl(mDriverFD, BINDER_GET_NODE_DEBUG_INFO, &info);
+        status_t result = porting_binder::fcntl_binder(mDriverFD, BINDER_GET_NODE_DEBUG_INFO, &info);
         if (result < 0) {
             return -1;
         }
@@ -262,7 +257,6 @@ ssize_t ProcessState::getKernelReferences(size_t buf_count, uintptr_t* buf)
             count++;
         }
     } while (info.ptr != 0);
-#endif
     return count;
 }
 
@@ -272,13 +266,12 @@ ssize_t ProcessState::getKernelReferences(size_t buf_count, uintptr_t* buf)
 // Returns -1 in case of failure, otherwise the strong reference count.
 ssize_t ProcessState::getStrongRefCountForNode(const sp<BpBinder>& binder) {
     if (binder->isRpcBinder()) return -1;
-#ifndef _MSC_VER
     binder_node_info_for_ref info;
     memset(&info, 0, sizeof(binder_node_info_for_ref));
 
     info.handle = binder->getPrivateAccessor().binderHandle();
 
-    status_t result = ioctl(mDriverFD, BINDER_GET_NODE_INFO_FOR_REF, &info);
+    status_t result = porting_binder::fcntl_binder(mDriverFD, BINDER_GET_NODE_INFO_FOR_REF, &info);
 
     if (result != OK) {
         static bool logged = false;
@@ -290,9 +283,6 @@ ssize_t ProcessState::getStrongRefCountForNode(const sp<BpBinder>& binder) {
     }
 
     return info.strong_count;
-#else
-    return 0;
-#endif
 }
 
 void ProcessState::setCallRestriction(CallRestriction restriction) {
@@ -418,11 +408,9 @@ void ProcessState::spawnPooledThread(bool isMain)
         ALOGV("Spawning new pooled thread, name=%s\n", name.string());
         sp<Thread> t = sp<PoolThread>::make(isMain);
         t->run(name.string());
-#ifndef _MSC_VER
-        pthread_mutex_lock(&mThreadCountLock);
+
+        std::lock_guard<std::mutex> thread_mutex_lock(mThreadCountLock);
         mKernelStartedThreads++;
-        pthread_mutex_unlock(&mThreadCountLock);
-#endif
     }
 }
 
@@ -430,22 +418,19 @@ status_t ProcessState::setThreadPoolMaxThreadCount(size_t maxThreads) {
     LOG_ALWAYS_FATAL_IF(mThreadPoolStarted && maxThreads < mMaxThreads,
            "Binder threadpool cannot be shrunk after starting");
     status_t result = NO_ERROR;
-#ifndef _MSC_VER
-    if (ioctl(mDriverFD, BINDER_SET_MAX_THREADS, &maxThreads) != -1) {
+    if (porting_binder::fcntl_binder(mDriverFD, BINDER_SET_MAX_THREADS, &maxThreads) != -1) {
         mMaxThreads = maxThreads;
     } else {
         result = -errno;
         ALOGE("Binder ioctl to set max threads failed: %s", strerror(-result));
     }
-#endif
     return result;
 }
 
 size_t ProcessState::getThreadPoolMaxTotalThreadCount() const {
-#ifndef _MSC_VER
-    pthread_mutex_lock(&mThreadCountLock);
-    base::ScopeGuard detachGuard = [&]() { pthread_mutex_unlock(&mThreadCountLock); };
-#endif
+
+    std::lock_guard<std::mutex> thread_mutex_lock(mThreadCountLock);
+
     // may actually be one more than this, if join is called
     if (mThreadPoolStarted) {
         return mCurrentThreads < mKernelStartedThreads
@@ -462,7 +447,7 @@ size_t ProcessState::getThreadPoolMaxTotalThreadCount() const {
 }
 
 #define DRIVER_FEATURES_PATH "/dev/binderfs/features/"
-bool ProcessState::isDriverFeatureEnabled(const DriverFeature feature) {      
+bool ProcessState::isDriverFeatureEnabled(const DriverFeature feature) {
     char on = 0xFF;
 #ifndef _MSC_VER
     static const char* const names[] = {
@@ -488,13 +473,11 @@ bool ProcessState::isDriverFeatureEnabled(const DriverFeature feature) {
 }
 
 status_t ProcessState::enableOnewaySpamDetection(bool enable) {
-#ifndef _MSC_VER
     uint32_t enableDetection = enable ? 1 : 0;
-    if (ioctl(mDriverFD, BINDER_ENABLE_ONEWAY_SPAM_DETECTION, &enableDetection) == -1) {
+    if (porting_binder::fcntl_binder(mDriverFD, BINDER_ENABLE_ONEWAY_SPAM_DETECTION, &enableDetection) == -1) {
         ALOGI("Binder ioctl to enable oneway spam detection failed: %s", strerror(errno));
         return -errno;
     }
-#endif
     return NO_ERROR;
 }
 
@@ -506,32 +489,32 @@ String8 ProcessState::getDriverName() {
     return mDriverName;
 }
 
-#ifndef _MSC_VER
 static base::Result<int> open_driver(const char* driver) {
-    int fd = open(driver, O_RDWR | O_CLOEXEC);
+    int fd = porting_binder::open_binder(driver, O_RDWR | O_CLOEXEC);
     if (fd < 0) {
         return base::ErrnoError() << "Opening '" << driver << "' failed";
     }
     int vers = 0;
-    status_t result = ioctl(fd, BINDER_VERSION, &vers);
+
+    status_t result = porting_binder::fcntl_binder(fd, BINDER_VERSION, &vers);
     if (result == -1) {
-        close(fd);
+        porting_binder::close_binder(fd);
         return base::ErrnoError() << "Binder ioctl to obtain version failed";
     }
     if (result != 0 || vers != BINDER_CURRENT_PROTOCOL_VERSION) {
-        close(fd);
+        porting_binder::close_binder(fd);
         return base::Error() << "Binder driver protocol(" << vers
                              << ") does not match user space protocol("
                              << BINDER_CURRENT_PROTOCOL_VERSION
                              << ")! ioctl() return value: " << result;
     }
     size_t maxThreads = DEFAULT_MAX_BINDER_THREADS;
-    result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);
+    result = porting_binder::fcntl_binder(fd, BINDER_SET_MAX_THREADS, &maxThreads);
     if (result == -1) {
         ALOGE("Binder ioctl to set max threads failed: %s", strerror(errno));
     }
     uint32_t enable = DEFAULT_ENABLE_ONEWAY_SPAM_DETECTION;
-    result = ioctl(fd, BINDER_ENABLE_ONEWAY_SPAM_DETECTION, &enable);
+    result = porting_binder::fcntl_binder(fd, BINDER_ENABLE_ONEWAY_SPAM_DETECTION, &enable);
     if (result == -1) {
         ALOGE_IF(ProcessState::isDriverFeatureEnabled(
                      ProcessState::DriverFeature::ONEWAY_SPAM_DETECTION),
@@ -539,8 +522,6 @@ static base::Result<int> open_driver(const char* driver) {
     }
     return fd;
 }
-
-#endif
 
 ProcessState::ProcessState(const char* driver)
       : mDriverName(String8(driver)),
@@ -560,10 +541,10 @@ ProcessState::ProcessState(const char* driver)
         mThreadPoolStarted(false),
         mThreadPoolSeq(1),
         mCallRestriction(CallRestriction::NONE) {
-#ifndef _MSC_VER
     base::Result<int> opened = open_driver(driver);
 
     if (opened.ok()) {
+#ifndef _MSC_VER
         // mmap the binder, providing a chunk of virtual address space to receive transactions.
         mVMStart = mmap(nullptr, BINDER_VM_SIZE, PROT_READ, MAP_PRIVATE | MAP_NORESERVE,
                         opened.value(), 0);
@@ -574,6 +555,7 @@ ProcessState::ProcessState(const char* driver)
                     << "Using " << driver << " failed: unable to mmap transaction memory.";
             mDriverName.clear();
         }
+#endif
     }
 
 #ifdef __ANDROID__
@@ -585,19 +567,18 @@ ProcessState::ProcessState(const char* driver)
         mDriverFD = opened.value();
     }
 
-#endif
 }
 
 ProcessState::~ProcessState()
 {
-#ifndef _MSC_VER
     if (mDriverFD >= 0) {
+#ifndef _MSC_VER
         if (mVMStart != MAP_FAILED) {
             munmap(mVMStart, BINDER_VM_SIZE);
         }
-        close(mDriverFD);
-    }
 #endif
+        porting_binder::close_binder(mDriverFD);
+    }
     mDriverFD = -1;
 }
 
