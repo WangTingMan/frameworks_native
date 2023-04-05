@@ -32,4 +32,22 @@ std::shared_ptr<binder_internal_control_block> binder_internal_control_block_mgr
     return ret;
 }
 
+bool binder_internal_control_block_mgr::remove_control_block( uint32_t a_id )
+{
+    std::lock_guard<std::shared_mutex> locker( m_mutex );
+    for( auto it = m_blocks.begin(); it != m_blocks.end(); )
+    {
+        if( ( *it )->get_id() == a_id )
+        {
+            it = m_blocks.erase( it );
+            return true;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    return false;
+}
+
 

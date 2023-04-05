@@ -1,6 +1,6 @@
 #include <linux/binder.h>
-#include "linux\binder_internal.h"
-#include <linux\binder_internal_control_block.h>
+#include <linux/binder_internal.h>
+#include <linux/binder_internal_control_block.h>
 #include <base/logging.h>
 
 #include <thread>
@@ -39,7 +39,7 @@ static inline int copy_from_user(void* to, const void* from,
 }
 
 void close_binder(__u32 handle) {
-    LOG(ERROR) << "No implementation!";
+    binder_internal_control_block_mgr::get_instance().remove_control_block( handle );
 }
 
 __u32 fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters) {
@@ -105,7 +105,6 @@ err:
 
 __u32 open_binder(const char*, ...)
 {
-    LOG(ERROR) << "No implementation!";
     auto bc = binder_internal_control_block_mgr::get_instance().create_new_one();
     return bc->get_id();
 }

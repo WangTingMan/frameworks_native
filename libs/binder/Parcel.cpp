@@ -569,7 +569,7 @@ status_t Parcel::appendFrom(const Parcel* parcel, size_t offset, size_t len) {
                     // officially know we have fds.
                     flat->binder_internal_handle =
                             porting_binder::fcntl_binder(flat->binder_internal_handle,
-                                                       F_DUPFD_CLOEXEC, 0);
+                                                       F_DUPFD_CLOEXEC, ( uint32_t )0);
                     flat->cookie = 1;
                     kernelFields->mHasFds = kernelFields->mFdsKnown = true;
                     if (!mAllowFds) {
