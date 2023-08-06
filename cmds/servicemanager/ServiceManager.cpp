@@ -22,7 +22,7 @@
 #include <binder/IPCThreadState.h>
 #include <binder/ProcessState.h>
 #include <binder/Stability.h>
-#include <cutils/android_filesystem_config.h>
+#include <private/android_filesystem_config.h>
 #include <cutils/multiuser.h>
 #include <thread>
 
@@ -36,6 +36,14 @@
 
 using ::android::binder::Status;
 using ::android::internal::Stability;
+
+#ifdef interface
+#undef interface
+#endif
+
+#ifdef ERROR
+#undef ERROR
+#endif
 
 namespace android {
 

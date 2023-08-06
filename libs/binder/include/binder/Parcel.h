@@ -63,6 +63,7 @@ class ProcessState;
 class RpcSession;
 class String8;
 class TextOutput;
+class parcel_writer_impl;
 namespace binder {
 class Status;
 }
@@ -70,6 +71,7 @@ class Status;
 class LIBBINDER_EXPORT Parcel {
     friend class IPCThreadState;
     friend class RpcState;
+    friend class parcel_writer_impl;
 
 public:
     class ReadableBlob;

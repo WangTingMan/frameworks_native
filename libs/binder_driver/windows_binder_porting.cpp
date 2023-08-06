@@ -1,6 +1,7 @@
 #include <linux/binder.h>
 #include <linux/binder_internal.h>
 #include <linux/binder_internal_control_block.h>
+#include <linux/binder_internal_control_block_mgr.h>
 #include <base/logging.h>
 
 #include <thread>
@@ -13,23 +14,10 @@
 namespace porting_binder {
 
 static int binder_ioctl_write_read(__u32 handle, void* bwr);
-static int binder_thread_write(__u32 handle,
-    binder_uintptr_t binder_buffer, size_t size,
-    binder_size_t* consumed);
-static int binder_thread_read(__u32 handle,
-    binder_uintptr_t binder_buffer, size_t size,
-    binder_size_t* consumed, int non_block);
 static void binder_transaction(binder_proc* proc,
     binder_thread* thread,
     binder_transaction_data* tr, int reply,
     binder_size_t extra_buffers_size);
-
-template<typename T>
-static void get_user(T& value, char* (&a_ptr))
-{
-    value = *reinterpret_cast<T*>(a_ptr);
-    a_ptr += sizeof(T);
-}
 
 static inline int copy_from_user(void* to, const void* from,
     unsigned long n)
@@ -92,6 +80,10 @@ __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters)
         cb->set_oneway_spam_detection_enabled((bool)enable);
         return 0;
     }
+    case BINDER_SET_CONTEXT_MGR_EXT:
+        binder_internal_control_block_mgr::get_instance()
+            .set_service_manager( true );
+        return 0;
     default:
         break;
     }
@@ -112,81 +104,20 @@ __u32 open_binder(const char*, ...)
 int binder_ioctl_write_read(__u32 handle, void* a_bwr)
 {
     int ret = 0;
-    struct binder_write_read bwr;
+    binder_write_read* wr_cb = reinterpret_cast<binder_write_read*>(a_bwr);
 
-    memcpy(&bwr, a_bwr, sizeof(binder_write_read));
-
-    if (bwr.write_size > 0) {
-        ret = binder_thread_write(handle,
-            bwr.write_buffer,
-            bwr.write_size,
-            &bwr.write_consumed);
-        if (ret < 0) {
-            bwr.read_consumed = 0;
-            if (memcpy(a_bwr, &bwr, sizeof(bwr)))
-                ret = -EFAULT;
-            goto out;
-        }
-    }
-    if (bwr.read_size > 0) {
-        ret = binder_thread_read(handle, bwr.read_buffer,
-            bwr.read_size,
-            &bwr.read_consumed,
-            /*filp->f_flags & O_NONBLOCK*/0);
-
-        if (ret < 0) {
-            if (memcpy(a_bwr, &bwr, sizeof(bwr)))
-                ret = -EFAULT;
-            goto out;
-        }
-    }
-
-    if (memcpy(a_bwr, &bwr, sizeof(bwr))) {
-        ret = -EFAULT;
-        goto out;
-    }
-out:
-    return ret;
-}
-
-int binder_thread_write(__u32 handle,
-    binder_uintptr_t binder_buffer, size_t size,
-    binder_size_t* consumed)
-{
-    char* ptr = reinterpret_cast<char*>(binder_buffer) + *consumed;
-    uint32_t cmd;
-    get_user(cmd, ptr);
-
-    switch (cmd) {
-    case BC_INCREFS:
-    case BC_ACQUIRE:
-    case BC_RELEASE:
-        break;
-    case BC_TRANSACTION:
-    case BC_REPLY:
+    auto cb_ = binder_internal_control_block_mgr::get_instance().find_by_id(handle);
+    if (cb_)
     {
-        binder_transaction_data tr;
-
-        if (copy_from_user(&tr, ptr, sizeof(tr)))
-            return -EFAULT;
-        ptr += sizeof(tr);
-        break;
+        ret = cb_->handle_write_read_block(wr_cb);
     }
-    default:
-        LOG(ERROR) << "No implementation!";
+    else
+    {
+        ret = -1;
+        LOG(ERROR) << "No binder handle: " << handle;
     }
 
-    LOG(ERROR) << "No implementation!";
-    return 0;
-}
-
-int binder_thread_read(__u32 handle,
-    binder_uintptr_t binder_buffer, size_t size,
-    binder_size_t* consumed, int non_block)
-{
-    LOG(ERROR) << "No implementation!";
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    return 0;
+    return ret;
 }
 
 void binder_transaction(binder_proc* proc,
@@ -194,7 +125,7 @@ void binder_transaction(binder_proc* proc,
     binder_transaction_data* tr, int reply,
     binder_size_t extra_buffers_size)
 {
-
+    LOG( ERROR ) << "No implementation!";
 }
 
 } // namespace porting_binder

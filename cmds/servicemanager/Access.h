@@ -19,6 +19,14 @@
 #include <string>
 #include <sys/types.h>
 
+#ifndef pid_t
+#define pid_t int
+#endif
+
+#ifndef uid_t
+#define uid_t int
+#endif
+
 namespace android {
 
 // singleton

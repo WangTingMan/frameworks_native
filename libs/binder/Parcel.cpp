@@ -76,6 +76,12 @@
 typedef uintptr_t binder_uintptr_t;
 #endif // BINDER_WITH_KERNEL_IPC
 
+#ifndef BYTE_ORDER
+#define BIG_ENDIAN 1
+#define LITTLE_ENDIAN 2
+#define BYTE_ORDER LITTLE_ENDIAN
+#endif
+
 #define LOG_REFS(...)
 // #define LOG_REFS(...) ALOG(LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOG_ALLOC(...)
@@ -1094,16 +1100,16 @@ restart_write:
 
         // Need to pad at end?
         if (padded != len) {
-// #if BYTE_ORDER == BIG_ENDIAN
-//             static const uint32_t mask[4] = {
-//                 0x00000000, 0xffffff00, 0xffff0000, 0xff000000
-//             };
-// #endif
-//#if BYTE_ORDER == LITTLE_ENDIAN
+#if BYTE_ORDER == BIG_ENDIAN
+             static const uint32_t mask[4] = {
+                 0x00000000, 0xffffff00, 0xffff0000, 0xff000000
+             };
+#endif
+#if BYTE_ORDER == LITTLE_ENDIAN
             static const uint32_t mask[4] = {
                 0x00000000, 0x00ffffff, 0x0000ffff, 0x000000ff
             };
-//#endif
+#endif
             //printf("Applying pad mask: %p to %p\n", (void*)mask[padded-len],
             //    *reinterpret_cast<void**>(data+padded-4));
             *reinterpret_cast<uint32_t*>(data+padded-4) &= mask[padded-len];
@@ -2295,6 +2301,13 @@ int Parcel::readFileDescriptor() const {
 #endif // BINDER_WITH_KERNEL_IPC
 }
 
+#ifdef _MSC_VER
+/* Swap bytes in 32 bit value.  */
+#define __builtin_bswap32(x) \
+     ((((x) & 0xff000000u) >> 24) | (((x) & 0x00ff0000u) >>  8) | \
+      (((x) & 0x0000ff00u) <<  8) | (((x) & 0x000000ffu) << 24))
+#endif
+
 int Parcel::readParcelFileDescriptor() const {
     int32_t hasComm = readInt32();
     int fd = readFileDescriptor();
@@ -2308,8 +2321,6 @@ int Parcel::readParcelFileDescriptor() const {
             DETACHED = 2,
         };
 
-#ifndef _MSC_VER
-
 #if BYTE_ORDER == BIG_ENDIAN
         const int32_t message = ParcelFileDescriptorStatus::DETACHED;
 #endif
@@ -2317,6 +2328,7 @@ int Parcel::readParcelFileDescriptor() const {
         const int32_t message = __builtin_bswap32(ParcelFileDescriptorStatus::DETACHED);
 #endif
 
+#ifndef _MSC_VER
         ssize_t written = TEMP_FAILURE_RETRY(
             ::write(comm, &message, sizeof(message)));
 
@@ -2325,7 +2337,7 @@ int Parcel::readParcelFileDescriptor() const {
                 written, strerror(errno));
             return BAD_TYPE;
         }
-#endif // !_MSC_VER
+#endif
     }
     return fd;
 }

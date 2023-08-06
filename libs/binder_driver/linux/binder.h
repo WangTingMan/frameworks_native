@@ -32,6 +32,41 @@ enum {
     BINDER_TYPE_PTR = B_PACK_CHARS('p', 't', '*', B_TYPE_LARGE),
 };
 
+enum class BinderCode : uint32_t
+{
+    FIRST_CALL_TRANSACTION = 0x00000001,
+    LAST_CALL_TRANSACTION = 0x00ffffff,
+
+    PING_TRANSACTION = B_PACK_CHARS('_', 'P', 'N', 'G'),
+    DUMP_TRANSACTION = B_PACK_CHARS('_', 'D', 'M', 'P'),
+    SHELL_COMMAND_TRANSACTION = B_PACK_CHARS('_', 'C', 'M', 'D'),
+    INTERFACE_TRANSACTION = B_PACK_CHARS('_', 'N', 'T', 'F'),
+    SYSPROPS_TRANSACTION = B_PACK_CHARS('_', 'S', 'P', 'R'),
+    EXTENSION_TRANSACTION = B_PACK_CHARS('_', 'E', 'X', 'T'),
+    DEBUG_PID_TRANSACTION = B_PACK_CHARS('_', 'P', 'I', 'D'),
+    SET_RPC_CLIENT_TRANSACTION = B_PACK_CHARS('_', 'R', 'P', 'C'),
+
+    // See android.os.IBinder.TWEET_TRANSACTION
+    // Most importantly, messages can be anything not exceeding 130 UTF-8
+    // characters, and callees should exclaim "jolly good message old boy!"
+    TWEET_TRANSACTION = B_PACK_CHARS('_', 'T', 'W', 'T'),
+
+    // See android.os.IBinder.LIKE_TRANSACTION
+    // Improve binder self-esteem.
+    LIKE_TRANSACTION = B_PACK_CHARS('_', 'L', 'I', 'K'),
+
+    // Corresponds to TF_ONE_WAY -- an asynchronous call.
+    FLAG_ONEWAY = 0x00000001,
+
+    // Corresponds to TF_CLEAR_BUF -- clear transaction buffers after call
+    // is made
+    FLAG_CLEAR_BUF = 0x00000020,
+
+    // Private userspace flag for transaction which is being requested from
+    // a vendor context.
+    FLAG_PRIVATE_VENDOR = 0x10000000,
+};
+
 enum flat_binder_object_shifts {
     FLAT_BINDER_FLAG_SCHED_POLICY_SHIFT = 9,
 };
@@ -94,10 +129,10 @@ enum transaction_flags {
 
 struct binder_transaction_data {
     union {
-        __u32 handle;
-        binder_uintptr_t ptr;
+        __u32 binder_handle; /* orignal name: handle*/
+        binder_uintptr_t binder_target_ptr; /* orignal name: ptr*/
     } target;
-    binder_uintptr_t cookie;
+    binder_uintptr_t binder_transaction_cookie; /* orignal name: cookie*/
     __u32 code;
     __u32 flags;
     pid_t sender_pid;

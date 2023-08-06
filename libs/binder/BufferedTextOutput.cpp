@@ -175,13 +175,11 @@ status_t BufferedTextOutput::print(const char* txt, size_t len)
                 while (txt < end) {
                     if (*txt++ == '\n') lastLine = txt;
                 }
-#ifndef _MSC_VER
-                struct iovec vec;
+                struct iovec_fake vec;
                 vec.iov_base = (void*)first;
                 vec.iov_len = lastLine-first;
                 //printf("Writing %d bytes of data!\n", vec.iov_len);
                 writeLines(vec, 1);
-#endif
                 txt = lastLine;
                 continue;
             }
@@ -196,14 +194,11 @@ status_t BufferedTextOutput::print(const char* txt, size_t len)
         // it out.
         //printf("Buffer is now %d bytes\n", b->bufferPos);
         if (b->atFront && !b->bundle) {
-#ifndef _MSC_VER
-
-            struct iovec vec;
+            struct iovec_fake vec;
             vec.iov_base = b->buffer;
             vec.iov_len = b->bufferPos;
             //printf("Writing %d bytes of data!\n", vec.iov_len);
             writeLines( vec, 1 );
-#endif // !_MSC_VER
             b->restart();
         }
     }
@@ -240,12 +235,10 @@ void BufferedTextOutput::popBundle()
         // complete, don't write until the last line is done... this may
         // or may not be the write thing to do, but it's the easiest.
         if (b->bufferPos > 0 && b->atFront) {
-#ifndef _MSC_VER
-            struct iovec vec;
+            struct iovec_fake vec;
             vec.iov_base = b->buffer;
             vec.iov_len = b->bufferPos;
             writeLines(vec, 1);
-#endif
             b->restart();
         }
     }

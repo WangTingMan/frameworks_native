@@ -40,12 +40,23 @@ public:
     public:
         inline explicit Bundle(TextOutput& to) : mTO(to) { to.pushBundle(); }
         inline ~Bundle() { mTO.popBundle(); }
+        inline void setSourceLocation(const char* file, uint32_t line) {
+            mTO.setSourceLocation(file, line);
+        }
     private:
         TextOutput&     mTO;
     };
     
     virtual void        pushBundle() = 0;
-    virtual void        popBundle() = 0;
+    virtual void popBundle() = 0;
+
+    inline void setSourceLocation(const char* file, uint32_t line) {
+        mSourceFile = file;
+        mSourceLine = line;
+    }
+
+    const char* mSourceFile = nullptr;
+    uint32_t mSourceLine = 0;
 };
 
 // ---------------------------------------------------------------------------

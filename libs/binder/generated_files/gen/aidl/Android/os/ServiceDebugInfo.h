@@ -8,9 +8,11 @@
 #include <tuple>
 #include <utils/String16.h>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 namespace os {
-class ServiceDebugInfo : public ::android::Parcelable {
+class LIBBINDER_EXPORT ServiceDebugInfo : public ::android::Parcelable {
 public:
   ::std::string name;
   int32_t debugPid = 0;

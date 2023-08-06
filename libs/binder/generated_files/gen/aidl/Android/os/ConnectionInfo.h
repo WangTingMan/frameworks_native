@@ -8,9 +8,11 @@
 #include <tuple>
 #include <utils/String16.h>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 namespace os {
-class ConnectionInfo : public ::android::Parcelable {
+class LIBBINDER_EXPORT ConnectionInfo : public ::android::Parcelable {
 public:
   ::std::string ipAddress;
   int32_t port = 0;

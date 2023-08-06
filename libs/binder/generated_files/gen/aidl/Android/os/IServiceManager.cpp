@@ -10,6 +10,10 @@ DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(ServiceManager, "android.os.ISer
 #include <binder/Parcel.h>
 #include <android-base/macros.h>
 
+#ifdef _MSC_VER
+#include <binder_driver/parcel_porting.h>
+#endif
+
 namespace android {
 namespace os {
 
@@ -97,6 +101,11 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
   ::android::Parcel _aidl_reply;
   ::android::status_t _aidl_ret_status = ::android::OK;
   ::android::binder::Status _aidl_status;
+#ifdef _MSC_VER
+  AddServiceControlBlock* cb = make_control_block( name, service, allowIsolated, dumpPriority );
+  _aidl_data.writeString8( get_next_pointer_key() );
+  _aidl_data.writeUint64( uint64_t( cb ) );
+#endif
   _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;

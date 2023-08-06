@@ -21,6 +21,15 @@
 #include <log/log_safetynet.h>
 #include <selinux/android.h>
 #include <selinux/avc.h>
+#include <base/process/process_handle.h>
+
+#ifndef __ANDROID__
+#define __ANDROID__ // We always enable android features here.
+#endif
+
+#ifdef ERROR
+#undef ERROR
+#endif
 
 namespace android {
 
@@ -32,6 +41,10 @@ constexpr bool kIsVendor = false;
 
 #ifdef __ANDROID__
 static std::string getPidcon(pid_t pid) {
+#ifdef _MSC_VER
+    std::string str = std::to_string( pid );
+    return str;
+#else
     android_errorWriteLog(0x534e4554, "121035042");
 
     char* lookup = nullptr;
@@ -42,6 +55,7 @@ static std::string getPidcon(pid_t pid) {
     std::string result = lookup;
     freecon(lookup);
     return result;
+#endif
 }
 
 static struct selabel_handle* getSehandle() {

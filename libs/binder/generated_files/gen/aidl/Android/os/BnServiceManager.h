@@ -3,9 +3,11 @@
 #include <binder/IInterface.h>
 #include <android/os/IServiceManager.h>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 namespace os {
-class BnServiceManager : public ::android::BnInterface<IServiceManager> {
+class LIBBINDER_EXPORT BnServiceManager : public ::android::BnInterface<IServiceManager> {
 public:
   static constexpr uint32_t TRANSACTION_getService = ::android::IBinder::FIRST_CALL_TRANSACTION + 0;
   static constexpr uint32_t TRANSACTION_checkService = ::android::IBinder::FIRST_CALL_TRANSACTION + 1;

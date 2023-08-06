@@ -22,6 +22,10 @@
 
 #include "Access.h"
 
+#ifdef interface
+#undef interface
+#endif
+
 namespace android {
 
 using os::ConnectionInfo;

@@ -27,6 +27,7 @@
 #ifndef uid_t
 typedef  int  uid_t;
 #endif
+#include <functional>
 #endif
 
 // ---------------------------------------------------------------------------
@@ -117,6 +118,15 @@ public:
              * written to know its environment.
              */
             void checkContextIsBinderForUse(const char* use) const;
+
+            /**
+             * If there are some/an events need to handle, then them will be notified
+             * by a_handler, then call handlePolledCommands asynchronous.
+             */
+            void registerAsyncFdEventHandler(std::function<void()> a_handler)
+            {
+                mAsyncHandler = a_handler;
+            }
 
             void                setStrictModePolicy(int32_t policy);
             int32_t             getStrictModePolicy() const;
@@ -248,6 +258,7 @@ private:
             int32_t             mStrictModePolicy;
             int32_t             mLastTransactionBinderFlags;
             CallRestriction     mCallRestriction;
+            std::function<void()> mAsyncHandler;
 };
 
 } // namespace android

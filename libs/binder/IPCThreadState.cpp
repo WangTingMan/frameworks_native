@@ -42,6 +42,7 @@
 #else
 #include <binder/windows_porting.h>
 #include <linux/binder.h>
+#include <memory>
 #endif
 
 #include "Static.h"
@@ -138,13 +139,13 @@ static const void* printBinderTransactionData(TextOutput& out, const void* data)
 {
     const binder_transaction_data* btd =
         (const binder_transaction_data*)data;
-    if (btd->target.handle < 1024) {
+    if (btd->target.binder_handle < 1024) {
         /* want to print descriptors in decimal; guess based on value */
-        out << "target.desc=" << btd->target.handle;
+        out << "target.desc=" << btd->target.binder_handle;
     } else {
-        out << "target.ptr=" << btd->target.ptr;
+        out << "target.ptr=" << btd->target.binder_target_ptr;
     }
-    out << " (cookie " << btd->cookie << ")" << endl
+    out << " (cookie " << btd->binder_transaction_cookie << ")" << endl
         << "code=" << TypeCode(btd->code) << ", flags=" << (void*)(uint64_t)btd->flags << endl
         << "data=" << btd->data.ptr.buffer << " (" << (void*)btd->data_size
         << " bytes)" << endl
@@ -293,6 +294,8 @@ static std::atomic<bool> gDisableBackgroundScheduling = false;
 
 #ifndef _MSC_VER
 static pthread_key_t gTLS = 0;
+#else
+thread_local static std::shared_ptr<IPCThreadState> gTLS;
 #endif
 
 IPCThreadState* IPCThreadState::self()
@@ -303,6 +306,11 @@ IPCThreadState* IPCThreadState::self()
         const pthread_key_t k = gTLS;
         IPCThreadState* st = (IPCThreadState*)pthread_getspecific(k);
         if (st) return st;
+#else
+        if (gTLS)
+        {
+            return gTLS.get();
+        }
 #endif
         return new IPCThreadState;
     }
@@ -312,20 +320,20 @@ IPCThreadState* IPCThreadState::self()
         ALOGW("Calling IPCThreadState::self() during shutdown is dangerous, expect a crash.\n");
         return nullptr;
     }
-#ifndef _MSC_VER
-    pthread_mutex_lock(&gTLSMutex);
+
+    std::lock_guard<std::mutex> pthread_mutex_locker(gTLSMutex);
     if (!gHaveTLS.load(std::memory_order_relaxed)) {
+#ifndef _MSC_VER
         int key_create_value = pthread_key_create(&gTLS, threadDestructor);
         if (key_create_value != 0) {
-            pthread_mutex_unlock(&gTLSMutex);
             ALOGW("IPCThreadState::self() unable to create TLS key, expect a crash: %s\n",
                     strerror(key_create_value));
             return nullptr;
         }
+#endif
         gHaveTLS.store(true, std::memory_order_release);
     }
-    pthread_mutex_unlock(&gTLSMutex);
-#endif
+
     goto restart;
 }
 
@@ -337,7 +345,7 @@ IPCThreadState* IPCThreadState::selfOrNull()
         IPCThreadState* st = (IPCThreadState*)pthread_getspecific(k);
         return st;
 #else
-        return nullptr;
+        return gTLS.get();
 #endif
     }
     return nullptr;
@@ -356,6 +364,8 @@ void IPCThreadState::shutdown()
             pthread_setspecific(gTLS, nullptr);
         }
         pthread_key_delete(gTLS);
+#else
+        gTLS.reset();
 #endif
         gHaveTLS.store(false, std::memory_order_release);
     }
@@ -568,6 +578,7 @@ status_t IPCThreadState::getAndExecuteCommand()
         if (IN_ < sizeof(int32_t)) return result;
         cmd = mIn.readInt32();
         IF_LOG_COMMANDS() {
+            alog.setSourceLocation(__FILE__, __LINE__);
             alog << "Processing top-level Command: "
                  << getReturnString(cmd) << endl;
         }
@@ -669,6 +680,7 @@ void IPCThreadState::joinThreadPool(bool isMain)
         // now get the next command to be processed, waiting if necessary
         result = getAndExecuteCommand();
 
+        constexpr int32_t ref_used = ECONNREFUSED;
         if (result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF) {
             LOG_ALWAYS_FATAL("getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
                   mProcess->mDriverFD, result);
@@ -745,6 +757,7 @@ status_t IPCThreadState::transact(int32_t handle,
 
     IF_LOG_TRANSACTIONS() {
         TextOutput::Bundle _b(alog);
+        _b.setSourceLocation(__FILE__, __LINE__);
         alog << "BC_TRANSACTION thr " << gettid() << " / hand "
             << handle << " / code " << TypeCode(code) << ": "
             << indent << data << dedent << endl;
@@ -793,6 +806,7 @@ status_t IPCThreadState::transact(int32_t handle,
 
         IF_LOG_TRANSACTIONS() {
             TextOutput::Bundle _b(alog);
+            _b.setSourceLocation(__FILE__, __LINE__);
             alog << "BR_REPLY thr " << gettid() << " / hand "
                 << handle << ": ";
             if (reply) alog << indent << *reply << dedent << endl;
@@ -914,6 +928,8 @@ IPCThreadState::IPCThreadState()
         mCallRestriction(mProcess->mCallRestriction) {
 #ifndef _MSC_VER
     pthread_setspecific(gTLS, this);
+#else
+    gTLS = std::shared_ptr<IPCThreadState>(this, &threadDestructor);
 #endif
     clearCaller();
     mIn.setDataCapacity(256);
@@ -946,6 +962,7 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
 
         cmd = (uint32_t)mIn.readInt32();
         IF_LOG_COMMANDS() {
+            alog.setSourceLocation(__FILE__, __LINE__);
             alog << "Processing waitForResponse Command: "
                 << getReturnString(cmd) << endl;
         }
@@ -1059,6 +1076,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
 
     IF_LOG_COMMANDS() {
         TextOutput::Bundle _b(alog);
+        _b.setSourceLocation(__FILE__, __LINE__);
         if (outAvail != 0) {
             alog << "Sending commands to driver: " << indent;
             const void* cmds = (const void*)bwr.write_buffer;
@@ -1079,6 +1097,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     status_t err;
     do {
         IF_LOG_COMMANDS() {
+            alog.setSourceLocation(__FILE__, __LINE__);
             alog << "About to read/write, write size = " << mOut.dataSize() << endl;
         }
 #if defined(__ANDROID__) || defined(_MSC_VER)
@@ -1093,11 +1112,13 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
             err = -EBADF;
         }
         IF_LOG_COMMANDS() {
+            alog.setSourceLocation(__FILE__, __LINE__);
             alog << "Finished read/write, write size = " << mOut.dataSize() << endl;
         }
     } while (err == -EINTR);
 
     IF_LOG_COMMANDS() {
+        alog.setSourceLocation(__FILE__, __LINE__);
         alog << "Our err: " << (void*)(intptr_t)err << ", write consumed: "
             << bwr.write_consumed << " (of " << mOut.dataSize()
                         << "), read consumed: " << bwr.read_consumed << endl;
@@ -1124,6 +1145,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
         }
         IF_LOG_COMMANDS() {
             TextOutput::Bundle _b(alog);
+            _b.setSourceLocation(__FILE__, __LINE__);
             alog << "Remaining data size: " << mOut.dataSize() << endl;
             alog << "Received commands from driver: " << indent;
             const void* cmds = mIn.data();
@@ -1142,11 +1164,11 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
 {
     binder_transaction_data tr;
 
-    tr.target.ptr = 0; /* Don't pass uninitialized stack data to a remote process */
-    tr.target.handle = handle;
+    tr.target.binder_target_ptr = 0; /* Don't pass uninitialized stack data to a remote process */
+    tr.target.binder_handle = handle;
     tr.code = code;
     tr.flags = binderFlags;
-    tr.cookie = 0;
+    tr.binder_transaction_cookie = 0;
     tr.sender_pid = 0;
     tr.sender_euid = 0;
 
@@ -1167,8 +1189,15 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
         return (mLastError = err);
     }
 
+    mOut.setDataPosition(0);
     mOut.writeInt32(cmd);
     mOut.write(&tr, sizeof(tr));
+
+    uint8_t const* ptr = mOut.data();
+    ptr += sizeof(cmd);
+    binder_transaction_data test_tr;
+    memcpy(&test_tr, ptr, sizeof(binder_transaction_data));
+
     return NO_ERROR;
 }
 
@@ -1310,8 +1339,9 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             status_t error;
             IF_LOG_TRANSACTIONS() {
                 TextOutput::Bundle _b(alog);
+                _b.setSourceLocation(__FILE__, __LINE__);
                 alog << "BR_TRANSACTION thr " << (void*)gettid()
-                    << " / obj " << tr.target.ptr << " / code "
+                    << " / obj " << tr.target.binder_target_ptr << " / code "
                     << TypeCode(tr.code) << ": " << indent << buffer
                     << dedent << endl
                     << "Data addr = "
@@ -1319,14 +1349,14 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                     << ", offsets addr="
                     << reinterpret_cast<const size_t*>(tr.data.ptr.offsets) << endl;
             }
-            if (tr.target.ptr) {
+            if (tr.target.binder_target_ptr) {
                 // We only have a weak reference on the target object, so we must first try to
                 // safely acquire a strong reference before doing anything else with it.
                 if (reinterpret_cast<RefBase::weakref_type*>(
-                        tr.target.ptr)->attemptIncStrong(this)) {
-                    error = reinterpret_cast<BBinder*>(tr.cookie)->transact(tr.code, buffer,
+                        tr.target.binder_target_ptr)->attemptIncStrong(this)) {
+                    error = reinterpret_cast<BBinder*>(tr.binder_transaction_cookie)->transact(tr.code, buffer,
                             &reply, tr.flags);
-                    reinterpret_cast<BBinder*>(tr.cookie)->decStrong(this);
+                    reinterpret_cast<BBinder*>(tr.binder_transaction_cookie)->decStrong(this);
                 } else {
                     error = UNKNOWN_TRANSACTION;
                 }
@@ -1346,9 +1376,10 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                 sendReply(reply, (tr.flags & kForwardReplyFlags));
             } else {
                 if (error != OK) {
+                    alog.setSourceLocation(__FILE__, __LINE__);
                     alog << "oneway function results for code " << tr.code
                          << " on binder at "
-                         << reinterpret_cast<void*>(tr.target.ptr)
+                         << reinterpret_cast<void*>(tr.target.binder_target_ptr)
                          << " will be dropped but finished with status "
                          << statusToString(error);
 
@@ -1357,6 +1388,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                     // interfaces have clients that call methods which always
                     // write results, sometimes as oneway methods.
                     if (reply.dataSize() != 0) {
+                         alog.setSourceLocation(__FILE__, __LINE__);
                          alog << " and reply parcel size " << reply.dataSize();
                     }
 
@@ -1376,8 +1408,9 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
             IF_LOG_TRANSACTIONS() {
                 TextOutput::Bundle _b(alog);
+                _b.setSourceLocation(__FILE__, __LINE__);
                 alog << "BC_REPLY thr " << (void*)gettid() << " / obj "
-                    << tr.target.ptr << ": " << indent << reply << dedent << endl;
+                    << tr.target.binder_target_ptr << ": " << indent << reply << dedent << endl;
             }
 
         }
@@ -1501,6 +1534,7 @@ void IPCThreadState::freeBuffer(const uint8_t* data, size_t /*dataSize*/,
     //ALOGI("Freeing parcel %p", &parcel);
 
     IF_LOG_COMMANDS() {
+        alog.setSourceLocation(__FILE__, __LINE__);
         alog << "Writing BC_FREE_BUFFER for " << data << endl;
     }
     ALOG_ASSERT(data != NULL, "Called with NULL data");

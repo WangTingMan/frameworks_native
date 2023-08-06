@@ -13,9 +13,11 @@
 #include <utils/StrongPointer.h>
 #include <vector>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 namespace os {
-class IServiceManager : public ::android::IInterface {
+class LIBBINDER_EXPORT IServiceManager : public ::android::IInterface {
 public:
   DECLARE_META_INTERFACE(ServiceManager)
   enum : int32_t { DUMP_FLAG_PRIORITY_CRITICAL = 1 };

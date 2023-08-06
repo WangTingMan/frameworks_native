@@ -46,6 +46,7 @@
 #include <unistd.h>
 #else
 #include <linux/binder.h>
+#include <binder/parcel_writer_impl.h>
 #endif
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -138,6 +139,10 @@ sp<ProcessState> ProcessState::init(const char *driver, bool requireDefault)
                                  ProcessState::childPostFork);
 #endif
         LOG_ALWAYS_FATAL_IF(ret != 0, "pthread_atfork error %s", strerror(ret));
+
+#ifdef _MSC_VER
+        register_detail_parcel_writer();
+#endif
 
         std::lock_guard<std::mutex> l(gProcessMutex);
         gProcess = sp<ProcessState>::make(driver);

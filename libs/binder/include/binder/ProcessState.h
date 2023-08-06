@@ -130,7 +130,9 @@ private:
 
     String8 mDriverName;
     int mDriverFD;
+#ifndef _MSC_VER
     void* mVMStart;
+#endif
 
     // Protects thread count and wait variables below.
     mutable std::mutex mThreadCountLock;
