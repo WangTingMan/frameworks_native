@@ -64,17 +64,17 @@ public:
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to the log (via utils/Log.h).
-extern TextOutput& alog;
+LIBBINDER_EXPORT extern TextOutput& alog;
 
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to stdout.
-extern TextOutput& aout;
+LIBBINDER_EXPORT extern TextOutput& aout;
 
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to stderr.
-extern TextOutput& aerr;
+LIBBINDER_EXPORT extern TextOutput& aerr;
 
 typedef TextOutput& (*TextOutputManipFunc)(TextOutput&);
 

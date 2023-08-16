@@ -1322,11 +1322,7 @@ private:
         // same order as `mObjectPositions`.
         //
         // Boxed to save space. Lazy allocated.
-#ifdef _MSC_VER
-        std::unique_ptr<std::vector<fake_file_descriptor>> mFds;
-#else
         std::unique_ptr<std::vector<std::variant<base::unique_fd, base::borrowed_fd>>> mFds;
-#endif
     };
     std::variant<KernelFields, RpcFields> mVariantFields;
 

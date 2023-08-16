@@ -129,6 +129,16 @@ public:
             return BpBinder::create(session, address);
         }
 
+#ifdef _MSC_VER
+        static sp<IBinder> create
+            (
+            std::string a_service_name,
+            std::string a_connection_name
+            )
+        {
+            return BpBinder::create( a_service_name, a_connection_name );
+        }
+#endif
         // valid if !isRpcBinder
         int32_t binderHandle() const { return mBinder->binderHandle(); }
 
@@ -147,6 +157,19 @@ private:
     static sp<BpBinder> create(int32_t handle);
     static sp<BpBinder> create(const sp<RpcSession>& session, uint64_t address);
 
+#ifdef _MSC_VER
+    static sp<IBinder> create
+        (
+        std::string a_service_name,
+        std::string a_connection_name
+        );
+    BpBinder
+        (
+        std::string a_service_name,
+        std::string a_connection_name
+        );
+#endif
+
     struct BinderHandle {
         int32_t handle;
     };
@@ -154,6 +177,8 @@ private:
         sp<RpcSession> session;
         uint64_t address;
     };
+
+
     using Handle = std::variant<BinderHandle, RpcHandle>;
 
     int32_t binderHandle() const;

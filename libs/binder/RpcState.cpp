@@ -36,6 +36,11 @@
 
 #include <base\debug\stack_trace.h>
 
+#ifdef _MSC_VER
+#include <utils/uitils_overflow_check_ms.h>
+#include <cutils/threads.h>
+#endif
+
 namespace android {
 
 using base::StringPrintf;
@@ -349,10 +354,9 @@ RpcState::CommandData::CommandData(size_t size) : mSize(size) {
     mData.reset(new (std::nothrow) uint8_t[size]);
 }
 
-#ifndef _MSC_VER
 status_t RpcState::rpcSend(
         const sp<RpcSession::RpcConnection>& connection, const sp<RpcSession>& session,
-        const char* what, iovec* iovs, int niovs,
+        const char* what, iovec_fake* iovs, int niovs,
         const std::optional<android::base::function_ref<status_t()>>& altPoll,
         const std::vector<std::variant<base::unique_fd, base::borrowed_fd>>* ancillaryFds) {
     for (int i = 0; i < niovs; i++) {
@@ -377,7 +381,7 @@ status_t RpcState::rpcSend(
 
 status_t RpcState::rpcRec(
         const sp<RpcSession::RpcConnection>& connection, const sp<RpcSession>& session,
-        const char* what, iovec* iovs, int niovs,
+        const char* what, iovec_fake* iovs, int niovs,
         std::vector<std::variant<base::unique_fd, base::borrowed_fd>>* ancillaryFds) {
     if (status_t status =
                 connection->rpcTransport->interruptableReadFully(session->mShutdownTrigger.get(),
@@ -397,40 +401,32 @@ status_t RpcState::rpcRec(
     }
     return OK;
 }
-#endif
 
 status_t RpcState::readNewSessionResponse(const sp<RpcSession::RpcConnection>& connection,
                                           const sp<RpcSession>& session, uint32_t* version) {
-#ifndef _MSC_VER
     RpcNewSessionResponse response;
-    iovec iov{&response, sizeof(response)};
+    iovec_fake iov{&response, sizeof(response)};
     if (status_t status = rpcRec(connection, session, "new session response", &iov, 1, nullptr);
         status != OK) {
         return status;
     }
     *version = response.version;
-#endif
     return OK;
 }
 
 status_t RpcState::sendConnectionInit(const sp<RpcSession::RpcConnection>& connection,
                                       const sp<RpcSession>& session) {
-#ifndef _MSC_VER
     RpcOutgoingConnectionInit init{
             .msg = RPC_CONNECTION_INIT_OKAY,
     };
-    iovec iov{&init, sizeof(init)};
+    iovec_fake iov{&init, sizeof(init)};
     return rpcSend(connection, session, "connection init", &iov, 1, std::nullopt);
-#else
-    return 0;
-#endif
 }
 
 status_t RpcState::readConnectionInit(const sp<RpcSession::RpcConnection>& connection,
                                       const sp<RpcSession>& session) {
-#ifndef _MSC_VER
     RpcOutgoingConnectionInit init;
-    iovec iov{&init, sizeof(init)};
+    iovec_fake iov{&init, sizeof(init)};
     if (status_t status = rpcRec(connection, session, "connection init", &iov, 1, nullptr);
         status != OK)
         return status;
@@ -441,7 +437,6 @@ status_t RpcState::readConnectionInit(const sp<RpcSession::RpcConnection>& conne
               init.msg);
         return BAD_VALUE;
     }
-#endif
     return OK;
 }
 
@@ -547,9 +542,9 @@ status_t RpcState::transactAddress(const sp<RpcSession::RpcConnection>& connecti
 
     Span<const uint32_t> objectTableSpan = Span<const uint32_t>{rpcFields->mObjectPositions.data(),
                                                                 rpcFields->mObjectPositions.size()};
-#ifndef _MSC_VER
 
     uint32_t bodySize;
+
     LOG_ALWAYS_FATAL_IF(__builtin_add_overflow(sizeof(RpcWireTransaction), data.dataSize(),
                                                &bodySize) ||
                                 __builtin_add_overflow(objectTableSpan.byteSize(), bodySize,
@@ -577,7 +572,7 @@ status_t RpcState::transactAddress(const sp<RpcSession::RpcConnection>& connecti
     // is a twoway or oneway transaction, they may have filled up the socket.
     // So, make sure we drain them before polling
 
-    iovec iovs[]{
+    iovec_fake iovs[]{
             {&command, sizeof(RpcWireHeader)},
             {&transaction, sizeof(RpcWireTransaction)},
             {const_cast<uint8_t*>(data.data()), data.dataSize()},
@@ -615,7 +610,7 @@ status_t RpcState::transactAddress(const sp<RpcSession::RpcConnection>& connecti
         // Do not wait on result.
         return OK;
     }
-#endif
+
     LOG_ALWAYS_FATAL_IF(reply == nullptr, "Reply parcel must be used for synchronous transaction.");
 
     return waitForReply(connection, session, reply);
@@ -634,9 +629,8 @@ status_t RpcState::waitForReply(const sp<RpcSession::RpcConnection>& connection,
     std::vector<std::variant<base::unique_fd, base::borrowed_fd>> ancillaryFds;
     RpcWireHeader command;
     memset( &command, 0x00, sizeof( RpcWireHeader ) );
-#ifndef _MSC_VER
     while (true) {
-        iovec iov{&command, sizeof(command)};
+        iovec_fake iov{&command, sizeof(command)};
         if (status_t status = rpcRec(connection, session, "command header (for reply)", &iov, 1,
                                      enableAncillaryFds(session->getFileDescriptorTransportMode())
                                              ? &ancillaryFds
@@ -654,7 +648,6 @@ status_t RpcState::waitForReply(const sp<RpcSession::RpcConnection>& connection,
         // Reset to avoid spurious use-after-move warning from clang-tidy.
         ancillaryFds = decltype(ancillaryFds)();
     }
-#endif
 
     const size_t rpcReplyWireSize = RpcWireReply::wireSize(session->getProtocolVersion().value());
 
@@ -670,15 +663,13 @@ status_t RpcState::waitForReply(const sp<RpcSession::RpcConnection>& connection,
 
     CommandData data(command.bodySize - rpcReplyWireSize);
     if (!data.valid()) return NO_MEMORY;
-#ifndef _MSC_VER
-    iovec iovs[]{
+    iovec_fake iovs[]{
             {&rpcReply, rpcReplyWireSize},
             {data.data(), data.size()},
     };
     if (status_t status = rpcRec(connection, session, "reply body", iovs, arraysize(iovs), nullptr);
         status != OK)
         return status;
-#endif
     if (rpcReply.status != OK) return rpcReply.status;
 
     Span<const uint8_t> parcelSpan = {data.data(), data.size()};
@@ -743,12 +734,8 @@ status_t RpcState::sendDecStrongToTarget(const sp<RpcSession::RpcConnection>& co
             .command = RPC_COMMAND_DEC_STRONG,
             .bodySize = sizeof(RpcDecStrong),
     };
-#ifndef _MSC_VER
-    iovec iovs[]{{&cmd, sizeof(cmd)}, {&body, sizeof(body)}};
+    iovec_fake iovs[]{{&cmd, sizeof(cmd)}, {&body, sizeof(body)}};
     return rpcSend(connection, session, "dec ref", iovs, arraysize(iovs), std::nullopt);
-#else
-    return 0;
-#endif
 }
 
 status_t RpcState::getAndExecuteCommand(const sp<RpcSession::RpcConnection>& connection,
@@ -757,15 +744,13 @@ status_t RpcState::getAndExecuteCommand(const sp<RpcSession::RpcConnection>& con
 
     std::vector<std::variant<base::unique_fd, base::borrowed_fd>> ancillaryFds;
     RpcWireHeader command;
-#ifndef _MSC_VER
-    iovec iov{&command, sizeof(command)};
+    iovec_fake iov{&command, sizeof(command)};
     if (status_t status =
                 rpcRec(connection, session, "command header (for server)", &iov, 1,
                        enableAncillaryFds(session->getFileDescriptorTransportMode()) ? &ancillaryFds
                                                                                      : nullptr);
         status != OK)
         return status;
-#endif
     return processCommand(connection, session, command, type, std::move(ancillaryFds));
 }
 
@@ -837,12 +822,10 @@ status_t RpcState::processTransact(
     if (!transactionData.valid()) {
         return NO_MEMORY;
     }
-#ifndef _MSC_VER
-    iovec iov{transactionData.data(), transactionData.size()};
+    iovec_fake iov{transactionData.data(), transactionData.size()};
     if (status_t status = rpcRec(connection, session, "transaction body", &iov, 1, nullptr);
         status != OK)
         return status;
-#endif
     return processTransactInternal(connection, session, std::move(transactionData),
                                    std::move(ancillaryFds));
 }
@@ -1013,11 +996,9 @@ processTransactInternalTailCall:
                         if (server) {
                             switch (transaction->code) {
                                 case RPC_SPECIAL_TRANSACT_GET_ROOT: {
-#ifndef _MSC_VER
                                     sp<IBinder> root = session->mSessionSpecificRootObject
-                                            ?: server->getRootObject();
+                                            ? session->mSessionSpecificRootObject : server->getRootObject();
                                     replyStatus = reply.writeStrongBinder(root);
-#endif
                                     break;
                                 }
                                 default: {
@@ -1116,7 +1097,6 @@ processTransactInternalTailCall:
                                                                 rpcFields->mObjectPositions.size()};
 
     uint32_t bodySize;
-#ifndef _MSC_VER
     LOG_ALWAYS_FATAL_IF(__builtin_add_overflow(rpcReplyWireSize, reply.dataSize(), &bodySize) ||
                                 __builtin_add_overflow(objectTableSpan.byteSize(), bodySize,
                                                        &bodySize),
@@ -1133,7 +1113,7 @@ processTransactInternalTailCall:
             .parcelDataSize = static_cast<uint32_t>(reply.dataSize()),
             .reserved = {0, 0, 0},
     };
-    iovec iovs[]{
+    iovec_fake iovs[]{
             {&cmdReply, sizeof(RpcWireHeader)},
             {&rpcReply, rpcReplyWireSize},
             {const_cast<uint8_t*>(reply.data()), reply.dataSize()},
@@ -1142,9 +1122,6 @@ processTransactInternalTailCall:
 
     return rpcSend(connection, session, "reply", iovs, arraysize(iovs), std::nullopt,
                    rpcFields->mFds.get());
-#else
-    return 0;
-#endif
 }
 
 status_t RpcState::processDecStrong(const sp<RpcSession::RpcConnection>& connection,
@@ -1157,9 +1134,8 @@ status_t RpcState::processDecStrong(const sp<RpcSession::RpcConnection>& connect
         (void)session->shutdownAndWait(false);
         return BAD_VALUE;
     }
-#ifndef _MSC_VER
     RpcDecStrong body;
-    iovec iov{&body, sizeof(RpcDecStrong)};
+    iovec_fake iov{&body, sizeof(RpcDecStrong)};
     if (status_t status = rpcRec(connection, session, "dec ref body", &iov, 1, nullptr);
         status != OK)
         return status;
@@ -1198,7 +1174,6 @@ status_t RpcState::processDecStrong(const sp<RpcSession::RpcConnection>& connect
     sp<IBinder> tempHold = tryEraseNode(it);
     _l.unlock();
     tempHold = nullptr; // destructor may make binder calls on this session
-#endif
     return OK;
 }
 

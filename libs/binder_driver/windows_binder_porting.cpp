@@ -1,11 +1,12 @@
 #include <linux/binder.h>
 #include <linux/binder_internal.h>
-#include <linux/binder_internal_control_block.h>
 #include <linux/binder_internal_control_block_mgr.h>
 #include <base/logging.h>
 
 #include <thread>
 #include <list>
+
+#include "ipc_connection_token.h"
 
 /**
  * This is the fake implementation of msm-kernel/drivers/android/binder.c
@@ -27,7 +28,7 @@ static inline int copy_from_user(void* to, const void* from,
 }
 
 void close_binder(__u32 handle) {
-    binder_internal_control_block_mgr::get_instance().remove_control_block( handle );
+    binder_internal_control_block_mgr::get_instance().shut_down( handle );
 }
 
 __u32 fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters) {
@@ -38,11 +39,6 @@ __u32 fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters) {
 __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters)
 {
     __u32 ret = 0;
-    auto cb = binder_internal_control_block_mgr::get_instance().find_by_id(handle);
-    if (!cb)
-    {
-        return -1;
-    }
 
     switch (to_operation)
     {
@@ -65,7 +61,6 @@ __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters)
     case BINDER_WRITE_READ:
         {
             binder_ioctl_write_read(handle, parameters);
-            LOG(INFO) << "write or read data to or from binder driver.";
             return 0;
         }
     case BINDER_ENABLE_ONEWAY_SPAM_DETECTION:
@@ -77,7 +72,7 @@ __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters)
             goto err;
         }
 
-        cb->set_oneway_spam_detection_enabled((bool)enable);
+        binder_internal_control_block_mgr::get_instance().set_oneway_spam_detection_enabled((bool)enable);
         return 0;
     }
     case BINDER_SET_CONTEXT_MGR_EXT:
@@ -97,25 +92,24 @@ err:
 
 __u32 open_binder(const char*, ...)
 {
-    auto bc = binder_internal_control_block_mgr::get_instance().create_new_one();
-    return bc->get_id();
+    return binder_internal_control_block_mgr::get_instance().get_fake_fd();
+}
+
+void register_binder_data_handler( std::function<void()> a_fun )
+{
+    binder_internal_control_block_mgr::get_instance().set_binder_data_handler( a_fun );
+}
+
+void debug_invoke()
+{
+    auto msg = binder_internal_control_block_mgr::get_instance().get_previous_handle_message();
 }
 
 int binder_ioctl_write_read(__u32 handle, void* a_bwr)
 {
     int ret = 0;
     binder_write_read* wr_cb = reinterpret_cast<binder_write_read*>(a_bwr);
-
-    auto cb_ = binder_internal_control_block_mgr::get_instance().find_by_id(handle);
-    if (cb_)
-    {
-        ret = cb_->handle_write_read_block(wr_cb);
-    }
-    else
-    {
-        ret = -1;
-        LOG(ERROR) << "No binder handle: " << handle;
-    }
+    ret = binder_internal_control_block_mgr::get_instance().handle_write_read_block(wr_cb);
 
     return ret;
 }

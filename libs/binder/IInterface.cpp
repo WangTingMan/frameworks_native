@@ -18,6 +18,10 @@
 #include <utils/Log.h>
 #include <binder/IInterface.h>
 
+#ifdef _MSC_VER
+#include <binder_driver/ipc_connection_token.h>
+#endif
+
 namespace android {
 
 // ---------------------------------------------------------------------------
@@ -40,7 +44,14 @@ sp<IBinder> IInterface::asBinder(const IInterface* iface)
 sp<IBinder> IInterface::asBinder(const sp<IInterface>& iface)
 {
     if (iface == nullptr) return nullptr;
-    return sp<IBinder>::fromExisting(iface->onAsBinder());
+#ifdef _MSC_VER
+    sp<IBinder> ret = sp<IBinder>::fromExisting(iface->onAsBinder());
+    String16 descriptor = ret->getInterfaceDescriptor();
+    ipc_connection_token_mgr::get_instance().add_local_service( String8(descriptor).c_str(), ret);
+    return ret;
+#else
+    return sp<IBinder>::fromExisting( iface->onAsBinder() );
+#endif
 }
 
 

@@ -30,6 +30,7 @@
 #include <unistd.h>
 #else
 #include <linux\binder.h>
+#include <binder_driver\ipc_connection_token.h>
 #endif
 
 #include <sys/stat.h>
@@ -86,6 +87,13 @@ typedef uintptr_t binder_uintptr_t;
 // #define LOG_REFS(...) ALOG(LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOG_ALLOC(...)
 // #define LOG_ALLOC(...) ALOG(LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+
+#ifdef _MSC_VER
+#ifdef ALOGV
+#undef ALOGV
+#define ALOGV(...)
+#endif
+#endif
 
 // ---------------------------------------------------------------------------
 
@@ -1412,7 +1420,17 @@ status_t Parcel::writeString16(const char16_t* str, size_t len)
 
 status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
 {
+#ifdef _MSC_VER
+    std::string connection_name;
+    std::string listen_addr;
+    connection_name = ipc_connection_token_mgr::get_instance().get_local_connection_name();
+    listen_addr = ipc_connection_token_mgr::get_instance().get_local_listen_address();
+    writeUtf8AsUtf16( connection_name );
+    writeUtf8AsUtf16( listen_addr );
+    return writeString16( val->getInterfaceDescriptor() );
+#else
     return flattenBinder(val);
+#endif
 }
 
 
@@ -2212,7 +2230,34 @@ sp<IBinder> Parcel::readStrongBinder() const
     // Note that a lot of code in Android reads binders by hand with this
     // method, and that code has historically been ok with getting nullptr
     // back (while ignoring error codes).
-    readNullableStrongBinder(&val);
+#ifdef _MSC_VER
+    std::string connection_name;
+    std::string listen_addr;
+    std::string interface_name;
+    connection_name = String8(readString16()).c_str();
+    listen_addr = String8( readString16() ).c_str();
+    interface_name = String8( readString16() ).c_str();
+    std::string local_connection_name = ipc_connection_token_mgr::get_instance()
+        .get_local_connection_name();
+    int id = 0;
+    if( local_connection_name != connection_name )
+    {
+        id = ipc_connection_token_mgr::get_instance()
+            .find_remote_service_id( interface_name, connection_name );
+        if( id == 0 )
+        {
+            id = ipc_connection_token_mgr::get_instance()
+                .add_remote_service( interface_name, connection_name, listen_addr );
+        }
+        val = ProcessState::self()->getStrongProxyForHandle( interface_name, connection_name );
+    }
+    else
+    {
+        //val = ipc_connection_token_mgr::get_instance().get_local_service( interface_name );
+    }
+#else
+    readNullableStrongBinder( &val );
+#endif
     return val;
 }
 

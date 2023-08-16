@@ -69,8 +69,7 @@ bool FdTrigger::isTriggered() {
 #endif
 }
 
-#ifdef _MSC_VER
-#else
+
 status_t FdTrigger::triggerablePoll(base::borrowed_fd fd, int16_t event) {
 #ifdef BINDER_RPC_SINGLE_THREADED
     if (mTriggered) {
@@ -78,6 +77,9 @@ status_t FdTrigger::triggerablePoll(base::borrowed_fd fd, int16_t event) {
     }
 #endif
 
+#ifdef _MSC_VER
+    return OK;
+#else
     LOG_ALWAYS_FATAL_IF(event == 0, "triggerablePoll %d with event 0 is not allowed", fd.get());
     pollfd pfd[]{
             {.fd = fd.get(), .events = static_cast<int16_t>(event), .revents = 0},
@@ -127,11 +129,10 @@ status_t FdTrigger::triggerablePoll(base::borrowed_fd fd, int16_t event) {
     if (pfd[0].revents & event) {
         return OK;
     }
-
+#endif
     // POLLHUP: Peer closed connection. Treat as DEAD_OBJECT.
     // This is a very common case, so don't log.
     return DEAD_OBJECT;
 }
-#endif
 
 } // namespace android

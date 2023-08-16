@@ -31,6 +31,7 @@
 #include "BuildFlags.h"
 
 #include "binder/windows_porting.h"
+#include "binder_driver/ipc_connection_token.h"
 
 //#undef ALOGV
 //#define ALOGV(...) fprintf(stderr, __VA_ARGS__)
@@ -175,6 +176,42 @@ sp<BpBinder> BpBinder::create(const sp<RpcSession>& session, uint64_t address) {
     return sp<BpBinder>::make(RpcHandle{session, address});
 }
 
+#ifdef _MSC_VER
+sp<IBinder> BpBinder::create
+    (
+    std::string a_service_name,
+    std::string a_connection_name
+    )
+{
+    return sp<BpBinder>::make( a_service_name, a_connection_name );
+}
+
+BpBinder::BpBinder
+    (
+    std::string a_service_name,
+    std::string a_connection_name
+    )
+    : mStability( 0 ),
+    mAlive( true ),
+    mObitsSent( false ),
+    mObituaries( nullptr ),
+    mTrackedUid( -1 )
+{
+    int32_t id = ipc_connection_token_mgr::get_instance()
+        .find_remote_service_id( a_service_name, a_connection_name );
+    if( id == 0 )
+    {
+        id = ipc_connection_token_mgr::get_instance()
+            .add_remote_service( a_service_name, a_connection_name );
+    }
+
+    BinderHandle handle;
+    handle.handle = id;
+    mHandle = handle;
+}
+
+#endif
+
 BpBinder::BpBinder(Handle&& handle)
       : mStability(0),
         mHandle(handle),
@@ -192,7 +229,6 @@ BpBinder::BpBinder(BinderHandle&& handle, int32_t trackedUid) : BpBinder(Handle(
     }
 
     mTrackedUid = trackedUid;
-
     ALOGV("Creating BpBinder %p handle %d\n", this, this->binderHandle());
 
     IPCThreadState::self()->incWeakHandle(this->binderHandle(), this);
@@ -215,7 +251,7 @@ const sp<RpcSession>& BpBinder::rpcSession() const {
 }
 
 int32_t BpBinder::binderHandle() const {
-    return std::get<BinderHandle>(mHandle).handle;
+    return std::get<BinderHandle>( mHandle ).handle;
 }
 
 std::optional<int32_t> BpBinder::getDebugBinderHandle() const {
@@ -302,7 +338,7 @@ status_t BpBinder::transact(
             int16_t stability = Stability::getRepr(this);
             Stability::Level required = privateVendor ? Stability::VENDOR
                 : Stability::getLocalLevel();
-
+#ifndef _MSC_VER
             if (CC_UNLIKELY(!Stability::check(stability, required))) {
                 ALOGE("Cannot do a user transaction on a %s binder (%s) in a %s context.",
                       Stability::levelString(stability).c_str(),
@@ -310,6 +346,7 @@ status_t BpBinder::transact(
                       Stability::levelString(required).c_str());
                 return BAD_TYPE;
             }
+#endif
         }
 
         status_t status;
@@ -322,7 +359,12 @@ status_t BpBinder::transact(
                 return INVALID_OPERATION;
             }
 
+            std::string service_name;
+            std::string connection_name;
+            ipc_connection_token_mgr::get_instance().find_remote_service_by_id(binderHandle(), service_name, connection_name);
+            ALOGI( "start trasaction. service name: %s, connectio name: %s", service_name.c_str(), connection_name.c_str() );
             status = IPCThreadState::self()->transact(binderHandle(), code, data, reply, flags);
+            ALOGI( "transaction completed." );
         }
         if (data.dataSize() > LOG_TRANSACTIONS_OVER_SIZE) {
             Mutex::Autolock _l(mLock);
@@ -571,7 +613,10 @@ void BpBinder::onFirstRef() {
         return;
     }
 
+#ifdef _MSC_VER
+#else
     ALOGV("onFirstRef BpBinder %p handle %d\n", this, binderHandle());
+#endif
     IPCThreadState* ipc = IPCThreadState::self();
     if (ipc) ipc->incStrongHandle(binderHandle(), this);
 }

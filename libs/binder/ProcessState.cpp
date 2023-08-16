@@ -47,6 +47,7 @@
 #else
 #include <linux/binder.h>
 #include <binder/parcel_writer_impl.h>
+#include <linux/MessageLooper.h>
 #endif
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -200,6 +201,9 @@ void ProcessState::childPostFork() {
 
 void ProcessState::startThreadPool()
 {
+#ifdef _MSC_VER
+    MessageLooper::GetDefault();
+#else
     AutoMutex _l(mLock);
     if (!mThreadPoolStarted) {
         if (mMaxThreads == 0) {
@@ -209,6 +213,7 @@ void ProcessState::startThreadPool()
         mThreadPoolStarted = true;
         spawnPooledThread(true);
     }
+#endif
 }
 
 bool ProcessState::becomeContextManager()
@@ -312,6 +317,17 @@ ProcessState::handle_entry* ProcessState::lookupHandleLocked(int32_t handle)
 
 // see b/166779391: cannot change the VNDK interface, so access like this
 extern sp<BBinder> the_context_object;
+
+#ifdef _MSC_VER
+sp<IBinder> ProcessState::getStrongProxyForHandle
+    (
+    std::string a_service_name,
+    std::string a_connection_name
+    )
+{
+    return BpBinder::PrivateAccessor::create( a_service_name, a_connection_name );
+}
+#endif
 
 sp<IBinder> ProcessState::getStrongProxyForHandle(int32_t handle)
 {

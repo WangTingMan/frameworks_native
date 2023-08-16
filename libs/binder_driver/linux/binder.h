@@ -3,6 +3,8 @@
 
 #include <linux/libbinder_driver_exports.h>
 
+#include <functional>
+
 #define B_PACK_CHARS(c1,c2,c3,c4) ((((c1) << 24)) | (((c2) << 16)) | (((c3) << 8)) | (c4))
 #define B_TYPE_LARGE 0x85
 
@@ -127,6 +129,12 @@ enum transaction_flags {
 #define _IOWR(type,nr,size)	_IOC(_IOC_READ|_IOC_WRITE,(type),(nr),sizeof(size))
 #define _IOC_NR(nr)		(((nr) >> _IOC_NRSHIFT) & _IOC_NRMASK)
 
+#ifdef _MSC_VER
+#define MAX_SERVICE_NAME_SIZE 256
+#define MAX_CONNECTION_NAME_SIZE 90
+#define INCREASED_TRANSACTION_DATA_SIZE (MAX_SERVICE_NAME_SIZE+MAX_CONNECTION_NAME_SIZE)
+#endif
+
 struct binder_transaction_data {
     union {
         __u32 binder_handle; /* orignal name: handle*/
@@ -146,6 +154,11 @@ struct binder_transaction_data {
         } ptr;
         __u8 buf[8];
     } data;
+#ifdef _MSC_VER
+    char service_name[MAX_SERVICE_NAME_SIZE]; // which service should handle this transaction
+    char source_connection_name[MAX_CONNECTION_NAME_SIZE]; // which client init this transaction
+    __u64 current_transaction_message_id;
+#endif
 };
 
 struct binder_ptr_cookie {
@@ -308,6 +321,8 @@ namespace porting_binder
     LIBBINDERDRIVER_EXPORTS void close_binder( __u32 handle );
     LIBBINDERDRIVER_EXPORTS __u32 fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters);
     LIBBINDERDRIVER_EXPORTS __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters);
+    LIBBINDERDRIVER_EXPORTS void register_binder_data_handler( std::function<void()> );
+    LIBBINDERDRIVER_EXPORTS void debug_invoke();
 }
 
 struct binder_fd_object {

@@ -13,11 +13,19 @@
 #include "data_link/server.h"
 #include "data_link/client.h"
 
-class binder_internal_control_block;
+#include <parcel_writer_interface.h>
 
-namespace android
+struct client_to_normal_service
 {
-    struct AddServiceControlBlock;
+    int m_id;
+    std::shared_ptr<data_link::client> m_client_to_normal_service;
+};
+
+class client_control_block;
+
+namespace data_link
+{
+    class binder_ipc_message;
 }
 
 class LIBBINDERDRIVER_EXPORTS binder_internal_control_block_mgr
@@ -27,21 +35,49 @@ public:
 
     static binder_internal_control_block_mgr& get_instance();
 
-    std::shared_ptr<binder_internal_control_block> find_by_id( uint32_t a_id );
+    uint32_t get_fake_fd()
+    {
+        return 512;
+    }
 
-    std::shared_ptr<binder_internal_control_block> create_new_one();
+    void shut_down( uint32_t )
+    {
 
+    }
+
+    /**
+     * Ask manager to allocate a buffer area
+     */
     char* get_buffer( uint32_t a_size_expect );
 
+    /**
+     * Return the buffer to this manager.
+     */
     void return_back_buffer( char* );
-
-    bool remove_control_block( uint32_t a_id );
 
     void enter_looper();
 
+    /**
+     * Set local process is service manager or not.
+     * If no one invoke this API, then won't be service manager.
+     */
     void set_service_manager( bool is_manager )
     {
         m_is_service_manager = is_manager;
+    }
+
+    /**
+     * Return is service manager or not.
+     */
+    bool is_service_manager()
+    {
+        return m_is_service_manager;
+    }
+
+    void set_binder_data_handler( std::function<void()> a_fun )
+    {
+        std::lock_guard<std::recursive_mutex> lcker( m_mutex );
+        m_binder_data_handler = a_fun;
     }
 
     std::string get_service_manager_endpoint()
@@ -49,26 +85,40 @@ public:
         return "127.0.0.1:5151";
     }
 
-    bool register_service_local( std::shared_ptr<android::AddServiceControlBlock> a_service );
+    int handle_read_only( binder_write_read* a_wr_blk );
+
+    int handle_write_read_block( binder_write_read* a_wr_blk );
+
+    void set_oneway_spam_detection_enabled( bool a_enable = true )
+    {
+        std::lock_guard<std::recursive_mutex> locker( m_mutex );
+        oneway_spam_detection_enabled = a_enable;
+    }
+
+    void start_local_link_server();
+
+    void invoke_binder_data_handler();
+
+    void set_previous_hanlded_messsge( std::shared_ptr<data_link::binder_ipc_message> a_msg )
+    {
+        m_previous_handles_message = a_msg;
+    }
+
+    std::shared_ptr<data_link::binder_ipc_message> get_previous_handle_message();
 
 private:
 
-    void handle_incoming_message
+    void send_reply_only
         (
-        std::shared_ptr<data_link::binder_ipc_message> a_message 
+        binder_write_read* a_wr_blk,
+        binder_transaction_data& a_write_cur_ptr
         );
 
-    void handle_ping_message
-        (
-        std::shared_ptr<data_link::binder_ping_message> a_message
-        );
+    void handle_new_client_incoming( std::shared_ptr<data_link::client> a_client );
 
-    void handle_register_service_message
-        (
-        std::shared_ptr<data_link::register_service_message> a_message
-        );
+    std::shared_ptr<client_control_block> find_client( uint32_t a_handle );
 
-    static std::atomic_uint32_t m_next_id;
+    std::shared_ptr<client_control_block> find_client( std::string const& a_listen_addr );
 
     struct buffer_compare
     {
@@ -82,11 +132,13 @@ private:
         }
     };
 
-    std::shared_mutex m_mutex;
-    std::vector<std::shared_ptr<binder_internal_control_block>> m_blocks;
+    std::function<void()> m_binder_data_handler;
     std::set<std::shared_ptr<std::vector<char>>, buffer_compare> m_used_buffers;
     std::vector<std::shared_ptr<std::vector<char>>> m_free_buffers;
     std::shared_ptr<data_link::server> m_server;
-    std::vector<std::shared_ptr<android::AddServiceControlBlock>> mAddedServices;
+    mutable std::recursive_mutex m_mutex;
+    bool oneway_spam_detection_enabled = false;
     bool m_is_service_manager = false; // Current process is the service manager or not
+    std::vector<std::shared_ptr<client_control_block>> m_clients;
+    std::shared_ptr<data_link::binder_ipc_message> m_previous_handles_message; // just for debug using.
 };

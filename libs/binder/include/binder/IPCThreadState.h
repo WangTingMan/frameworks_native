@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <utils/Errors.h>
 #include <binder/Parcel.h>
 #include <binder/ProcessState.h>
@@ -28,6 +30,10 @@
 typedef  int  uid_t;
 #endif
 #include <functional>
+#endif
+
+#ifdef _MSC_VER
+struct binder_transaction_data;
 #endif
 
 // ---------------------------------------------------------------------------
@@ -210,19 +216,37 @@ public:
             // side.
             static const int32_t kUnsetWorkSource = -1;
 private:
+
+#ifdef _MSC_VER
+            void routeContextObject( std::string a_service_name );
+#endif
+
                                 IPCThreadState();
                                 ~IPCThreadState();
-
+#ifdef _MSC_VER
+            status_t            sendReply( const Parcel& reply, uint32_t flags, binder_transaction_data* tr = nullptr);
+#else
             status_t            sendReply(const Parcel& reply, uint32_t flags);
+#endif
             status_t            waitForResponse(Parcel *reply,
                                                 status_t *acquireResult=nullptr);
             status_t            talkWithDriver(bool doReceive=true);
+#ifdef _MSC_VER
+            status_t            writeTransactionData(int32_t cmd,
+                                                     uint32_t binderFlags,
+                                                     int32_t handle,
+                                                     uint32_t code,
+                                                     const Parcel& data,
+                                                     status_t* statusBuffer,
+                                                     binder_transaction_data* tr = nullptr);
+#else
             status_t            writeTransactionData(int32_t cmd,
                                                      uint32_t binderFlags,
                                                      int32_t handle,
                                                      uint32_t code,
                                                      const Parcel& data,
                                                      status_t* statusBuffer);
+#endif
             status_t            getAndExecuteCommand();
             status_t            executeCommand(int32_t command);
             void                processPendingDerefs();

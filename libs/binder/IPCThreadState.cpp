@@ -43,12 +43,20 @@
 #include <binder/windows_porting.h>
 #include <linux/binder.h>
 #include <memory>
+#include <mutex>
+#include <linux/MessageLooper.h>
+#include "servicemanager/ServiceManager.h"
+#include "binder_driver/ipc_connection_token.h"
 #endif
 
 #include "Static.h"
 #include "binder_module.h"
 
 #include <cutils\threads.h>
+
+#ifdef _MSC_VER
+#define LOG_NDEBUG 1
+#endif
 
 #if LOG_NDEBUG
 
@@ -674,7 +682,40 @@ void IPCThreadState::joinThreadPool(bool isMain)
     mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
 
     mIsLooper = true;
-    status_t result;
+#ifdef _MSC_VER
+    std::function<void()> fun;
+    fun = [this,isMain]()mutable
+    {
+        status_t result = 0;
+        processPendingDerefs();
+        // now get the next command to be processed, waiting if necessary
+        result = getAndExecuteCommand();
+        constexpr int32_t ref_used = ECONNREFUSED;
+        if( result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF )
+        {
+            LOG_ALWAYS_FATAL( "getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
+                mProcess->mDriverFD, result );
+        }
+
+        // Let this thread exit the thread pool if it is no longer
+        // needed and it is not the main process thread.
+        if( result == TIMED_OUT && !isMain )
+        {
+            ALOGE( "time out!" );
+        }
+    };
+
+    std::function<void()> handler;
+    handler = [fun]()
+    {
+        MessageLooper::GetDefault().PostTask( fun );
+    };
+
+    porting_binder::register_binder_data_handler( handler );
+    MessageLooper::GetDefault().PostTask( fun );
+    MessageLooper::GetDefault().Run();
+#else
+    status_t result = 0;
     do {
         processPendingDerefs();
         // now get the next command to be processed, waiting if necessary
@@ -692,7 +733,7 @@ void IPCThreadState::joinThreadPool(bool isMain)
             break;
         }
     } while (result != -ECONNREFUSED && result != -EBADF);
-
+#endif
     LOG_THREADPOOL("**** THREAD %p (PID %d) IS LEAVING THE THREAD POOL err=%d\n",
         (void*)gettid(), getpid(), result);
 
@@ -813,7 +854,9 @@ status_t IPCThreadState::transact(int32_t handle,
             else alog << "(none requested)" << endl;
         }
     } else {
+        ALOGI( "send binder message and wait for reply" );
         err = waitForResponse(nullptr, nullptr);
+        ALOGI( "binder message sent and replied." );
     }
     return err;
 }
@@ -932,19 +975,28 @@ IPCThreadState::IPCThreadState()
     gTLS = std::shared_ptr<IPCThreadState>(this, &threadDestructor);
 #endif
     clearCaller();
+#ifdef _MSC_VER
+    mIn.setDataCapacity( 256 + INCREASED_TRANSACTION_DATA_SIZE );
+    mOut.setDataCapacity( 256 + INCREASED_TRANSACTION_DATA_SIZE );
+#else
     mIn.setDataCapacity(256);
     mOut.setDataCapacity(256);
+#endif
 }
 
 IPCThreadState::~IPCThreadState()
 {
 }
 
-status_t IPCThreadState::sendReply(const Parcel& reply, uint32_t flags)
+status_t IPCThreadState::sendReply(const Parcel& reply, uint32_t flags, binder_transaction_data* tr)
 {
     status_t err;
     status_t statusBuffer;
+#ifdef _MSC_VER
+    err = writeTransactionData( BC_REPLY, flags, -1, 0, reply, &statusBuffer, tr );
+#else
     err = writeTransactionData(BC_REPLY, flags, -1, 0, reply, &statusBuffer);
+#endif
     if (err < NO_ERROR) return err;
     return waitForResponse(nullptr, nullptr);
 }
@@ -1024,7 +1076,11 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
                     freeBuffer(reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer), tr.data_size,
                                reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
                                tr.offsets_size / sizeof(binder_size_t));
+#ifdef _MSC_VER
+                    ALOGI( "caller does not need reply. So we just return here." );
+#else
                     continue;
+#endif
                 }
             }
             goto finish;
@@ -1054,6 +1110,10 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     }
     binder_write_read bwr;
 
+#ifdef _MSC_VER
+    mIn.setDataSize( 0 );
+    mIn.setDataPosition( 0 );
+#endif
     // Is the read buffer empty?
     const bool needRead = mIn.dataPosition() >= mIn.dataSize();
 
@@ -1159,8 +1219,13 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     return err;
 }
 
+#ifdef _MSC_VER
+status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
+    int32_t handle, uint32_t code, const Parcel& data, status_t* statusBuffer, binder_transaction_data* a_tr)
+#else
 status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     int32_t handle, uint32_t code, const Parcel& data, status_t* statusBuffer)
+#endif
 {
     binder_transaction_data tr;
 
@@ -1171,6 +1236,54 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     tr.binder_transaction_cookie = 0;
     tr.sender_pid = 0;
     tr.sender_euid = 0;
+
+#ifdef _MSC_VER
+    if( a_tr )
+    {
+        tr = *a_tr;
+        tr.target.binder_handle = handle;
+        tr.code = code;
+        tr.flags = binderFlags;
+    }
+    else
+    {
+        memset( tr.service_name, 0x00, MAX_SERVICE_NAME_SIZE );
+        memset( tr.source_connection_name, 0x00, MAX_CONNECTION_NAME_SIZE );
+        // 0 is for service manager and -1 is for reply message
+        if( handle != 0 && handle != -1 )
+        {
+            std::string service_name;
+            std::string connection_name;
+            ipc_connection_token_mgr::get_instance().find_remote_service_by_id
+            ( handle, service_name, connection_name );
+            service_name.push_back( 0x00 );
+            if( ( service_name.size() < MAX_SERVICE_NAME_SIZE ) &&
+                ( !service_name.empty() ) )
+            {
+                strcpy( tr.service_name, service_name.c_str() );
+            }
+            else
+            {
+                ALOGE( "service name: %s. it can not longer than %d. or it is empty.",
+                    service_name.c_str(), MAX_SERVICE_NAME_SIZE );
+            }
+        }
+
+        std::string local_connection_name = ipc_connection_token_mgr::get_instance()
+            .get_local_connection_name();
+        local_connection_name.push_back( 0x00 );
+        if( ( local_connection_name.size() < MAX_CONNECTION_NAME_SIZE ) &&
+            ( !local_connection_name.empty() ) )
+        {
+            strcpy( tr.source_connection_name, local_connection_name.c_str() );
+        }
+        else
+        {
+            ALOGE( "connection name: %s. it can not longer than %d. or it is empty.",
+                local_connection_name.c_str(), MAX_CONNECTION_NAME_SIZE );
+        }
+    }
+#endif
 
     const status_t err = data.errorCheck();
     if (err == NO_ERROR) {
@@ -1193,18 +1306,21 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     mOut.writeInt32(cmd);
     mOut.write(&tr, sizeof(tr));
 
-    uint8_t const* ptr = mOut.data();
-    ptr += sizeof(cmd);
-    binder_transaction_data test_tr;
-    memcpy(&test_tr, ptr, sizeof(binder_transaction_data));
-
     return NO_ERROR;
 }
+
+#ifdef _MSC_VER
+std::string the_context_object_service_name;
+std::recursive_mutex the_context_mutex;
+#endif
 
 sp<BBinder> the_context_object;
 
 void IPCThreadState::setTheContextObject(const sp<BBinder>& obj)
 {
+#ifdef _MSC_VER
+    std::lock_guard<std::recursive_mutex> locker( the_context_mutex );
+#endif
     the_context_object = obj;
 }
 
@@ -1362,7 +1478,31 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                 }
 
             } else {
-                error = the_context_object->transact(tr.code, buffer, &reply, tr.flags);
+#ifdef _MSC_VER
+                sp<BBinder> context_object;
+                std::unique_lock<std::recursive_mutex> lcker( the_context_mutex );
+                if( the_context_object_service_name == tr.service_name )
+                {
+                    context_object = the_context_object;
+                }
+                else
+                {
+                    routeContextObject( tr.service_name );
+                    context_object = the_context_object;
+                }
+
+                lcker.unlock();
+                if( context_object )
+                {
+                    error = context_object->transact( tr.code, buffer, &reply, tr.flags );
+                }
+                else
+                {
+                    ALOGE( "No such service name: %s", tr.service_name );
+                }
+#else
+                error = the_context_object->transact( tr.code, buffer, &reply, tr.flags );
+#endif
             }
 
             //ALOGI("<<<< TRANSACT from pid %d restore pid %d sid %s uid %d\n",
@@ -1373,7 +1513,11 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                 if (error < NO_ERROR) reply.setError(error);
 
                 constexpr uint32_t kForwardReplyFlags = TF_CLEAR_BUF;
-                sendReply(reply, (tr.flags & kForwardReplyFlags));
+#ifdef _MSC_VER
+                sendReply(reply, (tr.flags & kForwardReplyFlags), &tr);
+#else
+                sendReply( reply, ( tr.flags& kForwardReplyFlags ) );
+#endif
             } else {
                 if (error != OK) {
                     alog.setSourceLocation(__FILE__, __LINE__);
@@ -1444,6 +1588,9 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
     default:
         ALOGE("*** BAD COMMAND %d received from Binder driver\n", cmd);
         result = UNKNOWN_ERROR;
+#ifdef _MSC_VER
+        porting_binder::debug_invoke();
+#endif
         break;
     }
 
@@ -1453,6 +1600,31 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
     return result;
 }
+
+#ifdef _MSC_VER
+void IPCThreadState::routeContextObject( std::string a_service_name )
+{
+    sp<RefBase> service = ipc_connection_token_mgr::get_instance().get_local_service( a_service_name );
+    if( !service )
+    {
+        ALOGE( "no such service named %s", a_service_name.c_str() );
+    }
+
+    BBinder* p = dynamic_cast< BBinder* >( service.get() );
+    if( p )
+    {
+        sp<BBinder> context_object;
+        context_object.force_set( p );
+        std::lock_guard<std::recursive_mutex> lcker( the_context_mutex );
+        the_context_object_service_name = a_service_name;
+        setTheContextObject( context_object );
+    }
+    else
+    {
+        ALOGE( "cannot cast to BBinder pointer!" );
+    }
+}
+#endif
 
 const void* IPCThreadState::getServingStackPointer() const {
      return mServingStackPointer;

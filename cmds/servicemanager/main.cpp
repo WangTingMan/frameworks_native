@@ -30,6 +30,8 @@
 #include <functional>
 #include <memory>
 
+#include <linux/binder.h>
+
 #ifdef ERROR
 #undef ERROR
 #endif
@@ -157,7 +159,7 @@ int main(int argc, char** argv) {
 #endif
 
     logging::SetLogMessageHandler( libchrome_logging_handler );
-    __set_default_log_file_name( "E:/VCLAB/component/x64/Debug/servicemanager.log" );
+    __set_default_log_file_name( nullptr, false );
 
     if (argc > 2) {
         LOG(FATAL) << "usage: " << argv[0] << " [binder driver]";
@@ -184,23 +186,23 @@ int main(int argc, char** argv) {
     std::function<bool()> timer_callback = std::bind(&ClientCallbackCallback::handleEvent,
         std::make_shared<ClientCallbackCallback>(manager));
     looper.RegisterTimer(ClientCallbackCallback::s_handle_interval_ms, timer_callback);
+    auto fun = [&looper]()
+        {
+            looper.PostTask( []()
+            {
+                IPCThreadState::self()->handlePolledCommands();
+            } );
+        };
+
+    porting_binder::register_binder_data_handler( fun );
 
     int binder_fd = -1;
     IPCThreadState::self()->setupPolling(&binder_fd);
     LOG_ALWAYS_FATAL_IF(binder_fd < 0, "Failed to setupPolling: %d", binder_fd);
 
-    IPCThreadState::self()->registerAsyncFdEventHandler([&looper]()mutable
-        {
-            looper.PostTask([]()
-                {
-                    IPCThreadState::self()->handlePolledCommands();
-                });
-        });
+    IPCThreadState::self()->registerAsyncFdEventHandler( fun );
+    fun();
 
-    looper.PostTask([]()
-        {
-            IPCThreadState::self()->handlePolledCommands();
-        });
 #else
     sp<Looper> looper = Looper::prepare(false /*allowNonCallbacks*/);
 

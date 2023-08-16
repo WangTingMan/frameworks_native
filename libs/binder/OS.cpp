@@ -20,15 +20,14 @@
 #include <string.h>
 #include <base/rand_util.h>
 
-#ifndef _MSC_VER
 using android::base::ErrnoError;
 using android::base::Result;
-#endif
 
 namespace android {
 
-#ifndef _MSC_VER
 Result<void> setNonBlocking(android::base::borrowed_fd fd) {
+#ifdef _MSC_VER
+#else
     int flags = TEMP_FAILURE_RETRY(fcntl(fd.get(), F_GETFL));
     if (flags == -1) {
         return ErrnoError() << "Could not get flags for fd";
@@ -36,9 +35,9 @@ Result<void> setNonBlocking(android::base::borrowed_fd fd) {
     if (int ret = TEMP_FAILURE_RETRY(fcntl(fd.get(), F_SETFL, flags | O_NONBLOCK)); ret == -1) {
         return ErrnoError() << "Could not set non-blocking flag for fd";
     }
+#endif
     return {};
 }
-#endif
 
 status_t getRandomBytes(uint8_t* data, size_t size) {
 

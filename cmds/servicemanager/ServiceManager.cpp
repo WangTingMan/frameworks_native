@@ -342,6 +342,10 @@ Status ServiceManager::addService(const std::string& name, const sp<IBinder>& bi
         .debugPid = ctx.debugPid,
     };
 
+#ifdef _MSC_VER
+    LOG( INFO ) << "service: " << name << " added.";
+#endif
+
     auto it = mNameToRegistrationCallback.find(name);
     if (it != mNameToRegistrationCallback.end()) {
         for (const sp<IServiceCallback>& cb : it->second) {

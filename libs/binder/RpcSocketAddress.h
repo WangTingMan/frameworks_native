@@ -24,7 +24,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #else
-#include "binder/windows_porting.h"
+#include "binder/windows_porting.h" 
+#include <WS2tcpip.h>
+#include <WSPiApi.h>
 #include <WinSock2.h>
 #include <afunix.h>
 #endif
@@ -92,7 +94,6 @@ public:
     [[nodiscard]] const sockaddr* addr() const override { return mSockAddr; }
     [[nodiscard]] size_t addrSize() const override { return mSize; }
 
-#ifndef _MSC_VER
     using AddrInfo = std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>;
     static AddrInfo getAddrInfo(const char* addr, unsigned int port) {
         addrinfo hint{
@@ -103,7 +104,11 @@ public:
         };
         addrinfo* aiStart = nullptr;
         if (int rc = getaddrinfo(addr, std::to_string(port).data(), &hint, &aiStart); 0 != rc) {
+#ifdef _MSC_VER
+            ALOGE( "Unable to resolve %s:%u: %s", addr, port, gai_strerrorA( rc ) );
+#else
             ALOGE("Unable to resolve %s:%u: %s", addr, port, gai_strerror(rc));
+#endif
             return AddrInfo(nullptr, nullptr);
         }
         if (aiStart == nullptr) {
@@ -112,7 +117,6 @@ public:
         }
         return AddrInfo(aiStart, &freeaddrinfo);
     }
-#endif
 
 private:
     const sockaddr* mSockAddr;

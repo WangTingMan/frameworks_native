@@ -24,11 +24,12 @@
 #include <utils/Mutex.h>
 
 #include <binder/compatible_porting.h>
+#include <binder/libbinder_export.h>
 
 // ---------------------------------------------------------------------------
 namespace android {
 
-class BufferedTextOutput : public TextOutput
+class LIBBINDER_EXPORT BufferedTextOutput : public TextOutput
 {
 public:
     //** Flags for constructor */

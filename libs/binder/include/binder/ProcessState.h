@@ -57,6 +57,14 @@ public:
 
     bool becomeContextManager();
 
+#ifdef _MSC_VER
+    sp<IBinder> getStrongProxyForHandle
+        (
+        std::string a_service_name,
+        std::string a_connection_name
+        );
+#endif
+
     sp<IBinder> getStrongProxyForHandle(int32_t handle);
     void expungeHandle(int32_t handle, IBinder* binder);
 
