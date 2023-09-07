@@ -95,9 +95,9 @@ __u32 open_binder(const char*, ...)
     return binder_internal_control_block_mgr::get_instance().get_fake_fd();
 }
 
-void register_binder_data_handler( std::function<void()> a_fun )
+void register_binder_data_handler( std::function<void()> a_fun, bool a_for_aidl )
 {
-    binder_internal_control_block_mgr::get_instance().set_binder_data_handler( a_fun );
+    binder_internal_control_block_mgr::get_instance().set_binder_data_handler( a_fun, a_for_aidl );
 }
 
 void debug_invoke()

@@ -74,10 +74,17 @@ public:
         return m_is_service_manager;
     }
 
-    void set_binder_data_handler( std::function<void()> a_fun )
+    void set_binder_data_handler( std::function<void()> a_fun, bool a_for_aidl )
     {
         std::lock_guard<std::recursive_mutex> lcker( m_mutex );
-        m_binder_data_handler = a_fun;
+        if( a_for_aidl )
+        {
+            m_binder_data_handler = a_fun;
+        }
+        else
+        {
+            m_hidl_data_handler = a_fun;
+        }
     }
 
     std::string get_service_manager_endpoint()
@@ -99,6 +106,8 @@ public:
 
     void invoke_binder_data_handler();
 
+    void invoke_hidl_data_handler();
+
     void set_previous_hanlded_messsge( std::shared_ptr<data_link::binder_ipc_message> a_msg )
     {
         m_previous_handles_message = a_msg;
@@ -107,6 +116,12 @@ public:
     std::shared_ptr<data_link::binder_ipc_message> get_previous_handle_message();
 
 private:
+
+    void handle_transaction_sg
+        (
+        binder_write_read* a_wr_blk,
+        binder_transaction_data_sg a_tc_sg
+        );
 
     void send_reply_only
         (
@@ -132,7 +147,8 @@ private:
         }
     };
 
-    std::function<void()> m_binder_data_handler;
+    std::function<void()> m_binder_data_handler; // binder message routing
+    std::function<void()> m_hidl_data_handler;   // hidl message routing
     std::set<std::shared_ptr<std::vector<char>>, buffer_compare> m_used_buffers;
     std::vector<std::shared_ptr<std::vector<char>>> m_free_buffers;
     std::shared_ptr<data_link::server> m_server;

@@ -158,6 +158,7 @@ struct binder_transaction_data {
     char service_name[MAX_SERVICE_NAME_SIZE]; // which service should handle this transaction
     char source_connection_name[MAX_CONNECTION_NAME_SIZE]; // which client init this transaction
     __u64 current_transaction_message_id;
+    bool is_aidl_transaction = true;
 #endif
 };
 
@@ -229,6 +230,11 @@ struct binder_version {
 #else
 #define BINDER_CURRENT_PROTOCOL_VERSION 8
 #endif
+
+enum
+{
+    BINDER_BUFFER_FLAG_HAS_PARENT = 0x01,
+};
 
 #define BINDER_WRITE_READ _IOWR('b', 1, struct binder_write_read)
 #define BINDER_SET_IDLE_TIMEOUT _IOW('b', 3, __s64)
@@ -321,7 +327,7 @@ namespace porting_binder
     LIBBINDERDRIVER_EXPORTS void close_binder( __u32 handle );
     LIBBINDERDRIVER_EXPORTS __u32 fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters);
     LIBBINDERDRIVER_EXPORTS __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters);
-    LIBBINDERDRIVER_EXPORTS void register_binder_data_handler( std::function<void()> );
+    LIBBINDERDRIVER_EXPORTS void register_binder_data_handler( std::function<void()> a_fun, bool a_for_aidl = true );
     LIBBINDERDRIVER_EXPORTS void debug_invoke();
 }
 

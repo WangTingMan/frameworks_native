@@ -450,10 +450,25 @@ void client_control_block::receive_incoming_ipc_message
     )
 {
     std::unique_lock<std::recursive_mutex> lcker( m_mutex );
-    m_received_binder_messages.push_back( a_msg );
+    if( a_msg->is_aidl_message() )
+    {
+        m_received_binder_messages.push_back( a_msg );
+    }
+    else
+    {
+        m_received_hidl_messages.push_back( a_msg );
+    }
     lcker.unlock();
     m_condition_var.notify_all();
-    binder_internal_control_block_mgr::get_instance().invoke_binder_data_handler();
+
+    if( a_msg->is_aidl_message() )
+    {
+        binder_internal_control_block_mgr::get_instance().invoke_binder_data_handler();
+    }
+    else
+    {
+        binder_internal_control_block_mgr::get_instance().invoke_hidl_data_handler();
+    }
 }
 
 void client_control_block::send_reply_only

@@ -139,6 +139,25 @@ void binder_internal_control_block_mgr::invoke_binder_data_handler()
     {
         handler();
     }
+    else
+    {
+        LOG( WARNING ) << "Received a binder message but no message handler!";
+    }
+}
+
+void binder_internal_control_block_mgr::invoke_hidl_data_handler()
+{
+    std::unique_lock<std::recursive_mutex> lcker( m_mutex );
+    auto handler = m_hidl_data_handler;
+    lcker.unlock();
+    if( handler )
+    {
+        handler();
+    }
+    else
+    {
+        LOG( ERROR ) << "Received a hidl message but no message handler!";
+    }
 }
 
 std::shared_ptr<data_link::binder_ipc_message> binder_internal_control_block_mgr::get_previous_handle_message()
@@ -267,6 +286,14 @@ int binder_internal_control_block_mgr::handle_write_read_block( binder_write_rea
         a_wr_blk->write_consumed = a_wr_blk->write_size;
         LOG( INFO ) << "TODO add death notification implementation.";
         break;
+    case BC_TRANSACTION_SG:
+        {
+            binder_transaction_data_sg tr_sg;
+            viewer_mOut->read( ( void* )( &tr_sg ), sizeof( binder_transaction_data_sg ) );
+            handle_transaction_sg( a_wr_blk, tr_sg );
+            a_wr_blk->write_consumed = a_wr_blk->write_size;
+        }
+        break;
     default:
         LOG( ERROR ) << "No implementation with " << cmd;
     }
@@ -308,3 +335,29 @@ void binder_internal_control_block_mgr::handle_new_client_incoming( std::shared_
     std::lock_guard<std::recursive_mutex> lcker( m_mutex );
     m_clients.push_back( client );
 }
+
+void binder_internal_control_block_mgr::handle_transaction_sg
+    (
+    binder_write_read* a_wr_blk,
+    binder_transaction_data_sg a_tc_sg
+    )
+{
+    auto client = find_client( a_tc_sg.transaction_data.target.binder_handle );
+    if( !client )
+    {
+        std::string listen_addr;
+        listen_addr = android::ipc_connection_token_mgr::get_instance()
+            .find_remote_service_listen_addr( a_tc_sg.transaction_data.target.binder_handle );
+        client = find_client( listen_addr );
+    }
+
+    if( !client )
+    {
+        LOG( INFO ) << "make client to binder handle: " << a_tc_sg.transaction_data.target.binder_handle;
+        client = std::make_shared<client_control_block>( a_tc_sg.transaction_data.target.binder_handle );
+        std::lock_guard<std::recursive_mutex> locker( m_mutex );
+        m_clients.push_back( client );
+    }
+    client->handle_transaction( a_wr_blk, a_tc_sg.transaction_data );
+}
+

@@ -134,6 +134,7 @@ private:
     std::shared_ptr<data_link::client> m_client;
     std::vector<std::shared_ptr<data_link::binder_ipc_message>> m_received_binder_messages;
     std::vector<std::shared_ptr<data_link::binder_transaction_message>> m_transaction_in_process_msgs;
+    std::vector<std::shared_ptr<data_link::binder_ipc_message>> m_received_hidl_messages;
     uint32_t m_service_id = 0;
     std::function<void()> m_binder_data_handler;
     std::function<void( data_link::connection_status )> m_connection_notify_internal;

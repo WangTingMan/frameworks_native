@@ -1238,6 +1238,7 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     tr.sender_euid = 0;
 
 #ifdef _MSC_VER
+    tr.is_aidl_transaction = true;
     if( a_tr )
     {
         tr = *a_tr;
