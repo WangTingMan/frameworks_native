@@ -54,18 +54,26 @@ public:
     std::shared_ptr<data_link::binder_ipc_message>
         check_receivd_message
         (
-        data_link::binder_message_type a_msg_type
+        std::string const& a_connection_name,
+        uint64_t a_message_id,
+        data_link::binder_message_type a_msg_type,
+        bool a_is_hidl_message = true
         );
 
     std::shared_ptr<data_link::binder_transaction_message>
         check_received_transaction_message
         (
-        uint64_t a_id,
-        std::string const& a_service_name,
-        std::string const& a_source_connection_name
+        uint64_t a_id,                              // Which message id to wait
+        std::string const& a_service_name,          // which service send the message
+        std::string const& a_source_connection_name,// Who send this message
+        bool a_aidl_message_checking = true
         );
 
-    void handle_incoming_ipc_message( binder_write_read* a_wr_blk );
+    void handle_incoming_ipc_message
+        (
+        uint32_t a_binder_fd_handle,
+        binder_write_read* a_wr_blk
+        );
 
     uint32_t get_service_id()
     {
@@ -76,11 +84,7 @@ public:
     /**
      * Get the size of incoming message which need to handle
      */
-    uint32_t get_incoming_message_size()
-    {
-        std::lock_guard<std::recursive_mutex> lcker( m_mutex );
-        return m_received_binder_messages.size();
-    }
+    uint32_t get_incoming_message_size( uint32_t a_binder_fd_handle );
 
     bool has_trasaction_need_reply()
     {
@@ -91,6 +95,11 @@ public:
     std::string const& remote_listen_address()const noexcept
     {
         return m_remote_address;
+    }
+
+    std::string const& get_connection_name()const noexcept
+    {
+        return m_remote_connection_name;
     }
 
 private:
@@ -115,6 +124,7 @@ private:
      */
     void handle_general_transaction_message
         (
+        uint32_t a_binder_fd_handle,
         binder_write_read* a_wr_blk,
         std::shared_ptr<data_link::binder_transaction_message> a_message
         );

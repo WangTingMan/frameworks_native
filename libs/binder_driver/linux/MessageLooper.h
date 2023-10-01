@@ -27,6 +27,14 @@ public:
 
     void PostTask( std::function<void()> a_task );
 
+    void PostDelayTask
+        (
+        int a_milliseconds,
+        std::function<void()> a_task
+        );
+
+    bool IsLooperThread();
+
 private:
 
     void timer_function_wrapper( int index, std::function<bool( void )> a_fun );

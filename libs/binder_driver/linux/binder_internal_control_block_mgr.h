@@ -15,6 +15,9 @@
 
 #include <parcel_writer_interface.h>
 
+#define AIDL_BINDER_FD 512
+#define HIDL_BINDER_FD 256
+
 struct client_to_normal_service
 {
     int m_id;
@@ -35,10 +38,7 @@ public:
 
     static binder_internal_control_block_mgr& get_instance();
 
-    uint32_t get_fake_fd()
-    {
-        return 512;
-    }
+    uint32_t get_fake_fd( const char* a_binder_name );
 
     void shut_down( uint32_t )
     {
@@ -92,9 +92,17 @@ public:
         return "127.0.0.1:5151";
     }
 
-    int handle_read_only( binder_write_read* a_wr_blk );
+    int handle_read_only
+        (
+        uint32_t a_binder_fd_handle,
+        binder_write_read* a_wr_blk
+        );
 
-    int handle_write_read_block( binder_write_read* a_wr_blk );
+    int handle_write_read_block
+        (
+        uint32_t a_binder_fd_handle,
+        binder_write_read* a_wr_blk
+        );
 
     void set_oneway_spam_detection_enabled( bool a_enable = true )
     {

@@ -165,7 +165,11 @@ using parcel_writer_maker = std::function<std::shared_ptr<parcel_writer_interfac
 
 LIBBINDERDRIVER_EXPORTS void register_parcel_writer_maker( parcel_writer_maker a_maker );
 
+LIBBINDERDRIVER_EXPORTS void register_hidl_parcel_writer_maker( parcel_writer_maker a_maker );
+
 LIBBINDERDRIVER_EXPORTS parcel_writer_maker get_parcel_writer_maker();
+
+LIBBINDERDRIVER_EXPORTS parcel_writer_maker get_hidl_parcel_writer_maker();
 
 }
 

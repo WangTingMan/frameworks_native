@@ -25,7 +25,10 @@
 #include "Access.h"
 #include "ServiceManager.h"
 
-#include "BaseMessageLooper.h"
+#ifdef _MSC_VER
+#include "linux/MessageLooper.h"
+#include <base/logging.h>
+#endif
 
 #include <functional>
 #include <memory>
@@ -34,6 +37,10 @@
 
 #ifdef ERROR
 #undef ERROR
+#endif
+
+#ifdef _MSC_VER
+extern void load_hw_service_manager();
 #endif
 
 using ::android::Access;
@@ -182,7 +189,7 @@ int main(int argc, char** argv) {
     ps->becomeContextManager();
 
 #ifdef _MSC_VER
-    BaseMessageLooper looper;
+    MessageLooper& looper = MessageLooper::GetDefault();
     std::function<bool()> timer_callback = std::bind(&ClientCallbackCallback::handleEvent,
         std::make_shared<ClientCallbackCallback>(manager));
     looper.RegisterTimer(ClientCallbackCallback::s_handle_interval_ms, timer_callback);
@@ -217,6 +224,7 @@ int main(int argc, char** argv) {
 #endif
 
 #ifdef _MSC_VER
+    load_hw_service_manager();
     looper.Run();
 #else
     while(true) {

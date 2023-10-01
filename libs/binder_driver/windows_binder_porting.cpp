@@ -90,9 +90,9 @@ err:
     return ret;
 }
 
-__u32 open_binder(const char*, ...)
+__u32 open_binder(const char* a_binder_name, ...)
 {
-    return binder_internal_control_block_mgr::get_instance().get_fake_fd();
+    return binder_internal_control_block_mgr::get_instance().get_fake_fd( a_binder_name );
 }
 
 void register_binder_data_handler( std::function<void()> a_fun, bool a_for_aidl )
@@ -109,7 +109,7 @@ int binder_ioctl_write_read(__u32 handle, void* a_bwr)
 {
     int ret = 0;
     binder_write_read* wr_cb = reinterpret_cast<binder_write_read*>(a_bwr);
-    ret = binder_internal_control_block_mgr::get_instance().handle_write_read_block(wr_cb);
+    ret = binder_internal_control_block_mgr::get_instance().handle_write_read_block( handle, wr_cb);
 
     return ret;
 }

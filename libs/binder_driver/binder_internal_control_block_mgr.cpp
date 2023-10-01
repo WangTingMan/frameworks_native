@@ -8,11 +8,29 @@
 #include <memory>
 #include <functional>
 #include <future>
+#include <linux/MessageLooper.h>
 
 binder_internal_control_block_mgr& binder_internal_control_block_mgr::get_instance()
 {
     static binder_internal_control_block_mgr instance;
     return instance;
+}
+
+uint32_t binder_internal_control_block_mgr::get_fake_fd( const char* a_binder_name )
+{
+    std::string hidl_binder_name{ "/dev/hwbinder" };
+    std::string aidl_binder_name{ "/dev/binder" };
+    if( hidl_binder_name == a_binder_name )
+    {
+        return HIDL_BINDER_FD;
+    }
+    else if( aidl_binder_name == a_binder_name )
+    {
+        return AIDL_BINDER_FD;
+    }
+
+    LOG( ERROR ) << "Unknown binder name: " << a_binder_name;
+    return 512;
 }
 
 void binder_internal_control_block_mgr::enter_looper()
@@ -25,7 +43,11 @@ void binder_internal_control_block_mgr::enter_looper()
     }
 }
 
-int binder_internal_control_block_mgr::handle_read_only( binder_write_read* a_wr_blk )
+int binder_internal_control_block_mgr::handle_read_only
+    (
+    uint32_t a_binder_fd_handle,
+    binder_write_read* a_wr_blk
+    )
 {
     int status = 0;
     uint8_t* read_ptr = reinterpret_cast<uint8_t*>( a_wr_blk->read_buffer );
@@ -35,12 +57,16 @@ int binder_internal_control_block_mgr::handle_read_only( binder_write_read* a_wr
         return status;
     }
 
+    std::vector<std::shared_ptr<client_control_block>> clients;
     std::unique_lock<std::recursive_mutex> lcker( m_mutex );
-    for( auto& ele : m_clients )
+    clients = m_clients;
+    lcker.unlock();
+
+    for( auto& ele : clients )
     {
-        if( ele->get_incoming_message_size() > 0 )
+        if( ele->get_incoming_message_size( a_binder_fd_handle ) > 0 )
         {
-            ele->handle_incoming_ipc_message( a_wr_blk );
+            ele->handle_incoming_ipc_message( a_binder_fd_handle, a_wr_blk );
             break;
         }
     }
@@ -111,7 +137,7 @@ void binder_internal_control_block_mgr::start_local_link_server()
     }
     else
     {
-        ALOGE( "Already created server instance." );
+        ALOGI( "Already created server instance." );
         return;
     }
 
@@ -137,7 +163,15 @@ void binder_internal_control_block_mgr::invoke_binder_data_handler()
     lcker.unlock();
     if( handler )
     {
-        handler();
+        bool current = MessageLooper::GetDefault().IsLooperThread();
+        if( current )
+        {
+            handler();
+        }
+        else
+        {
+            MessageLooper::GetDefault().PostTask( handler );
+        }
     }
     else
     {
@@ -152,7 +186,15 @@ void binder_internal_control_block_mgr::invoke_hidl_data_handler()
     lcker.unlock();
     if( handler )
     {
-        handler();
+        bool current = MessageLooper::GetDefault().IsLooperThread();
+        if( current )
+        {
+            handler();
+        }
+        else
+        {
+            MessageLooper::GetDefault().PostTask( handler );
+        }
     }
     else
     {
@@ -165,7 +207,11 @@ std::shared_ptr<data_link::binder_ipc_message> binder_internal_control_block_mgr
     return m_previous_handles_message;
 }
 
-int binder_internal_control_block_mgr::handle_write_read_block( binder_write_read* a_wr_blk )
+int binder_internal_control_block_mgr::handle_write_read_block
+    (
+    uint32_t a_binder_fd_handle,
+    binder_write_read* a_wr_blk
+    )
 {
     int status = 0;
     uint8_t* ptr = reinterpret_cast< uint8_t* >( a_wr_blk->write_buffer ) + a_wr_blk->write_consumed;
@@ -173,11 +219,24 @@ int binder_internal_control_block_mgr::handle_write_read_block( binder_write_rea
 
     if( a_wr_blk->write_size == 0 )
     {
-        return handle_read_only( a_wr_blk );
+        return handle_read_only( a_binder_fd_handle, a_wr_blk );
     }
 
     std::shared_ptr<android::parcel_writer_interface> viewer_mOut;
-    viewer_mOut = android::get_parcel_writer_maker()( );
+    if( a_binder_fd_handle == AIDL_BINDER_FD )
+    {
+        viewer_mOut = android::get_parcel_writer_maker()();
+    }
+    else if( a_binder_fd_handle == HIDL_BINDER_FD )
+    {
+        viewer_mOut = android::get_hidl_parcel_writer_maker()();
+    }
+    else
+    {
+        LOG( ERROR ) << "Unknown binder type.";
+        return 0;
+    }
+
     viewer_mOut->ipcSetDataReference( ptr, a_wr_blk->write_size, nullptr, 0 );
     cmd = viewer_mOut->readInt32();
 
@@ -311,6 +370,23 @@ std::shared_ptr<client_control_block> binder_internal_control_block_mgr::find_cl
             return ele;
         }
     }
+
+    std::string service_name;
+    std::string connection_name;
+    int result = 0;
+    result = ::android::ipc_connection_token_mgr::get_instance()
+        .find_remote_service_by_id( a_handle, service_name, connection_name );
+    if( result == 0 )
+    {
+        for( auto& ele : m_clients )
+        {
+            if( ele->get_connection_name() == connection_name )
+            {
+                return ele;
+            }
+        }
+    }
+
     return nullptr;
 }
 

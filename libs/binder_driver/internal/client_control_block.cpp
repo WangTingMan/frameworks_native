@@ -48,12 +48,25 @@ int client_control_block::handle_transaction
         status = handle_general_transaction( a_wr_blk, a_tr );
     }
 
-    if( a_tr.code == TRANSACTION_addService &&
-        a_tr.target.binder_handle == 0 )
+    if( a_tr.is_aidl_transaction )
     {
-        // since we are going to add local service, then we need start local listen server.
-        // binder handle == 0, which means register service into service manager.
-        binder_internal_control_block_mgr::get_instance().start_local_link_server();
+        if( a_tr.code == TRANSACTION_addService &&
+            a_tr.target.binder_handle == 0 )
+        {
+            // since we are going to add local service, then we need start local listen server.
+            // binder handle == 0, which means register service into service manager.
+            binder_internal_control_block_mgr::get_instance().start_local_link_server();
+        }
+    }
+    else
+    {
+        if( a_tr.code == 12 &&
+            a_tr.target.binder_handle == 0 )
+        {
+            // since we are going to add local service, then we need start local listen server.
+            // binder handle == 0, which means register service into service manager.
+            binder_internal_control_block_mgr::get_instance().start_local_link_server();
+        }
     }
 
     return status;
@@ -92,6 +105,10 @@ int client_control_block::handle_ping_service_manager
 
     m_client->send_message( send_binder_message );
     std::shared_ptr<data_link::binder_ipc_message> ret_msg;
+    std::string current_transaction_name;
+    current_transaction_name = android::ipc_connection_token_mgr::get_instance()
+        .get_current_transaction_connection_name();
+    uint64_t waiting_id = send_binder_message->get_id();
     for( ;; wait_for_contion_variable() )
     {
         // 1. check connection if OK or not.
@@ -103,7 +120,8 @@ int client_control_block::handle_ping_service_manager
         }
 
         // 2. check incoming message
-        ret_msg = check_receivd_message( data_link::binder_message_type::ping_service_manager );
+        ret_msg = check_receivd_message( current_transaction_name, waiting_id, data_link::binder_message_type::ping_service_manager,
+                                         a_write_cur_ptr.is_aidl_transaction );
         if( !ret_msg )
         {
             continue;
@@ -114,7 +132,8 @@ int client_control_block::handle_ping_service_manager
     LOG( INFO ) << "received ping reply from service manager";
 
     std::shared_ptr<android::parcel_writer_interface> parcel_writer;
-    parcel_writer = android::get_parcel_writer_maker()( );
+    parcel_writer = a_write_cur_ptr.is_aidl_transaction ? android::get_parcel_writer_maker()()
+        : android::get_hidl_parcel_writer_maker()();
     parcel_writer->write_int32_t( BR_REPLY );
 
     binder_transaction_data tr;
@@ -178,12 +197,32 @@ int client_control_block::handle_general_transaction
     debug_info.append( " init this message." );
     transaction_msg->set_debug_info( debug_info );
     LOG( INFO ) << "Transaction message with service name: " << transaction_msg->m_tr_service_name
-        << ", connection id: " << transaction_msg->get_source_connection_id() << ", message id: "
+        << ", initing connection id: " << transaction_msg->get_source_connection_id() << ", message id: "
         << transaction_msg->get_id() << ", state: " <<
         data_link::binder_transaction_message::state_to_string( transaction_msg->m_transaction_state );
-    m_client->send_message( transaction_msg );
 
     std::shared_ptr<data_link::binder_ipc_message> reply_msg;
+    std::string target_connection_name;
+    std::string target_service_name;
+    int find_ret = android::ipc_connection_token_mgr::get_instance()
+        .find_remote_service_by_id( a_write_cur_ptr.target.binder_handle,
+                                    target_service_name, target_connection_name );
+    if( find_ret != 0 )
+    {
+        target_connection_name = android::ipc_connection_token_mgr::get_instance()
+            .get_current_transaction_connection_name();
+        target_service_name = a_write_cur_ptr.service_name;
+        if( target_connection_name.empty() && a_write_cur_ptr.target.binder_handle == 0 )
+        {
+            target_connection_name = ::android::ipc_connection_token_mgr::get_instance()
+                .get_service_manager_connection_name();
+        }
+    }
+    transaction_msg->set_target_connection_name( target_connection_name );
+    m_client->send_message( transaction_msg );
+
+    uint64_t waiting_id = transaction_msg->get_id();
+    LOG( INFO ) << "Transaction ID " << waiting_id << " waiting for handling status from peer.";
     for( ;; wait_for_contion_variable() )
     {
         // 1. check connection if OK or not.
@@ -194,7 +233,10 @@ int client_control_block::handle_general_transaction
         }
 
         // 2. check incoming message
-        reply_msg = check_receivd_message( data_link::binder_message_type::binder_transaction );
+        reply_msg = check_received_transaction_message( waiting_id, target_service_name,
+                                                        target_connection_name,
+                                                        a_write_cur_ptr.is_aidl_transaction );
+
         if( !reply_msg )
         {
             continue;
@@ -209,6 +251,17 @@ int client_control_block::handle_general_transaction
         return -1;
     }
 
+    if( transaction_msg->m_transaction_state != data_link::binder_transaction_message::transaction_state::handling )
+    {
+        LOG( ERROR ) << "We are waiting for our message handling reply. but received a init message.";
+    }
+
+    if( a_write_cur_ptr.target.binder_handle == 0 )
+    {
+        ::android::ipc_connection_token_mgr::get_instance()
+            .set_service_manager_connection_name( transaction_msg->get_source_connection_id() );
+    }
+
     uint8_t* read_ptr = reinterpret_cast< uint8_t* >( a_wr_blk->read_buffer );
     if( read_ptr )
     {
@@ -217,7 +270,8 @@ int client_control_block::handle_general_transaction
         transaction_msg->parse_transaction_context( &tr );
 
         std::shared_ptr<android::parcel_writer_interface> parcel_writer;
-        parcel_writer = android::get_parcel_writer_maker()( );
+        parcel_writer = tr.is_aidl_transaction ? android::get_parcel_writer_maker()( )
+            : android::get_hidl_parcel_writer_maker()( );
         parcel_writer->write_int32_t( BR_REPLY );
         parcel_writer->write( &tr, sizeof( binder_transaction_data ) );
 
@@ -227,8 +281,11 @@ int client_control_block::handle_general_transaction
 
     transaction_msg->m_transaction_state = data_link::binder_transaction_message::transaction_state::completed;
     transaction_msg->extract_raw_buffer(); // clear the raw data part.
-    LOG( INFO ) << "Transaction from " << transaction_msg->get_source_connection_id() << " is completed";
+    LOG( INFO ) << "Message id: " << transaction_msg->get_id() << ". From "
+        << transaction_msg->get_source_connection_id() << " is completed";
     transaction_msg->set_debug_info( "set trasaction completed!" );
+    transaction_msg->set_target_connection_name( transaction_msg->get_source_connection_id() ); // Since we are goint to reply.
+    transaction_msg->set_source_connection_name( android::ipc_connection_token_mgr::get_instance().get_local_connection_name() );
     m_client->send_message( transaction_msg );
 
     return status;
@@ -310,19 +367,38 @@ bool client_control_block::check_connection_ready()
 std::shared_ptr<data_link::binder_ipc_message>
     client_control_block::check_receivd_message
     (
-    data_link::binder_message_type a_msg_type
+    std::string const& a_connection_name,
+    uint64_t a_message_id,
+    data_link::binder_message_type a_msg_type,
+    bool a_is_hidl_message
     )
 {
     std::lock_guard<std::recursive_mutex> lcker( m_mutex );
-    if( !m_received_binder_messages.empty() )
+    if( a_is_hidl_message )
     {
-        if( m_received_binder_messages.front()->get_type() == a_msg_type )
+        if( !m_received_binder_messages.empty() )
         {
-            auto ret = std::move( m_received_binder_messages.front() );
-            m_received_binder_messages.erase( m_received_binder_messages.begin() );
-            return ret;
+            if( m_received_binder_messages.front()->get_type() == a_msg_type )
+            {
+                auto ret = std::move( m_received_binder_messages.front() );
+                m_received_binder_messages.erase( m_received_binder_messages.begin() );
+                return ret;
+            }
         }
     }
+    else
+    {
+        if( !m_received_hidl_messages.empty() )
+        {
+            if( m_received_hidl_messages.front()->get_type() == a_msg_type )
+            {
+                auto ret = std::move( m_received_hidl_messages.front() );
+                m_received_hidl_messages.erase( m_received_hidl_messages.begin() );
+                return ret;
+            }
+        }
+    }
+
     return nullptr;
 }
 
@@ -331,17 +407,21 @@ std::shared_ptr<data_link::binder_transaction_message>
     (
     uint64_t a_id,
     std::string const& a_service_name,
-    std::string const& a_source_connection_name
+    std::string const& a_source_connection_name,
+    bool a_aidl_message_checking
     )
 {
+    bool nested_transaction = false;
     std::shared_ptr<data_link::binder_transaction_message> ret_detail;
-    std::lock_guard<std::recursive_mutex> lcker( m_mutex );
-    for( auto it = m_received_binder_messages.begin(); it != m_received_binder_messages.end(); )
+    std::unique_lock<std::recursive_mutex> lcker( m_mutex );
+    std::vector<std::shared_ptr<data_link::binder_ipc_message>>* received_binder_message = nullptr;
+    received_binder_message = a_aidl_message_checking ? &m_received_binder_messages : &m_received_hidl_messages;
+    for( auto it = received_binder_message->begin(); it != received_binder_message->end(); )
     {
         auto ele = *it;
         if( !ele )
         {
-            it = m_received_binder_messages.erase( it );
+            it = received_binder_message->erase( it );
             continue;
         }
 
@@ -358,10 +438,21 @@ std::shared_ptr<data_link::binder_transaction_message>
             continue;
         }
 
+        if( ( ret_detail->get_source_connection_id() != a_source_connection_name ) &&
+            !a_source_connection_name.empty() )
+        {
+            ALOGI( "received transaction message with not expected connection id, check next one" );
+            ++it;
+            ret_detail.reset();
+            continue;
+        }
+
         if( ret_detail->get_id() != a_id )
         {
             ALOGI( "received transaction message with not expected id, check next one" );
             ++it;
+            ret_detail.reset();
+            nested_transaction = true;
             continue;
         }
 
@@ -369,35 +460,54 @@ std::shared_ptr<data_link::binder_transaction_message>
         {
             ALOGI( "received transaction message with not expected service name, check next one" );
             ++it;
+            ret_detail.reset();
             continue;
         }
 
-        if( ret_detail->get_source_connection_id() != a_source_connection_name )
-        {
-            ALOGI( "received transaction message with not expected connection id, check next one" );
-            ++it;
-            continue;
-        }
-
-        it = m_received_binder_messages.erase( it );
+        it = received_binder_message->erase( it );
         break;
+    }
+
+    lcker.unlock();
+    if( !ret_detail && nested_transaction )
+    {
+        ALOGI( "We are in one transaction but peer side init new transaction." );
+        binder_internal_control_block_mgr::get_instance().invoke_hidl_data_handler();
     }
 
     return ret_detail;
 }
 
-void client_control_block::handle_incoming_ipc_message( binder_write_read* a_wr_blk )
+void client_control_block::handle_incoming_ipc_message
+    (
+    uint32_t a_binder_fd_handle,
+    binder_write_read* a_wr_blk
+    )
 {
-    std::unique_lock<std::recursive_mutex> lcker( m_mutex );
-    if( m_received_binder_messages.empty() )
-    {
-        LOG( INFO ) << "No received binder message";
-        return;
-    }
-
     std::shared_ptr<data_link::binder_ipc_message> msg;
-    msg = m_received_binder_messages.front();
-    m_received_binder_messages.erase( m_received_binder_messages.begin() );
+    std::unique_lock<std::recursive_mutex> lcker( m_mutex );
+    if( a_binder_fd_handle == AIDL_BINDER_FD )
+    {
+        if( m_received_binder_messages.empty() )
+        {
+            LOG( INFO ) << "No received binder message";
+            return;
+        }
+
+        msg = m_received_binder_messages.front();
+        m_received_binder_messages.erase( m_received_binder_messages.begin() );
+    }
+    else if( a_binder_fd_handle == HIDL_BINDER_FD )
+    {
+        if( m_received_hidl_messages.empty() )
+        {
+            LOG( INFO ) << "No received binder message";
+            return;
+        }
+
+        msg = m_received_hidl_messages.front();
+        m_received_hidl_messages.erase( m_received_hidl_messages.begin() );
+    }
     lcker.unlock();
 
     if( !msg )
@@ -436,11 +546,25 @@ void client_control_block::handle_incoming_ipc_message( binder_write_read* a_wr_
         LOG( ERROR ) << "need handle this message. register_service";
         break;
     case data_link::binder_message_type::binder_transaction:
-        handle_general_transaction_message( a_wr_blk, std::dynamic_pointer_cast<data_link::binder_transaction_message>( msg ) );
+        handle_general_transaction_message( a_binder_fd_handle, a_wr_blk,
+                                            std::dynamic_pointer_cast<data_link::binder_transaction_message>( msg ) );
         break;
     default:
         ALOGE( "unknown message type!" );
         break;
+    }
+}
+
+uint32_t client_control_block::get_incoming_message_size( uint32_t a_binder_fd_handle )
+{
+    std::lock_guard<std::recursive_mutex> lcker( m_mutex );
+    if( a_binder_fd_handle == AIDL_BINDER_FD )
+    {
+        return m_received_binder_messages.size();
+    }
+    else if( a_binder_fd_handle == HIDL_BINDER_FD )
+    {
+        return m_received_hidl_messages.size();
     }
 }
 
@@ -449,6 +573,7 @@ void client_control_block::receive_incoming_ipc_message
     std::shared_ptr<data_link::binder_ipc_message> a_msg
     )
 {
+    LOG(INFO) << "Received message id: " << a_msg->get_id();
     std::unique_lock<std::recursive_mutex> lcker( m_mutex );
     if( a_msg->is_aidl_message() )
     {
@@ -477,6 +602,7 @@ void client_control_block::send_reply_only
     binder_transaction_data& a_write_cur_ptr
     )
 {
+    uint32_t binder_fd_handle = a_write_cur_ptr.is_aidl_transaction ? AIDL_BINDER_FD : HIDL_BINDER_FD;
     auto msg = get_processing_transaction
         (
         a_write_cur_ptr.current_transaction_message_id,
@@ -491,6 +617,9 @@ void client_control_block::send_reply_only
     msg->init_transaction_context( &a_write_cur_ptr );
     msg->m_is_reply = true;
     msg->set_from_client( !binder_internal_control_block_mgr::get_instance().is_service_manager() );
+    msg->set_target_connection_name( msg->get_source_connection_id() ); // Since we are goint to reply.
+    msg->set_source_connection_name( android::ipc_connection_token_mgr::get_instance().get_local_connection_name());
+
     m_client->send_message( msg );
     LOG( INFO ) << "Transaction message with service name: " << msg->m_tr_service_name
         << ", connection id: " << msg->get_source_connection_id() << ", message id: "
@@ -508,7 +637,9 @@ void client_control_block::send_reply_only
         }
 
         // 2. check incoming message
-        reply_msg = check_received_transaction_message( msg->get_id(), msg->m_tr_service_name, msg->get_source_connection_id() );
+        reply_msg = check_received_transaction_message( msg->get_id(), msg->m_tr_service_name,
+                                                        msg->get_target_connection_id(),
+                                                        a_write_cur_ptr.is_aidl_transaction );
         if( !reply_msg )
         {
             continue;
@@ -517,7 +648,7 @@ void client_control_block::send_reply_only
         break;
     }
 
-    handle_general_transaction_message( a_wr_blk, reply_msg );
+    handle_general_transaction_message( binder_fd_handle, a_wr_blk, reply_msg );
 }
 
 void client_control_block::handle_connection_status_changed( data_link::connection_status a_status )
@@ -553,6 +684,7 @@ void client_control_block::handle_ping_message
 
 void client_control_block::handle_general_transaction_message
     (
+    uint32_t a_binder_fd_handle,
     binder_write_read* a_wr_blk,
     std::shared_ptr<data_link::binder_transaction_message> a_message
     )
@@ -570,7 +702,20 @@ void client_control_block::handle_general_transaction_message
         data_link::binder_transaction_message::state_to_string( a_message->m_transaction_state );
 
     std::shared_ptr<android::parcel_writer_interface> parcel_writer;
-    parcel_writer = android::get_parcel_writer_maker()();
+    if( a_binder_fd_handle == AIDL_BINDER_FD )
+    {
+        parcel_writer = android::get_parcel_writer_maker()();
+    }
+    else if( a_binder_fd_handle == HIDL_BINDER_FD )
+    {
+        parcel_writer = android::get_hidl_parcel_writer_maker()();
+    }
+    else
+    {
+        LOG( ERROR ) << "Unknown binder type.";
+        return;
+    }
+
     if( a_message->m_transaction_state == data_link::binder_transaction_message::transaction_state::completed )
     {
         parcel_writer->writeUint32( BR_TRANSACTION_COMPLETE );
@@ -639,6 +784,7 @@ void client_control_block::init_client_to_service()
         }
     };
     m_connection_notify_internal = fun;
+    LOG( INFO ) << "Try to connect: " << listen_addr;
     m_client->connect( listen_addr );
     _future.wait();
     m_connection_notify_internal = nullptr;
