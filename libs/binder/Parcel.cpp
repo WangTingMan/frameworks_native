@@ -1423,16 +1423,22 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
 #ifdef _MSC_VER
     std::string connection_name;
     std::string listen_addr;
+    status_t ret_status = NO_ERROR;
     connection_name = ipc_connection_token_mgr::get_instance().get_local_connection_name();
     listen_addr = ipc_connection_token_mgr::get_instance().get_local_listen_address();
-    writeUtf8AsUtf16( connection_name );
-    writeUtf8AsUtf16( listen_addr );
-    return writeString16( val->getInterfaceDescriptor() );
+    ret_status = writeUtf8AsUtf16( connection_name );
+    ret_status = writeUtf8AsUtf16( listen_addr );
+    String16 dec = val->getInterfaceDescriptor();
+    ret_status = writeString16( dec );
+
+    std::string interface_descriptor = String8( dec ).c_str();
+    ipc_connection_token_mgr::get_instance().add_local_service( interface_descriptor, val );
+
+    return ret_status;
 #else
     return flattenBinder(val);
 #endif
 }
-
 
 status_t Parcel::writeRawNullableParcelable(const Parcelable* parcelable) {
     if (!parcelable) {
@@ -1453,9 +1459,12 @@ status_t Parcel::writeNativeHandle(const native_handle* handle)
 
     err = writeInt32(handle->numInts);
     if (err != NO_ERROR) return err;
-
+#ifdef _MSC_VER
+    ALOGE( "No Implementation!" );
+#else
     for (int i=0 ; err==NO_ERROR && i<handle->numFds ; i++)
         err = writeDupFileDescriptor(handle->data[i]);
+#endif
 
     if (err != NO_ERROR) {
         ALOGD("write native handle, write dup fd failed");
@@ -1585,10 +1594,10 @@ status_t Parcel::writeBlob(size_t len, bool mutableCopy, WritableBlob* outBlob)
         return NO_ERROR;
     }
 
-    ALOGV("writeBlob: write to ashmem");
+    ALOGV( "writeBlob: write to ashmem" );
+#ifndef _MSC_VER
     int fd = ashmem_create_region("Parcel Blob", len);
     if (fd < 0) return NO_MEMORY;
-#ifndef _MSC_VER
     int result = ashmem_set_prot_region(fd, PROT_READ | PROT_WRITE);
     if (result < 0) {
         status = result;
@@ -2221,22 +2230,23 @@ status_t Parcel::readStrongBinder(sp<IBinder>* val) const
 
 status_t Parcel::readNullableStrongBinder(sp<IBinder>* val) const
 {
-    return unflattenBinder(val);
-}
-
-sp<IBinder> Parcel::readStrongBinder() const
-{
-    sp<IBinder> val;
-    // Note that a lot of code in Android reads binders by hand with this
-    // method, and that code has historically been ok with getting nullptr
-    // back (while ignoring error codes).
 #ifdef _MSC_VER
+    status_t ret_status = NO_ERROR;
+    sp<IBinder> val_gen;
     std::string connection_name;
     std::string listen_addr;
     std::string interface_name;
-    connection_name = String8(readString16()).c_str();
-    listen_addr = String8( readString16() ).c_str();
-    interface_name = String8( readString16() ).c_str();
+    String16 temp_str;
+
+    ret_status = readString16( &temp_str );
+    connection_name = String8( temp_str ).c_str();
+
+    ret_status = readString16( &temp_str );
+    listen_addr = String8( temp_str ).c_str();
+
+    ret_status = readString16( &temp_str );
+    interface_name = String8( temp_str ).c_str();
+
     std::string local_connection_name = ipc_connection_token_mgr::get_instance()
         .get_local_connection_name();
     int id = 0;
@@ -2249,15 +2259,36 @@ sp<IBinder> Parcel::readStrongBinder() const
             id = ipc_connection_token_mgr::get_instance()
                 .add_remote_service( interface_name, connection_name, listen_addr );
         }
-        val = ProcessState::self()->getStrongProxyForHandle( interface_name, connection_name );
+        val_gen = ProcessState::self()->getStrongProxyForHandle( interface_name, connection_name );
     }
     else
     {
-        //val = ipc_connection_token_mgr::get_instance().get_local_service( interface_name );
+        sp<RefBase> service = ipc_connection_token_mgr::get_instance().get_local_service( interface_name );
+        if( service )
+        {
+            IBinder* p = dynamic_cast<IBinder*>( service.get() );
+            if( p )
+            {
+                sp<IBinder> context_object;
+                context_object.force_set( p );
+                *val = context_object;
+            }
+        }
     }
+    *val = val_gen;
+    return ret_status;
 #else
-    readNullableStrongBinder( &val );
+    return unflattenBinder(val);
 #endif
+}
+
+sp<IBinder> Parcel::readStrongBinder() const
+{
+    sp<IBinder> val;
+    // Note that a lot of code in Android reads binders by hand with this
+    // method, and that code has historically been ok with getting nullptr
+    // back (while ignoring error codes).
+    readNullableStrongBinder( &val );
     return val;
 }
 
@@ -2441,6 +2472,7 @@ status_t Parcel::readBlob(size_t len, ReadableBlob* outBlob) const
     int fd = readFileDescriptor();
     if (fd == int(BAD_TYPE)) return BAD_VALUE;
 
+#ifndef _MSC_VER
     if (!ashmem_valid(fd)) {
         ALOGE("invalid fd");
         return BAD_VALUE;
@@ -2450,7 +2482,6 @@ status_t Parcel::readBlob(size_t len, ReadableBlob* outBlob) const
         ALOGE("request size %zu does not match fd size %d", len, size);
         return BAD_VALUE;
     }
-#ifndef _MSC_VER
     void* ptr = ::mmap(nullptr, len, isMutable ? PROT_READ | PROT_WRITE : PROT_READ,
             MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) return NO_MEMORY;
@@ -3206,6 +3237,7 @@ size_t Parcel::getOpenAshmemSize() const
         const flat_binder_object* flat =
                 reinterpret_cast<const flat_binder_object*>(mData + kernelFields->mObjects[i]);
 
+#ifndef _MSC_VER
         // cookie is compared against zero for historical reasons
         // > obj.cookie = takeOwnership ? 1 : 0;
         if (flat->hdr.type == BINDER_TYPE_FD && flat->cookie != 0 &&
@@ -3216,6 +3248,7 @@ size_t Parcel::getOpenAshmemSize() const
                 return SIZE_MAX;
             }
         }
+#endif
     }
     return openAshmemSize;
 }

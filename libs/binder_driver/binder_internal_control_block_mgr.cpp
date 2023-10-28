@@ -9,6 +9,7 @@
 #include <functional>
 #include <future>
 #include <linux/MessageLooper.h>
+#include <cutils\properties.h>
 
 binder_internal_control_block_mgr& binder_internal_control_block_mgr::get_instance()
 {
@@ -145,6 +146,7 @@ void binder_internal_control_block_mgr::start_local_link_server()
     if( m_is_service_manager )
     {
         server_endpoint = get_service_manager_endpoint();
+        property_set( "persist.binder.binder_listen_addr", server_endpoint.c_str() );
         LOG(INFO) << "start running as binder service manager. listen on: " << server_endpoint;
     }
     else
@@ -205,6 +207,48 @@ void binder_internal_control_block_mgr::invoke_hidl_data_handler()
 std::shared_ptr<data_link::binder_ipc_message> binder_internal_control_block_mgr::get_previous_handle_message()
 {
     return m_previous_handles_message;
+}
+
+void binder_internal_control_block_mgr::handle_client_status_changed
+    (
+    client_control_block* a_client,
+    data_link::connection_status a_status
+    )
+{
+    std::shared_ptr<client_control_block> deleted_block;
+    if( a_status == data_link::connection_status::disconnected )
+    {
+        std::lock_guard<std::recursive_mutex> locker( m_mutex );
+        for( auto it = m_clients.begin(); it < m_clients.end(); ++it )
+        {
+            deleted_block = *it;
+            if( deleted_block.get() == a_client )
+            {
+                m_clients.erase( it );
+                break;
+            }
+        }
+    }
+
+    if( deleted_block )
+    {
+        std::string connection_name = deleted_block->get_connection_name();
+        LOG(INFO) << connection_name << " disconnected.";
+        android::ipc_connection_token_mgr::get_instance().remove_all_remote_service(connection_name);
+    }
+}
+
+bool binder_internal_control_block_mgr::is_connection_name_exist( std::string const& a_connection_name )
+{
+    std::lock_guard<std::recursive_mutex> locker( m_mutex );
+    for( auto& ele : m_clients )
+    {
+        if( ele->get_connection_name() == a_connection_name )
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 int binder_internal_control_block_mgr::handle_write_read_block
@@ -351,6 +395,12 @@ int binder_internal_control_block_mgr::handle_write_read_block
             viewer_mOut->read( ( void* )( &tr_sg ), sizeof( binder_transaction_data_sg ) );
             handle_transaction_sg( a_wr_blk, tr_sg );
             a_wr_blk->write_consumed = a_wr_blk->write_size;
+        }
+        break;
+    case BC_DECREFS:
+        {
+            a_wr_blk->write_consumed = a_wr_blk->write_size;
+            LOG( INFO ) << "ingnore decrease reference to handle.";
         }
         break;
     default:

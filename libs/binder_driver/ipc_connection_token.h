@@ -66,6 +66,8 @@ public:
         return m_local_name;
     }
 
+    bool is_connection_name_exist( std::string const& a_connection_name );
+
     void add_local_service
         (
         std::string a_service_name,
@@ -94,6 +96,12 @@ public:
         std::string a_connection_name,
         std::string a_binder_listen_addr
         );
+
+    /**
+     * Remove all service and callback identified by a_connection_name.
+     * Call this API if a_connection_name has been disconnected or something.
+     */
+    int remove_all_remote_service( std::string a_connection_name );
 
     int find_remote_service_id
         (

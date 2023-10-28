@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
@@ -19,6 +20,8 @@ public:
 
     void Run();
 
+    bool IsRunning()const;
+
     int RegisterTimer
         (
         int a_milliseconds,
@@ -34,6 +37,11 @@ public:
         );
 
     bool IsLooperThread();
+
+    /**
+     * a_task will be invoked before looper exit
+     */
+    void PostExitCallTask( std::function<void()> a_task );
 
 private:
 

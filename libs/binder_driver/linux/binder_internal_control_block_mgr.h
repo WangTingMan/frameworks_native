@@ -123,6 +123,14 @@ public:
 
     std::shared_ptr<data_link::binder_ipc_message> get_previous_handle_message();
 
+    void handle_client_status_changed
+        (
+        client_control_block* a_client,
+        data_link::connection_status a_status
+        );
+
+    bool is_connection_name_exist( std::string const& a_connection_name );
+
 private:
 
     void handle_transaction_sg

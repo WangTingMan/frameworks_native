@@ -76,7 +76,11 @@ MemoryHeapBase::MemoryHeapBase(size_t size, uint32_t flags, char const * name)
 {
     const size_t pagesize = getpagesize();
     size = ((size + pagesize - 1) & ~(pagesize - 1));
+#ifdef _MSC_VER
+    void* fd = nullptr;
+#else
     int fd = -1;
+#endif
     if (mFlags & FORCE_MEMFD) {
 #ifdef __BIONIC__
         ALOGV("MemoryHeapBase: Attempting to force MemFD");
@@ -99,7 +103,11 @@ MemoryHeapBase::MemoryHeapBase(size_t size, uint32_t flags, char const * name)
     }
     fd = ashmem_create_region(name ? name : "MemoryHeapBase", size);
     ALOGE_IF(fd < 0, "MemoryHeapBase: error creating ashmem region: %s", strerror(errno));
-    if (fd < 0 || (mapfd(fd, true, size) != NO_ERROR)) return;
+#ifdef _MSC_VER
+    ALOGE( "No Implementation!" );
+#else
+    if( fd < 0 || ( mapfd( fd, true, size ) != NO_ERROR ) ) return;
+#endif
     if (mFlags & READ_ONLY) {
         ashmem_set_prot_region(fd, PROT_READ);
     }

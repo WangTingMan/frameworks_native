@@ -17,6 +17,4 @@ static constexpr uint32_t TRANSACTION_registerClientCallback = TRANSACTION_base_
 static constexpr uint32_t TRANSACTION_tryUnregisterService = TRANSACTION_base_value + 11;
 static constexpr uint32_t TRANSACTION_getServiceDebugInfo = TRANSACTION_base_value + 12;
 
-std::string tr_code_to_string( uint32_t a_tr_code );
-
 

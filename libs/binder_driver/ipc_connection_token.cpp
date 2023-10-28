@@ -4,12 +4,13 @@
 #include <base/strings/sys_string_conversions.h>
 #include <android-base/properties.h>
 #include <base/rand_util.h>
+#include <linux/binder_internal_control_block_mgr.h>
 
 #ifdef _MSC_VER
 #include <windows.h>
 #endif
 
-#define BINDER_LOW_LEVEL_LISTHEN_ADDRESS "persist.bluetooth.binder_listen_addr"
+#define BINDER_LOW_LEVEL_LISTHEN_ADDRESS "persist.binder.binder_listen_addr"
 
 namespace android
 {
@@ -34,6 +35,11 @@ ipc_connection_token_mgr::ipc_connection_token_mgr()
 #endif
 
     LOG( INFO ) << "local ipc connection name is: " << module_;
+}
+
+bool ipc_connection_token_mgr::is_connection_name_exist( std::string const& a_connection_name )
+{
+    return binder_internal_control_block_mgr::get_instance().is_connection_name_exist( a_connection_name );
 }
 
 void ipc_connection_token_mgr::add_local_service
@@ -121,6 +127,8 @@ int ipc_connection_token_mgr::add_remote_callback
     cb.m_callback_name = a_callback_name;
     cb.m_connection_name = a_remote_connection_name;
     m_registered_callback_interfaces.push_back( cb );
+    LOG( INFO ) << "remote callback: " << a_callback_name << ", from: "
+        << a_remote_connection_name << ", added.";
     return cb.m_service_id;
 }
 
@@ -182,6 +190,43 @@ int ipc_connection_token_mgr::add_remote_service
         << a_binder_listen_addr;
 
     return proxy.m_service_id;
+}
+
+int ipc_connection_token_mgr::remove_all_remote_service( std::string a_connection_name )
+{
+    int cnt = 0;
+    std::lock_guard<std::shared_mutex> lcker( m_mutex );
+    for( auto it = m_remote_services.begin(); it != m_remote_services.end(); )
+    {
+        if( it->m_connection_name == a_connection_name )
+        {
+            LOG( INFO ) << "remote service: " << it->m_service_name << ", listen on: "
+                << it->m_remote_binder_listen_addr << ". Removed.";
+            it = m_remote_services.erase( it );
+            cnt++;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    for( auto it = m_registered_callback_interfaces.begin(); it != m_registered_callback_interfaces.end(); )
+    {
+        if( it->m_connection_name == a_connection_name )
+        {
+            LOG( INFO ) << "call back: " << it->m_callback_name << ", connection name: " << it->m_connection_name
+                << ". Removed.";
+            it = m_registered_callback_interfaces.erase( it );
+            cnt++;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    return cnt;
 }
 
 int ipc_connection_token_mgr::find_remote_service_id

@@ -20,6 +20,8 @@ public:
     base::RunLoop _loop;
     std::map<int, std::shared_ptr<base::RepeatingTimer>> _timers;
     int _current_timer_index = 0;
+    std::atomic_bool m_is_running = false;
+    std::vector<std::function<void()>> m_exit_task;
 };
 
 static void ___task_wrapper( std::function<void()> a_task )
@@ -38,11 +40,23 @@ MessageLooper::MessageLooper()
     m_control_block = std::make_shared<MessageLooperControlBlock>();
 }
 
+bool MessageLooper::IsRunning()const
+{
+    return m_control_block && m_control_block->m_is_running;
+}
+
 void MessageLooper::Run()
 {
+    m_control_block->m_is_running.exchange( true );
     base::PlatformThreadId running_thread = base::PlatformThread::CurrentId();
     m_control_block->_running_thread_id.exchange( running_thread );
     m_control_block->_loop.Run();
+    m_control_block->m_is_running.exchange( false );
+
+    for( auto& ele : m_control_block->m_exit_task )
+    {
+        ele();
+    }
 }
 
 int MessageLooper::RegisterTimer
@@ -98,3 +112,15 @@ void MessageLooper::timer_function_wrapper( int index, std::function<bool( void 
         m_control_block->_timers.erase( it );
     }
 }
+
+void MessageLooper::PostExitCallTask( std::function<void()> a_task )
+{
+    std::function<void()> tsk;
+    tsk = [ this, a_task ]()
+        {
+            m_control_block->m_exit_task.push_back( a_task );
+        };
+
+    PostTask( tsk );
+}
+

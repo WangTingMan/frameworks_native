@@ -166,7 +166,16 @@ public:
     
     status_t            errorCheck() const;
     void                setError(status_t err);
-    
+
+#ifdef _MSC_VER
+    status_t            writeDynamic( std::string const& a_str )
+    {
+        status_t status = writeUint32( a_str.size() );
+        status = write( a_str.data(), a_str.size() );
+        return status;
+    }
+#endif
+
     status_t            write(const void* data, size_t len);
     void*               writeInplace(size_t len);
     status_t            writeUnpadded(const void* data, size_t len);
@@ -382,7 +391,18 @@ public:
     // Currently the native implementation doesn't do any of the StrictMode
     // stack gathering and serialization that the Java implementation does.
     status_t            writeNoException();
-    
+
+#ifdef _MSC_VER
+    status_t            readDynamic( std::string& a_str )
+    {
+        uint32_t size = 0;
+        status_t status = readUint32( &size );
+        a_str.resize( size );
+        status = read( a_str.data(), size );
+        return status;
+    }
+#endif
+
     status_t            read(void* outData, size_t len) const;
     const void*         readInplace(size_t len) const;
     int32_t             readInt32() const;

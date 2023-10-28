@@ -673,8 +673,75 @@ void IPCThreadState::processPostWriteDerefs()
     mPostWriteStrongDerefs.clear();
 }
 
+#ifdef _MSC_VER
+void IPCThreadState::startThreadPoolImpl( bool a_is_main )
+{
+    LOG_THREADPOOL( "**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)gettid(), getpid() );
+    std::unique_lock<std::mutex> lcker( mProcess->mThreadCountLock );
+    mProcess->mCurrentThreads++;
+    lcker.unlock();
+    mOut.writeInt32( a_is_main ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER );
+
+    mIsLooper = true;
+
+    std::function<void()> fun;
+    fun = [ this, a_is_main ]()mutable
+        {
+            status_t result = 0;
+            processPendingDerefs();
+            // now get the next command to be processed, waiting if necessary
+            result = getAndExecuteCommand();
+            constexpr int32_t ref_used = ECONNREFUSED;
+            if( result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF )
+            {
+                LOG_ALWAYS_FATAL( "getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
+                                  mProcess->mDriverFD, result );
+            }
+
+            // Let this thread exit the thread pool if it is no longer
+            // needed and it is not the main process thread.
+            if( result == TIMED_OUT && !a_is_main )
+            {
+                ALOGE( "time out!" );
+            }
+        };
+
+    std::function<void()> handler;
+    handler = [ fun ]()
+        {
+            MessageLooper::GetDefault().PostTask( fun );
+        };
+
+    porting_binder::register_binder_data_handler( handler );
+    MessageLooper::GetDefault().PostTask( fun );
+
+    auto exit_fun = [ this ]()mutable
+        {
+            mOut.setDataPosition( 0 );
+            mOut.writeInt32( BC_EXIT_LOOPER );
+            mIsLooper = false;
+            talkWithDriver( false );
+            std::unique_lock<std::mutex> lcker( mProcess->mThreadCountLock );
+            LOG_ALWAYS_FATAL_IF( mProcess->mCurrentThreads == 0,
+                                 "Threadpool thread count = 0. Thread cannot exist and exit in empty "
+                                 "threadpool\n"
+                                 "Misconfiguration. Increase threadpool max threads configuration\n" );
+            mProcess->mCurrentThreads--;
+        };
+    MessageLooper::GetDefault().PostExitCallTask( exit_fun );
+
+    if( !MessageLooper::GetDefault().IsRunning() )
+    {
+        MessageLooper::GetDefault().Run();
+    }
+}
+#endif
+
 void IPCThreadState::joinThreadPool(bool isMain)
 {
+#ifdef _MSC_VER
+    startThreadPoolImpl( isMain );
+#else
     LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)gettid(), getpid());
     std::unique_lock<std::mutex> lcker(mProcess->mThreadCountLock);
     mProcess->mCurrentThreads++;
@@ -682,39 +749,6 @@ void IPCThreadState::joinThreadPool(bool isMain)
     mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
 
     mIsLooper = true;
-#ifdef _MSC_VER
-    std::function<void()> fun;
-    fun = [this,isMain]()mutable
-    {
-        status_t result = 0;
-        processPendingDerefs();
-        // now get the next command to be processed, waiting if necessary
-        result = getAndExecuteCommand();
-        constexpr int32_t ref_used = ECONNREFUSED;
-        if( result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF )
-        {
-            LOG_ALWAYS_FATAL( "getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
-                mProcess->mDriverFD, result );
-        }
-
-        // Let this thread exit the thread pool if it is no longer
-        // needed and it is not the main process thread.
-        if( result == TIMED_OUT && !isMain )
-        {
-            ALOGE( "time out!" );
-        }
-    };
-
-    std::function<void()> handler;
-    handler = [fun]()
-    {
-        MessageLooper::GetDefault().PostTask( fun );
-    };
-
-    porting_binder::register_binder_data_handler( handler );
-    MessageLooper::GetDefault().PostTask( fun );
-    MessageLooper::GetDefault().Run();
-#else
     status_t result = 0;
     do {
         processPendingDerefs();
@@ -733,7 +767,6 @@ void IPCThreadState::joinThreadPool(bool isMain)
             break;
         }
     } while (result != -ECONNREFUSED && result != -EBADF);
-#endif
     LOG_THREADPOOL("**** THREAD %p (PID %d) IS LEAVING THE THREAD POOL err=%d\n",
         (void*)gettid(), getpid(), result);
 
@@ -746,6 +779,7 @@ void IPCThreadState::joinThreadPool(bool isMain)
                         "threadpool\n"
                         "Misconfiguration. Increase threadpool max threads configuration\n");
     mProcess->mCurrentThreads--;
+#endif
 }
 
 status_t IPCThreadState::setupPolling(int* fd)
@@ -754,6 +788,9 @@ status_t IPCThreadState::setupPolling(int* fd)
         return -EBADF;
     }
 
+#ifdef _MSC_VER
+    mOut.setDataPosition( 0 );
+#endif
     mOut.writeInt32(BC_ENTER_LOOPER);
     flushCommands();
     *fd = mProcess->mDriverFD;
@@ -864,7 +901,10 @@ status_t IPCThreadState::transact(int32_t handle,
 void IPCThreadState::incStrongHandle(int32_t handle, BpBinder *proxy)
 {
 
-    LOG_REMOTEREFS("IPCThreadState::incStrongHandle(%d)\n", handle);
+    LOG_REMOTEREFS( "IPCThreadState::incStrongHandle(%d)\n", handle );
+#ifdef _MSC_VER
+    mOut.setDataPosition( 0 );
+#endif
     mOut.writeInt32(BC_ACQUIRE);
     mOut.writeInt32(handle);
 
@@ -878,7 +918,10 @@ void IPCThreadState::incStrongHandle(int32_t handle, BpBinder *proxy)
 void IPCThreadState::decStrongHandle(int32_t handle)
 {
 
-    LOG_REMOTEREFS("IPCThreadState::decStrongHandle(%d)\n", handle);
+    LOG_REMOTEREFS( "IPCThreadState::decStrongHandle(%d)\n", handle );
+#ifdef _MSC_VER
+    mOut.setDataPosition( 0 );
+#endif
     mOut.writeInt32(BC_RELEASE);
 
     mOut.writeInt32(handle);
@@ -888,7 +931,10 @@ void IPCThreadState::decStrongHandle(int32_t handle)
 void IPCThreadState::incWeakHandle(int32_t handle, BpBinder *proxy)
 {
 
-    LOG_REMOTEREFS("IPCThreadState::incWeakHandle(%d)\n", handle);
+    LOG_REMOTEREFS( "IPCThreadState::incWeakHandle(%d)\n", handle );
+#ifdef _MSC_VER
+    mOut.setDataPosition( 0 );
+#endif
     mOut.writeInt32(BC_INCREFS);
 
     mOut.writeInt32(handle);
@@ -903,6 +949,9 @@ void IPCThreadState::decWeakHandle(int32_t handle)
 {
 
     LOG_REMOTEREFS("IPCThreadState::decWeakHandle(%d)\n", handle);
+#ifdef _MSC_VER
+    mOut.setDataPosition( 0 );
+#endif
     mOut.writeInt32(BC_DECREFS);
 
     mOut.writeInt32(handle);
@@ -943,7 +992,9 @@ void IPCThreadState::expungeHandle(int32_t handle, IBinder* binder)
 
 status_t IPCThreadState::requestDeathNotification(int32_t handle, BpBinder* proxy)
 {
-
+#ifdef _MSC_VER
+    mOut.setDataPosition( 0 );
+#endif
     mOut.writeInt32(BC_REQUEST_DEATH_NOTIFICATION);
     mOut.writeInt32((int32_t)handle);
     mOut.writePointer((uintptr_t)proxy);
@@ -952,6 +1003,9 @@ status_t IPCThreadState::requestDeathNotification(int32_t handle, BpBinder* prox
 
 status_t IPCThreadState::clearDeathNotification(int32_t handle, BpBinder* proxy)
 {
+#ifdef _MSC_VER
+    mOut.setDataPosition( 0 );
+#endif
     mOut.writeInt32(BC_CLEAR_DEATH_NOTIFICATION);
     mOut.writeInt32((int32_t)handle);
     mOut.writePointer((uintptr_t)proxy);
@@ -1712,6 +1766,9 @@ void IPCThreadState::freeBuffer(const uint8_t* data, size_t /*dataSize*/,
     }
     ALOG_ASSERT(data != NULL, "Called with NULL data");
     IPCThreadState* state = self();
+#ifdef _MSC_VER
+    state->mOut.setDataPosition( 0 );
+#endif
     state->mOut.writeInt32(BC_FREE_BUFFER);
     state->mOut.writePointer((uintptr_t)data);
     state->flushIfNeeded();

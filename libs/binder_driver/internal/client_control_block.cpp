@@ -38,7 +38,6 @@ int client_control_block::handle_transaction
         LOG( ERROR ) << "tr.code = 0 and binder_handle = -1";
     }
 
-    LOG( INFO ) << "Handle tr code: " << tr_code_to_string( a_tr.code );
     if( a_tr.code == static_cast< uint32_t >( BinderCode::PING_TRANSACTION ) )
     {
         status = handle_ping_service_manager( a_wr_blk, a_tr );
@@ -438,7 +437,9 @@ std::shared_ptr<data_link::binder_transaction_message>
             continue;
         }
 
-        if( ( ret_detail->get_source_connection_id() != a_source_connection_name ) &&
+        int str_cmp_result = std::strcmp( ret_detail->get_source_connection_id().c_str(), a_source_connection_name.c_str() );
+
+        if( ( str_cmp_result != 0 ) &&
             !a_source_connection_name.empty() )
         {
             ALOGI( "received transaction message with not expected connection id, check next one" );
@@ -456,7 +457,8 @@ std::shared_ptr<data_link::binder_transaction_message>
             continue;
         }
 
-        if( ret_detail->m_tr_service_name != a_service_name )
+        str_cmp_result = std::strcmp( ret_detail->m_tr_service_name.c_str(), a_service_name.c_str() );
+        if( str_cmp_result != 0 )
         {
             ALOGI( "received transaction message with not expected service name, check next one" );
             ++it;
@@ -586,6 +588,8 @@ void client_control_block::receive_incoming_ipc_message
     lcker.unlock();
     m_condition_var.notify_all();
 
+    std::this_thread::yield();
+
     if( a_msg->is_aidl_message() )
     {
         binder_internal_control_block_mgr::get_instance().invoke_binder_data_handler();
@@ -657,6 +661,8 @@ void client_control_block::handle_connection_status_changed( data_link::connecti
     {
         m_connection_notify_internal( a_status );
     }
+
+    binder_internal_control_block_mgr::get_instance().handle_client_status_changed( this, a_status );
 }
 
 void client_control_block::handle_ping_message

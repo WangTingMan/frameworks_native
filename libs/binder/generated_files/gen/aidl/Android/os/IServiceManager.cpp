@@ -3,7 +3,6 @@
 #ifdef _MSC_VER
 #include <binder_driver/ipc_connection_token.h>
 #include <binder/ProcessState.h>
-#include <binder/ProcessState.h>
 #include <base/logging.h>
 #endif
 namespace android {

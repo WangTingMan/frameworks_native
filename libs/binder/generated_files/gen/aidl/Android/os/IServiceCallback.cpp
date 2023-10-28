@@ -10,6 +10,11 @@ DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(ServiceCallback, "android.os.ISe
 #include <binder/Parcel.h>
 #include <android-base/macros.h>
 
+#ifdef _MSC_VER
+#include <binder_driver/ipc_connection_token.h>
+#include <binder/ProcessState.h>
+#endif
+
 namespace android {
 namespace os {
 
@@ -31,10 +36,29 @@ BpServiceCallback::BpServiceCallback(const ::android::sp<::android::IBinder>& _a
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
   }
+#ifdef _MSC_VER
+  {
+      std::string connection_name;
+      std::string binder_listen_addr;
+      int r = ipc_connection_token_mgr::get_instance()
+          .find_remote_service_by_service_name( name, connection_name, binder_listen_addr );
+      if( r == 0 )
+      {
+          _aidl_data.writeUint32( ::android::OK );
+      }
+      else
+      {
+          _aidl_data.writeUint32( ::android::DEAD_OBJECT );
+      }
+      _aidl_data.writeUtf8AsUtf16( connection_name );
+      _aidl_data.writeUtf8AsUtf16( binder_listen_addr );
+  }
+#else
   _aidl_ret_status = _aidl_data.writeStrongBinder(binder);
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
   }
+#endif
   _aidl_ret_status = remote()->transact(BnServiceCallback::TRANSACTION_onRegistration, _aidl_data, &_aidl_reply, ::android::IBinder::FLAG_ONEWAY);
   if (UNLIKELY(_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceCallback::getDefaultImpl())) {
      return IServiceCallback::getDefaultImpl()->onRegistration(name, binder);
@@ -76,10 +100,25 @@ BnServiceCallback::BnServiceCallback()
     if (((_aidl_ret_status) != (::android::OK))) {
       break;
     }
+#ifdef _MSC_VER
+    std::string connection_name;
+    std::string binder_listen_addr;
+    uint32_t status = ::android::OK;
+    _aidl_ret_status = _aidl_data.readUint32( &status );
+    _aidl_ret_status = _aidl_data.readUtf8FromUtf16( &connection_name );
+    _aidl_ret_status = _aidl_data.readUtf8FromUtf16( &binder_listen_addr );
+    if( status == ::android::OK )
+    {
+        int id = ipc_connection_token_mgr::get_instance()
+            .add_remote_service( in_name, connection_name, binder_listen_addr );
+        in_binder = ProcessState::self()->getStrongProxyForHandle( id );
+    }
+#else
     _aidl_ret_status = _aidl_data.readStrongBinder(&in_binder);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;
     }
+#endif
     if (auto st = _aidl_data.enforceNoDataAvail(); !st.isOk()) {
       _aidl_ret_status = st.writeToParcel(_aidl_reply);
       break;

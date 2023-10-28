@@ -34,6 +34,13 @@
 #include <vintf/constants.h>
 #endif  // !VENDORSERVICEMANAGER
 
+#ifdef _MSC_VER
+#include <binder_driver/ipc_connection_token.h>
+#include <base/strings/string_split.h>
+#include <base/strings/string_number_conversions.h>
+#include <linux/MessageLooper.h>
+#endif
+
 using ::android::binder::Status;
 using ::android::internal::Stability;
 
@@ -351,7 +358,12 @@ Status ServiceManager::addService(const std::string& name, const sp<IBinder>& bi
         for (const sp<IServiceCallback>& cb : it->second) {
             mNameToService[name].guaranteeClient = true;
             // permission checked in registerForNotifications
+#ifdef _MSC_VER
+            MessageLooper::GetDefault().PostTask( std::bind(
+                &IServiceCallback::onRegistration, cb, name, binder ) );
+#else
             cb->onRegistration(name, binder);
+#endif
         }
     }
 
@@ -401,12 +413,14 @@ Status ServiceManager::registerForNotifications(
         return Status::fromExceptionCode(Status::EX_NULL_POINTER);
     }
 
+#ifndef _MSC_VER
     if (OK !=
         IInterface::asBinder(callback)->linkToDeath(
                 sp<ServiceManager>::fromExisting(this))) {
         LOG(ERROR) << "Could not linkToDeath when adding " << name;
         return Status::fromExceptionCode(Status::EX_ILLEGAL_STATE);
     }
+#endif
 
     mNameToRegistrationCallback[name].push_back(callback);
 
@@ -415,7 +429,14 @@ Status ServiceManager::registerForNotifications(
 
         // never null if an entry exists
         CHECK(binder != nullptr) << name;
+#ifdef _MSC_VER
+        MessageLooper::GetDefault().PostTask( [callback, name, binder]()
+        {
+            callback->onRegistration( name, binder );
+        } );
+#else
         callback->onRegistration(name, binder);
+#endif
     }
 
     return Status::ok();
@@ -506,6 +527,39 @@ Status ServiceManager::getConnectionInfo(const std::string& name,
     }
 
     *outReturn = std::nullopt;
+
+#ifdef _MSC_VER
+    std::string connection_name;
+    std::string binder_listen_addr;
+    int id = ipc_connection_token_mgr::get_instance().find_remote_service_by_service_name
+        ( name, connection_name, binder_listen_addr );
+    if( id < 0 )
+    {
+        if( strcmp( name.c_str(), "manager" ) == 0 )
+        {
+            binder_listen_addr = 
+                ipc_connection_token_mgr::get_instance().get_local_listen_address();
+        }
+    }
+
+    if( !binder_listen_addr.empty() )
+    {
+        std::vector<std::string> split_strs;
+        split_strs = ::base::SplitString( binder_listen_addr, ":",
+                                          ::base::TRIM_WHITESPACE,
+                                          ::base::SPLIT_WANT_NONEMPTY );
+        if( split_strs.size() == 2 )
+        {
+            ConnectionInfo info;
+            info.ipAddress = split_strs[0];
+            unsigned int port = 0;
+            ::base::StringToUint( split_strs[1], &port );
+            info.port = port;
+            *outReturn = std::make_optional<ConnectionInfo>( info );
+            return Status::ok();
+        }
+    }
+#endif
 
 #ifndef VENDORSERVICEMANAGER
     *outReturn = getVintfConnectionInfo(name);
