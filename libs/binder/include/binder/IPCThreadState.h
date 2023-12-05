@@ -51,6 +51,11 @@ public:
     static  IPCThreadState*     self();
     static  IPCThreadState*     selfOrNull();  // self(), but won't instantiate
 
+#ifdef _MSC_VER
+    void postTask( std::function<void()> a_tsk );
+    void postDelayTask( uint32_t a_delayed_ms, std::function<void()> a_tsk );
+#endif
+
     // Freeze or unfreeze the binder interface to a specific process. When freezing, this method
     // will block up to timeout_ms to process pending transactions directed to pid. Unfreeze
     // is immediate. Transactions to processes frozen via this method won't be delivered and the

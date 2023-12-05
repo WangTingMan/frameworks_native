@@ -1475,6 +1475,10 @@ status_t Parcel::writeNativeHandle(const native_handle* handle)
 }
 
 status_t Parcel::writeFileDescriptor(int fd, bool takeOwnership) {
+#ifdef _MSC_VER
+    // We do not support this on windows platform.
+    std::abort();
+#endif
     if (auto* rpcFields = maybeRpcFields()) {
         std::variant<base::unique_fd, base::borrowed_fd> fdVariant;
         if (takeOwnership) {
@@ -1530,7 +1534,12 @@ status_t Parcel::writeFileDescriptor(int fd, bool takeOwnership) {
 
 status_t Parcel::writeDupFileDescriptor(int fd)
 {
-#ifndef _MSC_VER
+#ifdef _MSC_VER
+    /** We do not support transport fd to another process on windows.
+     *  So just write it directly
+     */
+    return writeInt32( fd );
+#else
     int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (dupFd < 0) {
         return -errno;
@@ -1540,21 +1549,24 @@ status_t Parcel::writeDupFileDescriptor(int fd)
         close(dupFd);
     }
     return err;
-#else
-    return 0;
 #endif
-
 }
 
 status_t Parcel::writeParcelFileDescriptor(int fd, bool takeOwnership)
 {
+#ifdef _MSC_VER
+    return writeDupFileDescriptor( fd );
+#else
     writeInt32(0);
     return writeFileDescriptor(fd, takeOwnership);
+#endif
 }
 
 status_t Parcel::writeDupParcelFileDescriptor(int fd)
 {
-#ifndef _MSC_VER
+#ifdef _MSC_VER
+    return writeDupFileDescriptor( fd );
+#else
     int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (dupFd < 0) {
         return -errno;
@@ -1564,7 +1576,6 @@ status_t Parcel::writeDupParcelFileDescriptor(int fd)
         close(dupFd);
     }
     return err;
-#else
     return 0;
 #endif
 }
@@ -2335,6 +2346,15 @@ native_handle* Parcel::readNativeHandle() const
 }
 
 int Parcel::readFileDescriptor() const {
+#ifdef _MSC_VER
+    int fd = 0;
+    android::status_t status = readInt32( &fd );
+    if( status != ANDROID_NO_ERROR )
+    {
+        fd = BAD_TYPE;
+    }
+    return fd;
+#endif
     if (const auto* rpcFields = maybeRpcFields()) {
         if (!std::binary_search(rpcFields->mObjectPositions.begin(),
                                 rpcFields->mObjectPositions.end(), mDataPos)) {
@@ -2385,6 +2405,9 @@ int Parcel::readFileDescriptor() const {
 #endif
 
 int Parcel::readParcelFileDescriptor() const {
+#ifdef _MSC_VER
+    return readFileDescriptor();
+#endif
     int32_t hasComm = readInt32();
     int fd = readFileDescriptor();
     if (hasComm != 0) {
@@ -2425,7 +2448,9 @@ status_t Parcel::readUniqueFileDescriptor(base::unique_fd* val) const
     if (got == BAD_TYPE) {
         return BAD_TYPE;
     }
-#ifndef _MSC_VER
+#ifdef _MSC_VER
+    val->reset( got );
+#else
     val->reset(fcntl(got, F_DUPFD_CLOEXEC, 0));
 
     if (val->get() < 0) {
@@ -2442,12 +2467,14 @@ status_t Parcel::readUniqueParcelFileDescriptor(base::unique_fd* val) const
     if (got == BAD_TYPE) {
         return BAD_TYPE;
     }
-#ifndef _MSC_VER
+#ifdef _MSC_VER
+    val->reset( got );
+#else
     val->reset(fcntl(got, F_DUPFD_CLOEXEC, 0));
-#endif
     if (val->get() < 0) {
         return BAD_VALUE;
     }
+#endif
 
     return OK;
 }

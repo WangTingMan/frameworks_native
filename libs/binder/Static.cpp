@@ -41,7 +41,7 @@ protected:
         //android_writevLog(&vec, N);       <-- this is now a no-op
         if (N != 1) ALOGI("WARNING: writeLines N=%zu\n", N);
         if (mSourceFile) {
-            ALOGI_LOCATION("%.*s", mSourceFile, mSourceLine, (int)vec.iov_len,
+            __android_log_print_ext( ANDROID_LOG_INFO, nullptr, mSourceFile, mSourceLine, "%.*s", (int)vec.iov_len,
                            (const char*)vec.iov_base);
         } else {
             ALOGI("%.*s", (int)vec.iov_len, (const char*)vec.iov_base);

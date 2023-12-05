@@ -192,16 +192,47 @@ int ipc_connection_token_mgr::add_remote_service
     return proxy.m_service_id;
 }
 
+uint32_t ipc_connection_token_mgr::register_remote_die_callback( remote_die_callback_type a_callback )
+{
+    std::lock_guard<std::shared_mutex> lcker( m_mutex );
+    m_next_callback_id++;
+    remote_die_callback_cb cb;
+    cb.m_id = m_next_callback_id;
+    cb.m_callback = a_callback;
+
+    m_remote_die_callbacks.push_back( cb );
+    return cb.m_id;
+}
+
+void ipc_connection_token_mgr::unregister_remote_die_callback( uint32_t a_id )
+{
+    std::lock_guard<std::shared_mutex> lcker( m_mutex );
+    for( auto it = m_remote_die_callbacks.begin(); it != m_remote_die_callbacks.end(); )
+    {
+        if( it->m_id == a_id )
+        {
+            it = m_remote_die_callbacks.erase( it );
+            continue;
+        }
+
+        ++it;
+    }
+}
+
 int ipc_connection_token_mgr::remove_all_remote_service( std::string a_connection_name )
 {
     int cnt = 0;
-    std::lock_guard<std::shared_mutex> lcker( m_mutex );
+    std::vector<remote_service_proxy> remote_removed_services;
+    std::vector<remote_die_callback_cb> remote_die_callbacks;
+
+    std::unique_lock<std::shared_mutex> lcker( m_mutex );
     for( auto it = m_remote_services.begin(); it != m_remote_services.end(); )
     {
         if( it->m_connection_name == a_connection_name )
         {
             LOG( INFO ) << "remote service: " << it->m_service_name << ", listen on: "
                 << it->m_remote_binder_listen_addr << ". Removed.";
+            remote_removed_services.push_back( *it );
             it = m_remote_services.erase( it );
             cnt++;
         }
@@ -223,6 +254,20 @@ int ipc_connection_token_mgr::remove_all_remote_service( std::string a_connectio
         else
         {
             ++it;
+        }
+    }
+
+    remote_die_callbacks = m_remote_die_callbacks;
+    lcker.unlock();
+
+    for( auto& ele : remote_removed_services )
+    {
+        for( auto& cb : remote_die_callbacks )
+        {
+            if( cb.m_callback )
+            {
+                cb.m_callback( ele.m_service_name, ele.m_connection_name, ele.m_remote_binder_listen_addr );
+            }
         }
     }
 

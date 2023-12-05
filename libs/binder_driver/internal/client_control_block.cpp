@@ -197,7 +197,7 @@ int client_control_block::handle_general_transaction
     transaction_msg->set_debug_info( debug_info );
     LOG( INFO ) << "Transaction message with service name: " << transaction_msg->m_tr_service_name
         << ", initing connection id: " << transaction_msg->get_source_connection_id() << ", message id: "
-        << transaction_msg->get_id() << ", state: " <<
+        << transaction_msg->get_id() << ", we set state: " <<
         data_link::binder_transaction_message::state_to_string( transaction_msg->m_transaction_state );
 
     std::shared_ptr<data_link::binder_ipc_message> reply_msg;
@@ -281,7 +281,7 @@ int client_control_block::handle_general_transaction
     transaction_msg->m_transaction_state = data_link::binder_transaction_message::transaction_state::completed;
     transaction_msg->extract_raw_buffer(); // clear the raw data part.
     LOG( INFO ) << "Message id: " << transaction_msg->get_id() << ". From "
-        << transaction_msg->get_source_connection_id() << " is completed";
+        << transaction_msg->get_source_connection_id() << " we set state: completed";
     transaction_msg->set_debug_info( "set trasaction completed!" );
     transaction_msg->set_target_connection_name( transaction_msg->get_source_connection_id() ); // Since we are goint to reply.
     transaction_msg->set_source_connection_name( android::ipc_connection_token_mgr::get_instance().get_local_connection_name() );
@@ -631,6 +631,8 @@ void client_control_block::send_reply_only
             ( msg->m_transaction_state ) << ". Waiting for completed reply.";
 
     std::shared_ptr<data_link::binder_transaction_message> reply_msg;
+    std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point end_ = start_;
     for( ;; wait_for_contion_variable() )
     {
         // 1. check connection if OK or not.
@@ -646,6 +648,12 @@ void client_control_block::send_reply_only
                                                         a_write_cur_ptr.is_aidl_transaction );
         if( !reply_msg )
         {
+            end_ = std::chrono::steady_clock::now();
+            if( end_ - start_ > std::chrono::seconds( 10 ) )
+            {
+                start_ = end_;
+                ALOGE( "Wait for to much time. Should take" );
+            }
             continue;
         }
 
@@ -742,6 +750,10 @@ void client_control_block::handle_general_transaction_message
     if( a_message->m_transaction_state == data_link::binder_transaction_message::transaction_state::init )
     {
         a_message->m_transaction_state = data_link::binder_transaction_message::transaction_state::handling;
+        LOG( INFO ) << "Transaction message with service name: " << a_message->m_tr_service_name
+            << ", connection id: " << a_message->get_source_connection_id() << ", message id: "
+            << a_message->get_id() << ", we set state: " <<
+                data_link::binder_transaction_message::state_to_string( a_message->m_transaction_state );
         m_transaction_in_process_msgs.push_back( a_message );
     }
 }

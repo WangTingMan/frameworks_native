@@ -115,6 +115,10 @@ public:
 private:
     static sp<ProcessState> init(const char* defaultDriver, bool requireDefault);
 
+#ifdef _MSC_VER
+    void startThreadPoolImpl();
+#endif
+
     static void onFork();
     static void parentPostFork();
     static void childPostFork();

@@ -234,7 +234,12 @@ void binder_internal_control_block_mgr::handle_client_status_changed
     {
         std::string connection_name = deleted_block->get_connection_name();
         LOG(INFO) << connection_name << " disconnected.";
-        android::ipc_connection_token_mgr::get_instance().remove_all_remote_service(connection_name);
+        MessageLooper::GetDefault().PostTask(
+            std::bind(
+                &android::ipc_connection_token_mgr::remove_all_remote_service,
+                std::ref( android::ipc_connection_token_mgr::get_instance() ),
+                connection_name
+            ) );
     }
 }
 

@@ -228,9 +228,25 @@ ServiceManager::ServiceManager(std::unique_ptr<Access>&& access) : mAccess(std::
 //         vintf::VintfObject::GetFrameworkHalManifest();
 //     }).detach();
 // #endif  // !VENDORSERVICEMANAGER
+
+#ifdef _MSC_VER
+    m_died_callback_id = ipc_connection_token_mgr::get_instance()
+        .register_remote_die_callback( std::bind( &ServiceManager::handleRemoteDied,
+                                                  this,
+                                                  std::placeholders::_1,
+                                                  std::placeholders::_2,
+                                                  std::placeholders::_3 )
+                                     );
+#endif
+
 }
 ServiceManager::~ServiceManager() {
     // this should only happen in tests
+
+#ifdef _MSC_VER
+    ipc_connection_token_mgr::get_instance().unregister_remote_die_callback( m_died_callback_id );
+    m_died_callback_id = 0;
+#endif
 
     for (const auto& [name, callbacks] : mNameToRegistrationCallback) {
         CHECK(!callbacks.empty()) << name;
@@ -566,6 +582,63 @@ Status ServiceManager::getConnectionInfo(const std::string& name,
 #endif
     return Status::ok();
 }
+
+#ifdef _MSC_VER
+void ServiceManager::handleRemoteDied
+    (
+    std::string a_service_name,
+    std::string a_connection_name,
+    std::string a_binder_listen_addr
+    )
+{
+    sp<IBinder> removed;
+    for( auto it = mNameToService.begin(); it != mNameToService.end();)
+    {
+        if( a_service_name == it->first )
+        {
+            removed = it->second.binder;
+            it = mNameToService.erase( it );
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    for( auto it = mNameToRegistrationCallback.begin(); it != mNameToRegistrationCallback.end();)
+    {
+        if( it->first == a_service_name )
+        {
+            it = mNameToRegistrationCallback.erase( it );
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    for( auto it = mNameToClientCallback.begin(); it != mNameToClientCallback.end();)
+    {
+        if( it->first == a_service_name )
+        {
+            it = mNameToClientCallback.erase( it );
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    if( removed )
+    {
+        BpBinder* bp = removed->remoteBinder();
+        if( bp )
+        {
+            bp->sendObituary();
+        }
+    }
+}
+#endif
 
 void ServiceManager::removeRegistrationCallback(const wp<IBinder>& who,
                                     ServiceCallbackMap::iterator* it,

@@ -270,7 +270,11 @@ bool libchrome_logging_handler( int levelIn, const char* file, int line,
     {
         logStr = str.substr( message_start );
     }
-    __log_format( level, "", file, "", line, logStr.c_str());
+#ifdef __android_log_print_ext_defined
+    __android_log_print_ext( level, nullptr, file, line, logStr.c_str() );
+#else
+    __android_log_print(level, nullptr, logStr.c_str());
+#endif
 
     return true;
 }

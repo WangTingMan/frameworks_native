@@ -40,7 +40,7 @@
 #endif
 
 #include <assert.h>
-
+#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -207,9 +207,24 @@ class BnCInterface : public INTERFACE {
      */
     virtual SpAIBinder createBinder() = 0;
 
+#ifdef _MSC_VER
+    /**
+     * Since there is probable virtual function map problem with MSVC here.
+     * So we add this compitable set function here.
+     */
+    void setBinderCreater( std::function<SpAIBinder()> aBinderCreater)
+    {
+        std::lock_guard<std::mutex> locker( mMutex );
+        mBinderCreater = aBinderCreater;
+    }
+#endif
+
    private:
     std::mutex mMutex;  // for asBinder
     ScopedAIBinder_Weak mWeakBinder;
+#ifdef _MSC_VER
+    std::function<SpAIBinder()> mBinderCreater;
+#endif
 };
 
 /**
@@ -316,7 +331,18 @@ SpAIBinder BnCInterface<INTERFACE>::asBinder() {
         binder.set(AIBinder_Weak_promote(mWeakBinder.get()));
     }
     if (binder.get() == nullptr) {
+#ifdef _MSC_VER
+        if( mBinderCreater )
+        {
+            binder = mBinderCreater();
+        }
+        else
+        {
+            binder = createBinder();
+        }
+#else
         binder = createBinder();
+#endif
         mWeakBinder.set(AIBinder_Weak_new(binder.get()));
     }
 

@@ -39,6 +39,7 @@
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#include <linux/MessageLooper.h>
 #else
 #include <binder/windows_porting.h>
 #include <linux/binder.h>
@@ -72,10 +73,10 @@
 
 #define IF_LOG_TRANSACTIONS() IF_ALOG(LOG_VERBOSE, "transact")
 #define IF_LOG_COMMANDS() IF_ALOG(LOG_VERBOSE, "ipc")
-#define LOG_REMOTEREFS(...) ALOG(ANDROID_LOG_DEBUG, "remoterefs", __VA_ARGS__)
+#define LOG_REMOTEREFS(...) ALOG(LOG_DEBUG, "remoterefs", __VA_ARGS__)
 #define IF_LOG_REMOTEREFS() IF_ALOG(LOG_DEBUG, "remoterefs")
-#define LOG_THREADPOOL(...) ALOG(ANDROID_LOG_DEBUG, "threadpool", __VA_ARGS__)
-#define LOG_ONEWAY(...) ALOG(ANDROID_LOG_DEBUG, "ipc", __VA_ARGS__)
+#define LOG_THREADPOOL(...) ALOG(LOG_DEBUG, "threadpool", __VA_ARGS__)
+#define LOG_ONEWAY(...) ALOG(LOG_DEBUG, "ipc", __VA_ARGS__)
 
 #endif
 
@@ -344,6 +345,18 @@ IPCThreadState* IPCThreadState::self()
 
     goto restart;
 }
+
+#ifdef _MSC_VER
+void IPCThreadState::postTask( std::function<void()> a_tsk )
+{
+    MessageLooper::GetDefault().PostTask( a_tsk );
+}
+
+void IPCThreadState::postDelayTask( uint32_t a_delayed_ms, std::function<void()> a_tsk )
+{
+    MessageLooper::GetDefault().PostDelayTask( a_delayed_ms, a_tsk );
+}
+#endif
 
 IPCThreadState* IPCThreadState::selfOrNull()
 {
@@ -718,6 +731,7 @@ void IPCThreadState::startThreadPoolImpl( bool a_is_main )
     auto exit_fun = [ this ]()mutable
         {
             mOut.setDataPosition( 0 );
+            mOut.setDataSize( 0 );
             mOut.writeInt32( BC_EXIT_LOOPER );
             mIsLooper = false;
             talkWithDriver( false );
@@ -790,6 +804,7 @@ status_t IPCThreadState::setupPolling(int* fd)
 
 #ifdef _MSC_VER
     mOut.setDataPosition( 0 );
+    mOut.setDataSize( 0 );
 #endif
     mOut.writeInt32(BC_ENTER_LOOPER);
     flushCommands();
@@ -827,6 +842,13 @@ status_t IPCThreadState::transact(int32_t handle,
                                   uint32_t code, const Parcel& data,
                                   Parcel* reply, uint32_t flags)
 {
+#ifdef _MSC_VER
+    if( !MessageLooper::GetDefault().IsRunning() )
+    {
+        //MessageLooper::GetDefault().Run( false );
+    }
+#endif
+
     LOG_ALWAYS_FATAL_IF(data.isForRpc(), "Parcel constructed for RPC, but being used with binder.");
 
     status_t err = 0;
@@ -904,6 +926,7 @@ void IPCThreadState::incStrongHandle(int32_t handle, BpBinder *proxy)
     LOG_REMOTEREFS( "IPCThreadState::incStrongHandle(%d)\n", handle );
 #ifdef _MSC_VER
     mOut.setDataPosition( 0 );
+    mOut.setDataSize( 0 );
 #endif
     mOut.writeInt32(BC_ACQUIRE);
     mOut.writeInt32(handle);
@@ -921,6 +944,7 @@ void IPCThreadState::decStrongHandle(int32_t handle)
     LOG_REMOTEREFS( "IPCThreadState::decStrongHandle(%d)\n", handle );
 #ifdef _MSC_VER
     mOut.setDataPosition( 0 );
+    mOut.setDataSize( 0 );
 #endif
     mOut.writeInt32(BC_RELEASE);
 
@@ -934,6 +958,7 @@ void IPCThreadState::incWeakHandle(int32_t handle, BpBinder *proxy)
     LOG_REMOTEREFS( "IPCThreadState::incWeakHandle(%d)\n", handle );
 #ifdef _MSC_VER
     mOut.setDataPosition( 0 );
+    mOut.setDataSize( 0 );
 #endif
     mOut.writeInt32(BC_INCREFS);
 
@@ -951,6 +976,7 @@ void IPCThreadState::decWeakHandle(int32_t handle)
     LOG_REMOTEREFS("IPCThreadState::decWeakHandle(%d)\n", handle);
 #ifdef _MSC_VER
     mOut.setDataPosition( 0 );
+    mOut.setDataSize( 0 );
 #endif
     mOut.writeInt32(BC_DECREFS);
 
@@ -994,6 +1020,7 @@ status_t IPCThreadState::requestDeathNotification(int32_t handle, BpBinder* prox
 {
 #ifdef _MSC_VER
     mOut.setDataPosition( 0 );
+    mOut.setDataSize( 0 );
 #endif
     mOut.writeInt32(BC_REQUEST_DEATH_NOTIFICATION);
     mOut.writeInt32((int32_t)handle);
@@ -1005,6 +1032,7 @@ status_t IPCThreadState::clearDeathNotification(int32_t handle, BpBinder* proxy)
 {
 #ifdef _MSC_VER
     mOut.setDataPosition( 0 );
+    mOut.setDataSize( 0 );
 #endif
     mOut.writeInt32(BC_CLEAR_DEATH_NOTIFICATION);
     mOut.writeInt32((int32_t)handle);
@@ -1768,6 +1796,7 @@ void IPCThreadState::freeBuffer(const uint8_t* data, size_t /*dataSize*/,
     IPCThreadState* state = self();
 #ifdef _MSC_VER
     state->mOut.setDataPosition( 0 );
+    state->mOut.setDataSize( 0 );
 #endif
     state->mOut.writeInt32(BC_FREE_BUFFER);
     state->mOut.writePointer((uintptr_t)data);

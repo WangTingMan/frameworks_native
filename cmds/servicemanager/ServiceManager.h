@@ -66,6 +66,17 @@ protected:
     virtual void tryStartService(const std::string& name);
 
 private:
+
+#ifdef _MSC_VER
+    void handleRemoteDied
+        (
+        std::string a_service_name,
+        std::string a_connection_name,
+        std::string a_binder_listen_addr
+        );
+    uint32_t m_died_callback_id = 0;
+#endif
+
     struct Service {
         sp<IBinder> binder; // not null
         bool allowIsolated;

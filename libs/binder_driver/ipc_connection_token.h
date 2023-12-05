@@ -41,6 +41,17 @@ public:
     std::string m_connection_name;  // Which remote connection name registered this callback
 };
 
+using remote_die_callback_type = std::function<void(
+    std::string /*a_service_name*/,
+    std::string /*a_connection_name*/,
+    std::string /*a_binder_listen_addr*/ )>;
+
+struct remote_die_callback_cb
+{
+    remote_die_callback_type m_callback;
+    uint32_t m_id = 0;
+};
+
 /**
  * manager local and remote services.
  * For local service, will hold the service entity
@@ -96,6 +107,14 @@ public:
         std::string a_connection_name,
         std::string a_binder_listen_addr
         );
+
+    /**
+     * Register remote die callback. return the id of this callback.
+     * Use id to unregister this callback
+     */
+    uint32_t register_remote_die_callback( remote_die_callback_type a_callback );
+
+    void unregister_remote_die_callback( uint32_t a_id );
 
     /**
      * Remove all service and callback identified by a_connection_name.
@@ -166,7 +185,9 @@ private:
     std::vector<remote_service_proxy> m_remote_services;
     std::vector<sp<RefBase>> m_registered_local_binder_interfaces;
     std::vector<remote_registerd_callback> m_registered_callback_interfaces;
+    uint32_t m_next_callback_id = 0;
     std::map<uint64_t, std::string> m_cached_connection_name;
+    std::vector<remote_die_callback_cb> m_remote_die_callbacks;
 };
 
 }

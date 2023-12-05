@@ -202,7 +202,12 @@ void ProcessState::childPostFork() {
 void ProcessState::startThreadPool()
 {
 #ifdef _MSC_VER
-    MessageLooper::GetDefault();
+    /*startThreadPoolImpl();*/
+    /**
+     * We are not going to run here.
+     * We just run at android::IPCThreadState::self()->joinThreadPool()
+     * So please make sure that will be invoked.
+     */
 #else
     AutoMutex _l(mLock);
     if (!mThreadPoolStarted) {
@@ -215,6 +220,30 @@ void ProcessState::startThreadPool()
     }
 #endif
 }
+
+#ifdef _MSC_VER
+void ProcessState::startThreadPoolImpl()
+{
+    AutoMutex _l( mLock );
+    if( !mThreadPoolStarted )
+    {
+        if( mMaxThreads == 0 )
+        {
+            ALOGW( "Extra binder thread started, but 0 threads requested. Do not use "
+                   "*startThreadPool when zero threads are requested." );
+        }
+        mThreadPoolStarted = true;
+        if( MessageLooper::GetDefault().IsRunning() )
+        {
+            IPCThreadState::self()->joinThreadPool( true );
+        }
+        else
+        {
+            spawnPooledThread( true );
+        }
+    }
+}
+#endif
 
 bool ProcessState::becomeContextManager()
 {

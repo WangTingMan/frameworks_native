@@ -200,8 +200,13 @@ class ScopedAResource {
     T* getR() { return &mT; }
 
     // copy-constructing/assignment is disallowed
+#ifdef _MSC_VER
+    ScopedAResource( ScopedAResource const& ) = default;
+    ScopedAResource& operator=( ScopedAResource const& ) = default;
+#else
     ScopedAResource(const ScopedAResource&) = delete;
     ScopedAResource& operator=(const ScopedAResource&) = delete;
+#endif
 
     // move-constructing/assignment is okay
     ScopedAResource(ScopedAResource&& other) noexcept : mT(std::move(other.mT)) {
@@ -394,6 +399,11 @@ class ScopedFileDescriptor : public impl::ScopedAResource<int, internal::closeWi
     ~ScopedFileDescriptor() {}
     ScopedFileDescriptor(ScopedFileDescriptor&&) = default;
     ScopedFileDescriptor& operator=(ScopedFileDescriptor&&) = default;
+
+#ifdef _MSC_VER
+    ScopedFileDescriptor( ScopedFileDescriptor const& ) = default;
+    ScopedFileDescriptor& operator=( ScopedFileDescriptor const& ) = default;
+#endif
 
     ScopedFileDescriptor dup() const { return ScopedFileDescriptor(
 #ifdef _MSC_VER
