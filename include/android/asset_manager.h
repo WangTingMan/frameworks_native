@@ -26,7 +26,10 @@
 #ifndef ANDROID_ASSET_MANAGER_H
 #define ANDROID_ASSET_MANAGER_H
 
+#ifdef _MSC_VER
+#else
 #include <sys/cdefs.h>
+#endif
 #include <sys/types.h>
 
 #ifdef __cplusplus

@@ -76,7 +76,7 @@ class SpAIBinder {
     SpAIBinder& operator=(SpAIBinder&& other) noexcept {
         mBinder = other.mBinder;
         other.mBinder = nullptr;
-        return other;
+        return *this;
     }
 
     /**
