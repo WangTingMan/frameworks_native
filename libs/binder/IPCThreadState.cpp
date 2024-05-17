@@ -1316,8 +1316,8 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     tr.code = code;
     tr.flags = binderFlags;
     tr.binder_transaction_cookie = 0;
-    tr.sender_pid = 0;
-    tr.sender_euid = 0;
+    tr.sender_pid = getpid();
+    tr.sender_euid = getpid();
 
 #ifdef _MSC_VER
     tr.is_aidl_transaction = true;
