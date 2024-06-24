@@ -17,6 +17,7 @@
 #pragma once
 
 #include <android/binder_parcel.h>
+#include <android/libbinder_ndk_export.h>
 
 #ifdef __cplusplus
 #ifndef __BEGIN_DECLS
@@ -45,7 +46,7 @@ __BEGIN_DECLS
  * if this returns false then AParcel_writeParcelFileDescriptor will
  * return STATUS_FDS_NOT_ALLOWED.
  */
-bool AParcel_getAllowFds(const AParcel*);
+LIBBINDER_NDK_EXPORT bool AParcel_getAllowFds( const AParcel* );
 
 #endif
 
@@ -58,7 +59,7 @@ bool AParcel_getAllowFds(const AParcel*);
  *
  * \param parcel The parcel to clear associated data from.
  */
-void AParcel_markSensitive(const AParcel* parcel);
+LIBBINDER_NDK_EXPORT void AParcel_markSensitive(const AParcel* parcel);
 
 __END_DECLS
 

@@ -20,6 +20,7 @@
 
 #include <android/binder_ibinder.h>
 #include <binder/IBinder.h>
+#include <android/libbinder_ndk_export.h>
 
 /**
  * Get libbinder version of binder from AIBinder.
@@ -31,7 +32,7 @@
  * \param binder binder with ownership retained by the client
  * \return platform binder object
  */
-android::sp<android::IBinder> AIBinder_toPlatformBinder(AIBinder* binder);
+LIBBINDER_NDK_EXPORT android::sp<android::IBinder> AIBinder_toPlatformBinder(AIBinder* binder);
 
 /**
  * Get libbinder_ndk version of binder from platform binder.
@@ -45,6 +46,6 @@ android::sp<android::IBinder> AIBinder_toPlatformBinder(AIBinder* binder);
  * \return binder with one reference count of ownership given to the client. See
  * AIBinder_decStrong
  */
-AIBinder* AIBinder_fromPlatformBinder(const android::sp<android::IBinder>& binder);
+LIBBINDER_NDK_EXPORT AIBinder* AIBinder_fromPlatformBinder(const android::sp<android::IBinder>& binder);
 
 #endif

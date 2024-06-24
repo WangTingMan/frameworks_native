@@ -17,6 +17,7 @@
 #pragma once
 
 #include <android/binder_ibinder.h>
+#include <android/libbinder_ndk_export.h>
 
 #ifdef __cplusplus
 #ifndef __BEGIN_DECLS
@@ -55,7 +56,7 @@ enum {
  *
  * \param binder local server binder to request security contexts on
  */
-/*__attribute__((weak))*/ void AIBinder_setRequestingSid(AIBinder* binder, bool requestingSid)
+LIBBINDER_NDK_EXPORT /*__attribute__((weak))*/ void AIBinder_setRequestingSid(AIBinder* binder, bool requestingSid)
         __INTRODUCED_IN(31);
 
 /**
@@ -69,7 +70,7 @@ enum {
  * \return security context or null if unavailable. The lifetime of this context
  * is the lifetime of the transaction.
  */
-/*__attribute__((weak, warn_unused_result))*/ const char* AIBinder_getCallingSid() __INTRODUCED_IN(31);
+LIBBINDER_NDK_EXPORT /*__attribute__((weak, warn_unused_result))*/ const char* AIBinder_getCallingSid() __INTRODUCED_IN(31);
 
 /**
  * Sets a minimum scheduler policy for all transactions coming into this
@@ -82,7 +83,7 @@ enum {
  * \param policy scheduler policy as defined in linux UAPI
  * \param priority priority. [-20..19] for SCHED_NORMAL, [1..99] for RT
  */
-void AIBinder_setMinSchedulerPolicy(AIBinder* binder, int policy, int priority) __INTRODUCED_IN(33);
+LIBBINDER_NDK_EXPORT void AIBinder_setMinSchedulerPolicy(AIBinder* binder, int policy, int priority) __INTRODUCED_IN(33);
 
 /**
  * Allow the binder to inherit realtime scheduling policies from its caller.
@@ -94,7 +95,7 @@ void AIBinder_setMinSchedulerPolicy(AIBinder* binder, int policy, int priority) 
  * \param inheritRt whether to inherit realtime scheduling policies (default is
  *     false).
  */
-void AIBinder_setInheritRt(AIBinder* binder, bool inheritRt) __INTRODUCED_IN(33);
+LIBBINDER_NDK_EXPORT void AIBinder_setInheritRt(AIBinder* binder, bool inheritRt) __INTRODUCED_IN(33);
 
 __END_DECLS
 
