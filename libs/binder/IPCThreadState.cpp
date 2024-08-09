@@ -304,6 +304,7 @@ static std::atomic<bool> gDisableBackgroundScheduling = false;
 #ifndef _MSC_VER
 static pthread_key_t gTLS = 0;
 #else
+thread_local static bool gValid = false;
 thread_local static std::shared_ptr<IPCThreadState> gTLS;
 #endif
 
@@ -316,8 +317,10 @@ IPCThreadState* IPCThreadState::self()
         IPCThreadState* st = (IPCThreadState*)pthread_getspecific(k);
         if (st) return st;
 #else
-        if (gTLS)
-        {
+        if (gTLS) {
+            if (!gValid) {
+                return nullptr;
+            }
             return gTLS.get();
         }
 #endif
@@ -1055,6 +1058,7 @@ IPCThreadState::IPCThreadState()
     pthread_setspecific(gTLS, this);
 #else
     gTLS = std::shared_ptr<IPCThreadState>(this, &threadDestructor);
+    gValid = true;
 #endif
     clearCaller();
 #ifdef _MSC_VER
@@ -1068,6 +1072,9 @@ IPCThreadState::IPCThreadState()
 
 IPCThreadState::~IPCThreadState()
 {
+#ifdef _MSC_VER
+    gValid = false;
+#endif
 }
 
 status_t IPCThreadState::sendReply(const Parcel& reply, uint32_t flags, binder_transaction_data* tr)

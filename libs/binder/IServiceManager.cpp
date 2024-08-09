@@ -163,6 +163,9 @@ sp<IServiceManager> defaultServiceManager()
         }
 
         gDefaultServiceManager = sp<ServiceManagerShim>::make(sm);
+#ifdef _MSC_VER
+        gDefaultServiceManager->setName( "[IServiceManager.cpp:167]gDefaultServiceManager = sp<ServiceManagerShim>::make(sm)" );
+#endif
     });
 
     return gDefaultServiceManager;
