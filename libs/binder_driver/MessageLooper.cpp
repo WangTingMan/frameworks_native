@@ -106,6 +106,17 @@ void MessageLooper::Run()
 
     lcker.lock();
     m_running_control_block.reset();
+    m_quit_promise.set_value();
+}
+
+void MessageLooper::Quit()
+{
+    if (m_running_control_block)
+    {
+        m_quit_future = m_quit_promise.get_future();
+        m_running_control_block->_loop.QuitWhenIdle();
+        m_quit_future.wait();
+    }
 }
 
 int MessageLooper::RegisterTimer

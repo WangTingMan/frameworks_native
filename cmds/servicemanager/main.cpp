@@ -26,7 +26,11 @@
 #include "ServiceManager.h"
 
 #ifdef _MSC_VER
+#include <windows.h>
 #include "linux/MessageLooper.h"
+#include <base/process/process.h>
+#include <base/process/process_handle.h>
+#include <base/process/launch.h>
 #include <base/logging.h>
 #endif
 
@@ -160,9 +164,17 @@ private:
 };
 #endif
 
+#ifdef _MSC_VER
+BOOL WINAPI HandlerRoutineReceiver(DWORD dwCtrlType);
+#endif
+
 int main(int argc, char** argv) {
 #ifdef __ANDROID_RECOVERY__
     android::base::InitLogging(argv, android::base::KernelLogger);
+#endif
+
+#ifdef _MSC_VER
+    SetConsoleCtrlHandler(&HandlerRoutineReceiver, TRUE);
 #endif
 
     logging::SetLogMessageHandler( libchrome_logging_handler );
@@ -226,6 +238,12 @@ int main(int argc, char** argv) {
 #ifdef _MSC_VER
     load_hw_service_manager();
     looper.Run();
+    base::LaunchOptions option;
+    option.wait = false;
+    std::wstring cmd{ L"taskkill /pid " };
+    cmd.append(std::to_wstring(base::GetCurrentProcId()));
+    cmd.append(L" /f");
+    base::LaunchProcess(cmd, option);
 #else
     while(true) {
         looper->pollAll(-1);
@@ -278,3 +296,11 @@ bool libchrome_logging_handler( int levelIn, const char* file, int line,
 
     return true;
 }
+
+#ifdef _MSC_VER
+BOOL WINAPI HandlerRoutineReceiver(DWORD dwCtrlType)
+{
+    MessageLooper::GetDefault().Quit();
+    return FALSE;
+}
+#endif

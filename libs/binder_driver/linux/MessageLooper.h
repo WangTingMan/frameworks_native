@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -22,6 +23,8 @@ public:
     static MessageLooper& GetDefault();
 
     void Run();
+
+    void Quit();
 
     bool IsRunning()const;
 
@@ -51,6 +54,8 @@ private:
     void timer_function_wrapper( int index, std::function<bool( void )> a_fun );
 
     mutable std::shared_mutex m_mutex;
+    std::future<void> m_quit_future;
+    std::promise<void> m_quit_promise;
     std::shared_ptr<MessageLooperControlBlock> m_control_block;
     std::shared_ptr<RunningControlBlock> m_running_control_block;
 };
