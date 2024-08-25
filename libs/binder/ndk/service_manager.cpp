@@ -81,6 +81,9 @@ AIBinder* AServiceManager_waitForService(const char* instance) {
 
     sp<IServiceManager> sm = defaultServiceManager();
     sp<IBinder> binder = sm->waitForService(String16(instance));
+#ifdef _MSC_VER
+    binder->pingBinder();
+#endif
 
     sp<AIBinder> ret = ABpBinder::lookupOrCreateFromBinder(binder);
     AIBinder_incStrong(ret.get());

@@ -24,6 +24,10 @@
 #include <variant>
 #include <optional>
 
+#ifdef _MSC_VER
+#include <atomic>
+#include <functional>
+#endif
 #include <binder/libbinder_export.h>
 
 // ---------------------------------------------------------------------------
@@ -168,6 +172,13 @@ private:
         std::string a_service_name,
         std::string a_connection_name
         );
+    void set_registered_die_callback_id( uint32_t a_id );
+    void handle_remote_died
+        (
+        std::string a_service_name,
+        std::string a_connection_name,
+        std::string a_binder_listen_addr
+        );
 #endif
 
     struct BinderHandle {
@@ -215,6 +226,9 @@ private:
             ObjectManager       mObjects;
     mutable String16            mDescriptorCache;
             int32_t             mTrackedUid;
+#ifdef _MSC_VER
+   std::atomic_uint32_t         mDiedCallbackId{ 0 };
+#endif
 
     static Mutex                                sTrackingLock;
     static std::unordered_map<int32_t,uint32_t> sTrackingMap;

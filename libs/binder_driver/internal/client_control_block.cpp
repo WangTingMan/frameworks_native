@@ -782,8 +782,13 @@ void client_control_block::init_client_to_service()
     }
     else
     {
+        std::string service_name;
+        std::string connection_name;
+        android::ipc_connection_token_mgr::get_instance().find_remote_service_by_id
+            ( m_service_id, service_name, connection_name );
         listen_addr = android::ipc_connection_token_mgr::get_instance()
             .find_remote_service_listen_addr( m_service_id );
+        m_remote_connection_name = connection_name;
     }
 
     if( listen_addr.empty() )

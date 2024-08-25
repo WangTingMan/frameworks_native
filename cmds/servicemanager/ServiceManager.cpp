@@ -492,6 +492,18 @@ Status ServiceManager::isDeclared(const std::string& name, bool* outReturn) {
 #ifndef VENDORSERVICEMANAGER
     *outReturn = isVintfDeclared(name);
 #endif
+
+#ifdef _MSC_VER
+    if( false == *outReturn )
+    {
+        auto it = mNameToService.find( name );
+        if( it != mNameToService.end() )
+        {
+            *outReturn = true;
+        }
+    }
+#endif
+
     return Status::ok();
 }
 
@@ -591,6 +603,10 @@ void ServiceManager::handleRemoteDied
     std::string a_binder_listen_addr
     )
 {
+    LOG( INFO ) << "service_name: " << a_service_name
+        << " connection_name: " << a_connection_name
+        << " binder_listen_addr: " << a_binder_listen_addr
+        << " died.";
     sp<IBinder> removed;
     for( auto it = mNameToService.begin(); it != mNameToService.end();)
     {
@@ -628,7 +644,7 @@ void ServiceManager::handleRemoteDied
             ++it;
         }
     }
-
+#if 0
     if( removed )
     {
         BpBinder* bp = removed->remoteBinder();
@@ -637,6 +653,7 @@ void ServiceManager::handleRemoteDied
             bp->sendObituary();
         }
     }
+#endif
 }
 #endif
 

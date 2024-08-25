@@ -845,13 +845,6 @@ status_t IPCThreadState::transact(int32_t handle,
                                   uint32_t code, const Parcel& data,
                                   Parcel* reply, uint32_t flags)
 {
-#ifdef _MSC_VER
-    if( !MessageLooper::GetDefault().IsRunning() )
-    {
-        //MessageLooper::GetDefault().Run( false );
-    }
-#endif
-
     LOG_ALWAYS_FATAL_IF(data.isForRpc(), "Parcel constructed for RPC, but being used with binder.");
 
     status_t err = 0;
@@ -1028,6 +1021,11 @@ status_t IPCThreadState::requestDeathNotification(int32_t handle, BpBinder* prox
     mOut.writeInt32(BC_REQUEST_DEATH_NOTIFICATION);
     mOut.writeInt32((int32_t)handle);
     mOut.writePointer((uintptr_t)proxy);
+#ifdef _MSC_VER
+    String8 descriptor = String8(proxy->getInterfaceDescriptor());
+    std::string std_descriptor( descriptor.string() );
+    mOut.writeDynamic( std_descriptor );
+#endif
     return NO_ERROR;
 }
 
@@ -1040,6 +1038,11 @@ status_t IPCThreadState::clearDeathNotification(int32_t handle, BpBinder* proxy)
     mOut.writeInt32(BC_CLEAR_DEATH_NOTIFICATION);
     mOut.writeInt32((int32_t)handle);
     mOut.writePointer((uintptr_t)proxy);
+#ifdef _MSC_VER
+    String8 descriptor = String8( proxy->getInterfaceDescriptor() );
+    std::string std_descriptor( descriptor.string() );
+    mOut.writeDynamic( std_descriptor );
+#endif
     return NO_ERROR;
 }
 

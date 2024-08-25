@@ -183,7 +183,16 @@ sp<IBinder> BpBinder::create
     std::string a_connection_name
     )
 {
-    return sp<BpBinder>::make( a_service_name, a_connection_name );
+    sp<BpBinder> bp_binder;
+    bp_binder = sp<BpBinder>::make( a_service_name, a_connection_name );
+    uint32_t died_callback_id = 0;
+    died_callback_id = ipc_connection_token_mgr::get_instance()
+        .register_remote_die_callback(
+            std::bind( &BpBinder::handle_remote_died, bp_binder, std::placeholders::_1,
+                       std::placeholders::_2,
+                       std::placeholders::_3 ) );
+    bp_binder->set_registered_die_callback_id( died_callback_id );
+    return bp_binder;
 }
 
 BpBinder::BpBinder
@@ -205,11 +214,65 @@ BpBinder::BpBinder
             .add_remote_service( a_service_name, a_connection_name );
     }
 
+    auto pos = a_service_name.find_first_of( '/' );
+    std::string descriptor;
+    if( std::string::npos != pos )
+    {
+        descriptor = a_service_name.substr( 0, pos );
+    }
+    else
+    {
+        descriptor = a_service_name;
+    }
+    String16 descriptor_str( descriptor.c_str() );
+    mDescriptorCache = descriptor_str;
     BinderHandle handle;
     handle.handle = id;
     mHandle = handle;
 }
 
+void BpBinder::set_registered_die_callback_id( uint32_t a_id )
+{
+    mDiedCallbackId = a_id;
+}
+
+void BpBinder::handle_remote_died
+    (
+    std::string a_service_name,
+    std::string a_connection_name,
+    std::string a_binder_listen_addr
+    )
+{
+    auto pos = a_service_name.find_first_of( '/' );
+    std::string descriptor;
+    if( std::string::npos != pos )
+    {
+        descriptor = a_service_name.substr( 0, pos );
+    }
+    else
+    {
+        descriptor = a_service_name;
+    }
+    String16 descriptor_str( descriptor.c_str() );
+
+    bool is_same = false;
+    {
+        Mutex::Autolock _l( mLock );
+        is_same = descriptor_str == mDescriptorCache;
+    }
+
+    if( is_same )
+    {
+        ALOGW( "remote service died. descriptor: %s", descriptor.c_str() );
+        if( 0 != mDiedCallbackId )
+        {
+            ipc_connection_token_mgr::get_instance()
+                .unregister_remote_die_callback( mDiedCallbackId );
+            mDiedCallbackId = 0;
+        }
+        sendObituary();
+    }
+}
 #endif
 
 BpBinder::BpBinder(Handle&& handle)
@@ -566,6 +629,14 @@ BpBinder* BpBinder::remoteBinder()
 }
 
 BpBinder::~BpBinder() {
+#ifdef _MSC_VER
+    if( 0 != mDiedCallbackId )
+    {
+        ipc_connection_token_mgr::get_instance()
+            .unregister_remote_die_callback( mDiedCallbackId );
+        mDiedCallbackId = 0;
+    }
+#endif
     if (CC_UNLIKELY(isRpcBinder())) return;
 
     if constexpr (!kEnableKernelIpc) {

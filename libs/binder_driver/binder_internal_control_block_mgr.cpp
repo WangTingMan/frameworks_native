@@ -238,8 +238,16 @@ void binder_internal_control_block_mgr::handle_client_status_changed
             std::bind(
                 &android::ipc_connection_token_mgr::remove_all_remote_service,
                 std::ref( android::ipc_connection_token_mgr::get_instance() ),
-                connection_name
+                connection_name, true
             ) );
+    }
+    else
+    {
+        if( a_status == data_link::connection_status::disconnected )
+        {
+            LOG( ERROR ) << "Received disconnected remote service. But cannot found it from m_clients: "
+                << a_client->get_connection_name();
+        }
     }
 }
 
@@ -392,7 +400,11 @@ int binder_internal_control_block_mgr::handle_write_read_block
         break;
     case BC_REQUEST_DEATH_NOTIFICATION:
         a_wr_blk->write_consumed = a_wr_blk->write_size;
-        LOG( INFO ) << "TODO add death notification implementation.";
+        LOG( INFO ) << "we ignore death notification in driver side";
+        break;
+    case BC_CLEAR_DEATH_NOTIFICATION:
+        a_wr_blk->write_consumed = a_wr_blk->write_size;
+        LOG( INFO ) << "we ignore clear death notification in driver side";
         break;
     case BC_TRANSACTION_SG:
         {

@@ -29,6 +29,12 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
   ::android::status_t _aidl_ret_status = ::android::OK;
   ::android::binder::Status _aidl_status;
 #ifdef _MSC_VER
+  ::std::string in_name;
+  ::std::string connection_name;
+  ::std::string binder_listen_addr;
+  bool result = false;
+#endif
+#ifdef _MSC_VER
   _aidl_ret_status = _aidl_data.writeString16( getInterfaceDescriptor() );
 #else
   _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
@@ -54,7 +60,20 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
   if (!_aidl_status.isOk()) {
     return _aidl_status;
   }
+#ifdef _MSC_VER
+  _aidl_ret_status = _aidl_reply.readUtf8FromUtf16( &connection_name );
+  _aidl_ret_status = _aidl_reply.readUtf8FromUtf16( &in_name );
+  _aidl_ret_status = _aidl_reply.readUtf8FromUtf16( &binder_listen_addr );
+  _aidl_ret_status = _aidl_reply.readBool( &result );
+  if( result )
+  {
+      ipc_connection_token_mgr::get_instance().add_remote_service( in_name, connection_name, binder_listen_addr );
+      *_aidl_return = ProcessState::self()->getStrongProxyForHandle( in_name, connection_name );
+  }
+  LOG( INFO ) << "check service: " << name << ( result ? " success." : " failed." );
+#else
   _aidl_ret_status = _aidl_reply.readNullableStrongBinder(_aidl_return);
+#endif
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
   }
@@ -605,7 +624,18 @@ BnServiceManager::BnServiceManager()
     if (!_aidl_status.isOk()) {
       break;
     }
+#ifdef _MSC_VER
+    std::string connection_name;
+    std::string binder_listen_addr;
+    int id = ipc_connection_token_mgr::get_instance()
+        .find_remote_service_by_service_name( in_name, connection_name, binder_listen_addr );
+    _aidl_ret_status = _aidl_reply->writeUtf8AsUtf16( connection_name );
+    _aidl_ret_status = _aidl_reply->writeUtf8AsUtf16( in_name );
+    _aidl_ret_status = _aidl_reply->writeUtf8AsUtf16( binder_listen_addr );
+    _aidl_ret_status = _aidl_reply->writeBool( id != -1 );
+#else
     _aidl_ret_status = _aidl_reply->writeStrongBinder(_aidl_return);
+#endif
     if (((_aidl_ret_status) != (::android::OK))) {
       break;
     }

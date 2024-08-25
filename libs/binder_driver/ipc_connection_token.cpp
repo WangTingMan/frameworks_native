@@ -219,7 +219,11 @@ void ipc_connection_token_mgr::unregister_remote_die_callback( uint32_t a_id )
     }
 }
 
-int ipc_connection_token_mgr::remove_all_remote_service( std::string a_connection_name )
+int ipc_connection_token_mgr::remove_all_remote_service
+    (
+    std::string a_connection_name,
+    bool a_remote_die
+    )
 {
     int cnt = 0;
     std::vector<remote_service_proxy> remote_removed_services;
