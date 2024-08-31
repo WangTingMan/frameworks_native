@@ -1252,13 +1252,17 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
             alog.setSourceLocation(__FILE__, __LINE__);
             alog << "About to read/write, write size = " << mOut.dataSize() << endl;
         }
-#if defined(__ANDROID__) || defined(_MSC_VER)
-        if (porting_binder::fcntl_binder(mProcess->mDriverFD, BINDER_WRITE_READ, &bwr) >= 0)
+#if defined(__ANDROID__)
+        if (fcntl(mProcess->mDriverFD, BINDER_WRITE_READ, &bwr) >= 0)
             err = NO_ERROR;
         else
             err = -errno;
 #else
+#ifdef _MSC_VER
+        err = porting_binder::fcntl_binder( mProcess->mDriverFD, BINDER_WRITE_READ, &bwr );
+#else
         err = INVALID_OPERATION;
+#endif
 #endif
         if (mProcess->mDriverFD < 0) {
             err = -EBADF;

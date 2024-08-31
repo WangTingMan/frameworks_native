@@ -325,8 +325,8 @@ namespace porting_binder
 {
     LIBBINDERDRIVER_EXPORTS __u32 open_binder(const char*, ...);
     LIBBINDERDRIVER_EXPORTS void close_binder( __u32 handle );
-    LIBBINDERDRIVER_EXPORTS __u32 fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters);
-    LIBBINDERDRIVER_EXPORTS __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters);
+    LIBBINDERDRIVER_EXPORTS int32_t fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters);
+    LIBBINDERDRIVER_EXPORTS int32_t fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters);
     LIBBINDERDRIVER_EXPORTS void register_binder_data_handler( std::function<void()> a_fun, bool a_for_aidl = true );
     LIBBINDERDRIVER_EXPORTS void debug_invoke();
 }

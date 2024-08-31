@@ -31,14 +31,14 @@ void close_binder(__u32 handle) {
     binder_internal_control_block_mgr::get_instance().shut_down( handle );
 }
 
-__u32 fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters) {
+int32_t fcntl_binder(__u32 handle, uint32_t to_operation, uint32_t parameters) {
     LOG(ERROR) << "No implementation!";
     return 0;
 }
 
-__u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters)
+int32_t fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters)
 {
-    __u32 ret = 0;
+    int32_t ret = 0;
 
     switch (to_operation)
     {
@@ -60,8 +60,7 @@ __u32 fcntl_binder(__u32 handle, uint32_t to_operation, void* parameters)
         break;
     case BINDER_WRITE_READ:
         {
-            binder_ioctl_write_read(handle, parameters);
-            return 0;
+            return binder_ioctl_write_read(handle, parameters);
         }
     case BINDER_ENABLE_ONEWAY_SPAM_DETECTION:
     {

@@ -55,6 +55,7 @@ int binder_internal_control_block_mgr::handle_read_only
     if( !read_ptr )
     {
         LOG( FATAL ) << "read_ptr is nullptr!";
+        status = android::UNEXPECTED_NULL;
         return status;
     }
 
@@ -63,15 +64,21 @@ int binder_internal_control_block_mgr::handle_read_only
     clients = m_clients;
     lcker.unlock();
 
+    bool client_handled = false;
     for( auto& ele : clients )
     {
         if( ele->get_incoming_message_size( a_binder_fd_handle ) > 0 )
         {
             ele->handle_incoming_ipc_message( a_binder_fd_handle, a_wr_blk );
+            client_handled = true;
             break;
         }
     }
 
+    if( !client_handled )
+    {
+        status = android::TIMED_OUT;
+    }
     return status;
 }
 
