@@ -195,10 +195,14 @@ int client_control_block::handle_general_transaction
     std::string debug_info = android::ipc_connection_token_mgr::get_instance().get_local_connection_name();
     debug_info.append( " init this message." );
     transaction_msg->set_debug_info( debug_info );
-    LOG( INFO ) << "Transaction message with service name: " << transaction_msg->m_tr_service_name
-        << ", initing connection id: " << transaction_msg->get_source_connection_id() << ", message id: "
-        << transaction_msg->get_id() << ", we set state: " <<
-        data_link::binder_transaction_message::state_to_string( transaction_msg->m_transaction_state );
+
+    if (android::ipc_connection_token_mgr::get_instance().get_debug_enabled())
+    {
+        LOG(INFO) << "Transaction message with service name: " << transaction_msg->m_tr_service_name
+            << ", initing connection id: " << transaction_msg->get_source_connection_id() << ", message id: "
+            << transaction_msg->get_id() << ", we set state: " <<
+            data_link::binder_transaction_message::state_to_string(transaction_msg->m_transaction_state);
+    }
 
     std::shared_ptr<data_link::binder_ipc_message> reply_msg;
     std::string target_connection_name;
@@ -221,7 +225,10 @@ int client_control_block::handle_general_transaction
     m_client->send_message( transaction_msg );
 
     uint64_t waiting_id = transaction_msg->get_id();
-    LOG( INFO ) << "Transaction ID " << waiting_id << " waiting for handling status from peer.";
+    if (android::ipc_connection_token_mgr::get_instance().get_debug_enabled())
+    {
+        LOG(INFO) << "Transaction ID " << waiting_id << " waiting for handling status from peer.";
+    }
     for( ;; wait_for_contion_variable() )
     {
         // 1. check connection if OK or not.
@@ -280,8 +287,11 @@ int client_control_block::handle_general_transaction
 
     transaction_msg->m_transaction_state = data_link::binder_transaction_message::transaction_state::completed;
     transaction_msg->extract_raw_buffer(); // clear the raw data part.
-    LOG( INFO ) << "Message id: " << transaction_msg->get_id() << ". From "
-        << transaction_msg->get_source_connection_id() << " we set state: completed";
+    if (android::ipc_connection_token_mgr::get_instance().get_debug_enabled())
+    {
+        LOG(INFO) << "Message id: " << transaction_msg->get_id() << ". From "
+            << transaction_msg->get_source_connection_id() << " we set state: completed";
+    }
     transaction_msg->set_debug_info( "set trasaction completed!" );
     transaction_msg->set_target_connection_name( transaction_msg->get_source_connection_id() ); // Since we are goint to reply.
     transaction_msg->set_source_connection_name( android::ipc_connection_token_mgr::get_instance().get_local_connection_name() );
@@ -575,7 +585,11 @@ void client_control_block::receive_incoming_ipc_message
     std::shared_ptr<data_link::binder_ipc_message> a_msg
     )
 {
-    LOG(INFO) << "Received message id: " << a_msg->get_id();
+    if( android::ipc_connection_token_mgr::get_instance().get_debug_enabled() )
+    {
+        LOG(INFO) << "Received message id: " << a_msg->get_id();
+    }
+
     std::unique_lock<std::recursive_mutex> lcker( m_mutex );
     if( a_msg->is_aidl_message() )
     {
@@ -625,10 +639,13 @@ void client_control_block::send_reply_only
     msg->set_source_connection_name( android::ipc_connection_token_mgr::get_instance().get_local_connection_name());
 
     m_client->send_message( msg );
-    LOG( INFO ) << "Transaction message with service name: " << msg->m_tr_service_name
-        << ", connection id: " << msg->get_source_connection_id() << ", message id: "
-        << msg->get_id() << ", state: " << data_link::binder_transaction_message::state_to_string
-            ( msg->m_transaction_state ) << ". Waiting for completed reply.";
+    if (android::ipc_connection_token_mgr::get_instance().get_debug_enabled())
+    {
+        LOG(INFO) << "Transaction message with service name: " << msg->m_tr_service_name
+            << ", connection id: " << msg->get_source_connection_id() << ", message id: "
+            << msg->get_id() << ", state: " << data_link::binder_transaction_message::state_to_string
+            (msg->m_transaction_state) << ". Waiting for completed reply.";
+    }
 
     std::shared_ptr<data_link::binder_transaction_message> reply_msg;
     std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
@@ -710,10 +727,13 @@ void client_control_block::handle_general_transaction_message
         return;
     }
 
-    LOG( INFO ) << "Transaction message with service name: " << a_message->m_tr_service_name
-        << ", connection id: " << a_message->get_source_connection_id() << ", message id: "
-        << a_message->get_id() << ", state: " <<
-        data_link::binder_transaction_message::state_to_string( a_message->m_transaction_state );
+    if (android::ipc_connection_token_mgr::get_instance().get_debug_enabled())
+    {
+        LOG(INFO) << "Transaction message with service name: " << a_message->m_tr_service_name
+            << ", connection id: " << a_message->get_source_connection_id() << ", message id: "
+            << a_message->get_id() << ", state: " <<
+            data_link::binder_transaction_message::state_to_string(a_message->m_transaction_state);
+    }
 
     std::shared_ptr<android::parcel_writer_interface> parcel_writer;
     if( a_binder_fd_handle == AIDL_BINDER_FD )
@@ -750,10 +770,13 @@ void client_control_block::handle_general_transaction_message
     if( a_message->m_transaction_state == data_link::binder_transaction_message::transaction_state::init )
     {
         a_message->m_transaction_state = data_link::binder_transaction_message::transaction_state::handling;
-        LOG( INFO ) << "Transaction message with service name: " << a_message->m_tr_service_name
-            << ", connection id: " << a_message->get_source_connection_id() << ", message id: "
-            << a_message->get_id() << ", we set state: " <<
-                data_link::binder_transaction_message::state_to_string( a_message->m_transaction_state );
+        if (android::ipc_connection_token_mgr::get_instance().get_debug_enabled())
+        {
+            LOG(INFO) << "Transaction message with service name: " << a_message->m_tr_service_name
+                << ", connection id: " << a_message->get_source_connection_id() << ", message id: "
+                << a_message->get_id() << ", we set state: " <<
+                data_link::binder_transaction_message::state_to_string(a_message->m_transaction_state);
+        }
         m_transaction_in_process_msgs.push_back( a_message );
     }
 }

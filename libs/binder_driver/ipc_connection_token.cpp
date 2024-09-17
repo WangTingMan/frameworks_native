@@ -11,6 +11,7 @@
 #endif
 
 #define BINDER_LOW_LEVEL_LISTHEN_ADDRESS "persist.binder.binder_listen_addr"
+#define BINDER_DEBUG_ENABLED "persist.binder.debug_enabled"
 
 namespace android
 {
@@ -34,6 +35,7 @@ ipc_connection_token_mgr::ipc_connection_token_mgr()
     register_local_connection_name( module_ );
 #endif
 
+    m_debug_enabled = android::base::GetBoolProperty(BINDER_DEBUG_ENABLED, false);
     LOG( INFO ) << "local ipc connection name is: " << module_;
 }
 

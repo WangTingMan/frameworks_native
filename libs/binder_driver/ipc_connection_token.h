@@ -177,9 +177,16 @@ public:
 
     std::string const& get_service_manager_connection_name()const noexcept;
 
+    bool get_debug_enabled()const
+    {
+        return m_debug_enabled;
+    }
+
 private:
 
     ipc_connection_token_mgr();
+
+    bool m_debug_enabled = false;
 
     mutable std::shared_mutex m_mutex;
     std::string m_local_name;
