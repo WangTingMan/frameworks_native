@@ -39,6 +39,15 @@ ipc_connection_token_mgr::ipc_connection_token_mgr()
     LOG( INFO ) << "local ipc connection name is: " << module_;
 }
 
+ipc_connection_token_mgr::~ipc_connection_token_mgr()
+{
+    std::vector<remote_die_callback_cb> remote_die_callbacks;
+    std::swap(remote_die_callbacks, m_remote_die_callbacks);
+
+    std::vector<remote_registerd_callback> registered_callback_interfaces;
+    std::swap(registered_callback_interfaces, m_registered_callback_interfaces);
+}
+
 bool ipc_connection_token_mgr::is_connection_name_exist( std::string const& a_connection_name )
 {
     return binder_internal_control_block_mgr::get_instance().is_connection_name_exist( a_connection_name );

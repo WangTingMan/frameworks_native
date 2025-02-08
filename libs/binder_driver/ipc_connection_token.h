@@ -186,6 +186,8 @@ private:
 
     ipc_connection_token_mgr();
 
+    ~ipc_connection_token_mgr();
+
     bool m_debug_enabled = false;
 
     mutable std::shared_mutex m_mutex;
