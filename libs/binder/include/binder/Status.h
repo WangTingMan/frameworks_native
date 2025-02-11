@@ -21,6 +21,7 @@
 #include <sstream> // historical
 #include <ostream>
 
+#include <binder/Common.h>
 #include <binder/Parcel.h>
 #include <utils/String8.h>
 #include <string>
@@ -52,7 +53,11 @@ namespace binder {
 //         // exception during handling.
 //     }
 //
+<<<<<<< HEAD
 class LIBBINDER_EXPORT Status final {
+=======
+class LIBBINDER_EXPORTED Status final {
+>>>>>>> d3fb93fb73
 public:
     // Keep the exception codes in sync with android/os/Parcel.java.
     enum Exception {
@@ -66,6 +71,9 @@ public:
         EX_UNSUPPORTED_OPERATION = -7,
         EX_SERVICE_SPECIFIC = -8,
         EX_PARCELABLE = -9,
+
+        // See android/os/Parcel.java. We need to handle this in native code.
+        EX_HAS_NOTED_APPOPS_REPLY_HEADER = -127,
 
         // This is special and Java specific; see Parcel.java.
         EX_HAS_REPLY_HEADER = -128,
@@ -149,6 +157,8 @@ public:
 private:
     Status(int32_t exceptionCode, int32_t errorCode);
     Status(int32_t exceptionCode, int32_t errorCode, const String8& message);
+
+    status_t skipUnusedHeader(const Parcel& parcel);
 
     // If |mException| == EX_TRANSACTION_FAILED, generated code will return
     // |mErrorCode| as the result of the transaction rather than write an

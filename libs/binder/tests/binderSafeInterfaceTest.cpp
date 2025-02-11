@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 #pragma clang diagnostic pop
 
+#include <utils/Flattenable.h>
 #include <utils/LightRefBase.h>
 #include <utils/NativeHandle.h>
 
@@ -35,10 +36,14 @@
 
 #include <optional>
 
+#include <inttypes.h>
 #include <sys/eventfd.h>
 #include <sys/prctl.h>
 
+#include <gmock/gmock.h>
+
 using namespace std::chrono_literals; // NOLINT - google-build-using-namespace
+using android::binder::unique_fd;
 
 namespace android {
 namespace tests {
@@ -219,6 +224,7 @@ public:
         SetDeathToken = IBinder::FIRST_CALL_TRANSACTION,
         ReturnsNoMemory,
         LogicalNot,
+        LogicalNotVector,
         ModifyEnum,
         IncrementFlattenable,
         IncrementLightFlattenable,
@@ -246,6 +252,7 @@ public:
 
     // These are ordered according to their corresponding methods in SafeInterface::ParcelHandler
     virtual status_t logicalNot(bool a, bool* notA) const = 0;
+    virtual status_t logicalNot(const std::vector<bool>& a, std::vector<bool>* notA) const = 0;
     virtual status_t modifyEnum(TestEnum a, TestEnum* b) const = 0;
     virtual status_t increment(const TestFlattenable& a, TestFlattenable* aPlusOne) const = 0;
     virtual status_t increment(const TestLightFlattenable& a,
@@ -285,7 +292,14 @@ public:
     }
     status_t logicalNot(bool a, bool* notA) const override {
         ALOG(LOG_INFO, getLogTag(), "%s", __PRETTY_FUNCTION__);
-        return callRemote<decltype(&ISafeInterfaceTest::logicalNot)>(Tag::LogicalNot, a, notA);
+        using Signature = status_t (ISafeInterfaceTest::*)(bool, bool*) const;
+        return callRemote<Signature>(Tag::LogicalNot, a, notA);
+    }
+    status_t logicalNot(const std::vector<bool>& a, std::vector<bool>* notA) const override {
+        ALOG(LOG_INFO, getLogTag(), "%s", __PRETTY_FUNCTION__);
+        using Signature = status_t (ISafeInterfaceTest::*)(const std::vector<bool>&,
+                                                           std::vector<bool>*) const;
+        return callRemote<Signature>(Tag::LogicalNotVector, a, notA);
     }
     status_t modifyEnum(TestEnum a, TestEnum* b) const override {
         ALOG(LOG_INFO, getLogTag(), "%s", __PRETTY_FUNCTION__);
@@ -403,6 +417,14 @@ public:
         *notA = !a;
         return NO_ERROR;
     }
+    status_t logicalNot(const std::vector<bool>& a, std::vector<bool>* notA) const override {
+        ALOG(LOG_INFO, getLogTag(), "%s", __PRETTY_FUNCTION__);
+        notA->clear();
+        for (bool value : a) {
+            notA->push_back(!value);
+        }
+        return NO_ERROR;
+    }
     status_t modifyEnum(TestEnum a, TestEnum* b) const override {
         ALOG(LOG_INFO, getLogTag(), "%s", __PRETTY_FUNCTION__);
         *b = (a == TestEnum::INITIAL) ? TestEnum::FINAL : TestEnum::INVALID;
@@ -510,7 +532,13 @@ public:
                 return callLocal(data, reply, &ISafeInterfaceTest::returnsNoMemory);
             }
             case ISafeInterfaceTest::Tag::LogicalNot: {
-                return callLocal(data, reply, &ISafeInterfaceTest::logicalNot);
+                using Signature = status_t (ISafeInterfaceTest::*)(bool a, bool* notA) const;
+                return callLocal<Signature>(data, reply, &ISafeInterfaceTest::logicalNot);
+            }
+            case ISafeInterfaceTest::Tag::LogicalNotVector: {
+                using Signature = status_t (ISafeInterfaceTest::*)(const std::vector<bool>& a,
+                                                                   std::vector<bool>* notA) const;
+                return callLocal<Signature>(data, reply, &ISafeInterfaceTest::logicalNot);
             }
             case ISafeInterfaceTest::Tag::ModifyEnum: {
                 return callLocal(data, reply, &ISafeInterfaceTest::modifyEnum);
@@ -604,7 +632,10 @@ private:
     static constexpr const char* getLogTag() { return "SafeInterfaceTest"; }
 
     sp<ISafeInterfaceTest> getRemoteService() {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         sp<IBinder> binder = defaultServiceManager()->getService(kServiceName);
+#pragma clang diagnostic pop
         sp<ISafeInterfaceTest> iface = interface_cast<ISafeInterfaceTest>(binder);
         EXPECT_TRUE(iface != nullptr);
 
@@ -631,6 +662,15 @@ TEST_F(SafeInterfaceTest, TestLogicalNot) {
     result = mSafeInterfaceTest->logicalNot(b, &notB);
     ASSERT_EQ(NO_ERROR, result);
     ASSERT_EQ(!b, notB);
+}
+
+TEST_F(SafeInterfaceTest, TestLogicalNotVector) {
+    const std::vector<bool> a = {true, false, true};
+    std::vector<bool> notA;
+    status_t result = mSafeInterfaceTest->logicalNot(a, &notA);
+    ASSERT_EQ(NO_ERROR, result);
+    std::vector<bool> expected = {false, true, false};
+    ASSERT_THAT(notA, testing::ContainerEq(expected));
 }
 
 TEST_F(SafeInterfaceTest, TestModifyEnum) {
@@ -680,16 +720,18 @@ bool fdsAreEquivalent(int a, int b) {
 
 TEST_F(SafeInterfaceTest, TestIncrementNativeHandle) {
     // Create an fd we can use to send and receive from the remote process
-    base::unique_fd eventFd{eventfd(0 /*initval*/, 0 /*flags*/)};
+    unique_fd eventFd{eventfd(0 /*initval*/, 0 /*flags*/)};
     ASSERT_NE(-1, eventFd);
 
     // Determine the maximum number of fds this process can have open
     struct rlimit limit {};
     ASSERT_EQ(0, getrlimit(RLIMIT_NOFILE, &limit));
-    uint32_t maxFds = static_cast<uint32_t>(limit.rlim_cur);
+    uint64_t maxFds = limit.rlim_cur;
+
+    ALOG(LOG_INFO, "SafeInterfaceTest", "%s max FDs: %" PRIu64, __PRETTY_FUNCTION__, maxFds);
 
     // Perform this test enough times to rule out fd leaks
-    for (uint32_t iter = 0; iter < (2 * maxFds); ++iter) {
+    for (uint32_t iter = 0; iter < (maxFds + 100); ++iter) {
         native_handle* handle = native_handle_create(1 /*numFds*/, 1 /*numInts*/);
         ASSERT_NE(nullptr, handle);
         handle->data[0] = dup(eventFd.get());
@@ -715,7 +757,7 @@ TEST_F(SafeInterfaceTest, TestIncrementNoCopyNoMove) {
     ASSERT_EQ(a.getValue() + 1, aPlusOne.getValue());
 }
 
-TEST_F(SafeInterfaceTest, TestIncremementParcelableVector) {
+TEST_F(SafeInterfaceTest, TestIncrementParcelableVector) {
     const std::vector<TestParcelable> a{TestParcelable{1}, TestParcelable{2}};
     std::vector<TestParcelable> aPlusOne;
     status_t result = mSafeInterfaceTest->increment(a, &aPlusOne);

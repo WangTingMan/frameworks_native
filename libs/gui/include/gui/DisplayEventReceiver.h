@@ -20,12 +20,17 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <ftl/flags.h>
+
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 #include <utils/Timers.h>
 
+#include <android/gui/ISurfaceComposer.h>
 #include <binder/IInterface.h>
-#include <gui/ISurfaceComposer.h>
+#include <gui/VsyncEventData.h>
+
+#include <ui/DisplayId.h>
 
 // ----------------------------------------------------------------------------
 
@@ -33,7 +38,11 @@ namespace android {
 
 // ----------------------------------------------------------------------------
 
-class IDisplayEventConnection;
+using EventRegistrationFlags = ftl::Flags<gui::ISurfaceComposer::EventRegistration>;
+
+using gui::IDisplayEventConnection;
+using gui::ParcelableVsyncEventData;
+using gui::VsyncEventData;
 
 namespace gui {
 class BitTube;
@@ -56,6 +65,7 @@ public:
         DISPLAY_EVENT_NULL = fourcc('n', 'u', 'l', 'l'),
         DISPLAY_EVENT_FRAME_RATE_OVERRIDE = fourcc('r', 'a', 't', 'e'),
         DISPLAY_EVENT_FRAME_RATE_OVERRIDE_FLUSH = fourcc('f', 'l', 's', 'h'),
+        DISPLAY_EVENT_HDCP_LEVELS_CHANGE = fourcc('h', 'd', 'c', 'p'),
     };
 
     struct Event {
@@ -73,14 +83,12 @@ public:
 
         struct VSync {
             uint32_t count;
-            nsecs_t expectedVSyncTimestamp __attribute__((aligned(8)));
-            nsecs_t deadlineTimestamp __attribute__((aligned(8)));
-            nsecs_t frameInterval __attribute__((aligned(8)));
-            int64_t vsyncId;
+            VsyncEventData vsyncData;
         };
 
         struct Hotplug {
             bool connected;
+            int32_t connectionError __attribute__((aligned(4)));
         };
 
         struct ModeChange {
@@ -93,14 +101,25 @@ public:
             float frameRateHz __attribute__((aligned(8)));
         };
 
+        /*
+         * The values are defined in aidl:
+         * hardware/interfaces/drm/aidl/android/hardware/drm/HdcpLevel.aidl
+         */
+        struct HdcpLevelsChange {
+            int32_t connectedLevel;
+            int32_t maxLevel;
+        };
+
         Header header;
         union {
             VSync vsync;
             Hotplug hotplug;
             ModeChange modeChange;
             FrameRateOverride frameRateOverride;
+            HdcpLevelsChange hdcpLevelsChange;
         };
     };
+    static_assert(sizeof(Event) == 216);
 
 public:
     /*
@@ -110,9 +129,10 @@ public:
      * To receive ModeChanged and/or FrameRateOverrides events specify this in
      * the constructor. Other events start being delivered immediately.
      */
-    explicit DisplayEventReceiver(
-            ISurfaceComposer::VsyncSource vsyncSource = ISurfaceComposer::eVsyncSourceApp,
-            ISurfaceComposer::EventRegistrationFlags eventRegistration = {});
+    explicit DisplayEventReceiver(gui::ISurfaceComposer::VsyncSource vsyncSource =
+                                          gui::ISurfaceComposer::VsyncSource::eVsyncSourceApp,
+                                  EventRegistrationFlags eventRegistration = {},
+                                  const sp<IBinder>& layerHandle = nullptr);
 
     /*
      * ~DisplayEventReceiver severs the connection with SurfaceFlinger, new events
@@ -163,10 +183,21 @@ public:
      */
     status_t requestNextVsync();
 
+    /**
+     * getLatestVsyncEventData() gets the latest vsync event data.
+     */
+    status_t getLatestVsyncEventData(ParcelableVsyncEventData* outVsyncEventData) const;
+
 private:
     sp<IDisplayEventConnection> mEventConnection;
     std::unique_ptr<gui::BitTube> mDataChannel;
+    std::optional<status_t> mInitError;
 };
+
+inline bool operator==(DisplayEventReceiver::Event::FrameRateOverride lhs,
+                       DisplayEventReceiver::Event::FrameRateOverride rhs) {
+    return (lhs.uid == rhs.uid) && std::abs(lhs.frameRateHz - rhs.frameRateHz) < 0.001f;
+}
 
 // ----------------------------------------------------------------------------
 }; // namespace android

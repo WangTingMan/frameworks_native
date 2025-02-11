@@ -16,6 +16,9 @@
 
 #define LOG_TAG "AHardwareBuffer"
 
+#include <android/hardware_buffer.h>
+#include <android/hardware_buffer_aidl.h>
+#include <android/binder_libbinder.h>
 #include <vndk/hardware_buffer.h>
 
 #include <errno.h>
@@ -30,11 +33,105 @@
 
 #include <private/android/AHardwareBufferHelpers.h>
 #include <android/hardware/graphics/common/1.1/types.h>
-
+#include <aidl/android/hardware/graphics/common/PixelFormat.h>
 
 static constexpr int kFdBufferSize = 128 * sizeof(int);  // 128 ints
 
 using namespace android;
+
+// ----------------------------------------------------------------------------
+// Validate hardware_buffer.h and PixelFormat.aidl agree
+// ----------------------------------------------------------------------------
+
+static_assert(HAL_PIXEL_FORMAT_RGBA_8888 == AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RGBX_8888 == AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RGB_565 == AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RGB_888 == AHARDWAREBUFFER_FORMAT_R8G8B8_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RGBA_FP16 == AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RGBA_1010102 == AHARDWAREBUFFER_FORMAT_R10G10B10A2_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_BLOB == AHARDWAREBUFFER_FORMAT_BLOB,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_DEPTH_16 == AHARDWAREBUFFER_FORMAT_D16_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_DEPTH_24 == AHARDWAREBUFFER_FORMAT_D24_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_DEPTH_24_STENCIL_8 == AHARDWAREBUFFER_FORMAT_D24_UNORM_S8_UINT,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_DEPTH_32F == AHARDWAREBUFFER_FORMAT_D32_FLOAT,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_DEPTH_32F_STENCIL_8 == AHARDWAREBUFFER_FORMAT_D32_FLOAT_S8_UINT,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_STENCIL_8 == AHARDWAREBUFFER_FORMAT_S8_UINT,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_BGRA_8888 == AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_YV12 == AHARDWAREBUFFER_FORMAT_YV12,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_Y8 == AHARDWAREBUFFER_FORMAT_Y8,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_Y16 == AHARDWAREBUFFER_FORMAT_Y16,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RAW16 == AHARDWAREBUFFER_FORMAT_RAW16,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RAW10 == AHARDWAREBUFFER_FORMAT_RAW10,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RAW12 == AHARDWAREBUFFER_FORMAT_RAW12,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_RAW_OPAQUE == AHARDWAREBUFFER_FORMAT_RAW_OPAQUE,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED ==
+                      AHARDWAREBUFFER_FORMAT_IMPLEMENTATION_DEFINED,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_YCBCR_420_888 == AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_YCBCR_422_SP == AHARDWAREBUFFER_FORMAT_YCbCr_422_SP,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_YCRCB_420_SP == AHARDWAREBUFFER_FORMAT_YCrCb_420_SP,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_YCBCR_422_I == AHARDWAREBUFFER_FORMAT_YCbCr_422_I,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(HAL_PIXEL_FORMAT_YCBCR_P010 == AHARDWAREBUFFER_FORMAT_YCbCr_P010,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(static_cast<int>(aidl::android::hardware::graphics::common::PixelFormat::R_8) ==
+                      AHARDWAREBUFFER_FORMAT_R8_UNORM,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(static_cast<int>(aidl::android::hardware::graphics::common::PixelFormat::R_16_UINT) ==
+                      AHARDWAREBUFFER_FORMAT_R16_UINT,
+              "HAL and AHardwareBuffer pixel format don't match");
+static_assert(
+        static_cast<int>(aidl::android::hardware::graphics::common::PixelFormat::RG_1616_UINT) ==
+                AHARDWAREBUFFER_FORMAT_R16G16_UINT,
+        "HAL and AHardwareBuffer pixel format don't match");
+static_assert(
+        static_cast<int>(aidl::android::hardware::graphics::common::PixelFormat::RGBA_10101010) ==
+                AHARDWAREBUFFER_FORMAT_R10G10B10A10_UNORM,
+        "HAL and AHardwareBuffer pixel format don't match");
+static_assert(
+        static_cast<int>(aidl::android::hardware::graphics::common::PixelFormat::YCBCR_P210) ==
+                AHARDWAREBUFFER_FORMAT_YCbCr_P210,
+        "HAL and AHardwareBuffer pixel format don't match");
+
+static enum AHardwareBufferStatus filterStatus(status_t status) {
+    switch (status) {
+        case STATUS_OK:
+            return AHARDWAREBUFFER_STATUS_OK;
+        case STATUS_NO_MEMORY:
+            return AHARDWAREBUFFER_STATUS_NO_MEMORY;
+        case STATUS_BAD_VALUE:
+            return AHARDWAREBUFFER_STATUS_BAD_VALUE;
+        case STATUS_UNKNOWN_TRANSACTION:
+        case STATUS_INVALID_OPERATION:
+            return AHARDWAREBUFFER_STATUS_UNSUPPORTED;
+        default:
+            return AHARDWAREBUFFER_STATUS_UNKNOWN_ERROR;
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Public functions
@@ -103,10 +200,10 @@ int AHardwareBuffer_lockAndGetInfo(AHardwareBuffer* buffer, uint64_t usage,
         return BAD_VALUE;
     }
 
-    if (usage & ~(AHARDWAREBUFFER_USAGE_CPU_READ_MASK |
-                  AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK)) {
+    if (usage & ~(AHARDWAREBUFFER_USAGE_CPU_READ_MASK | AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK) ||
+        usage == 0) {
         ALOGE("Invalid usage flags passed to AHardwareBuffer_lock; only "
-                "AHARDWAREBUFFER_USAGE_CPU_* flags are allowed");
+              "AHARDWAREBUFFER_USAGE_CPU_* flags are allowed");
         return BAD_VALUE;
     }
 
@@ -155,10 +252,10 @@ int AHardwareBuffer_lock(AHardwareBuffer* buffer, uint64_t usage,
 
     if (!buffer) return BAD_VALUE;
 
-    if (usage & ~(AHARDWAREBUFFER_USAGE_CPU_READ_MASK |
-                  AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK)) {
+    if (usage & ~(AHARDWAREBUFFER_USAGE_CPU_READ_MASK | AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK) ||
+        usage == 0) {
         ALOGE("Invalid usage flags passed to AHardwareBuffer_lock; only "
-                "AHARDWAREBUFFER_USAGE_CPU_* flags are allowed");
+              "AHARDWAREBUFFER_USAGE_CPU_* flags are allowed");
         return BAD_VALUE;
     }
 
@@ -184,10 +281,10 @@ int AHardwareBuffer_lockPlanes(AHardwareBuffer* buffer, uint64_t usage,
         int32_t fence, const ARect* rect, AHardwareBuffer_Planes* outPlanes) {
     if (!buffer || !outPlanes) return BAD_VALUE;
 
-    if (usage & ~(AHARDWAREBUFFER_USAGE_CPU_READ_MASK |
-                  AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK)) {
+    if (usage & ~(AHARDWAREBUFFER_USAGE_CPU_READ_MASK | AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK) ||
+        usage == 0) {
         ALOGE("Invalid usage flags passed to AHardwareBuffer_lock; only "
-                " AHARDWAREBUFFER_USAGE_CPU_* flags are allowed");
+              " AHARDWAREBUFFER_USAGE_CPU_* flags are allowed");
         return BAD_VALUE;
     }
 
@@ -207,7 +304,11 @@ int AHardwareBuffer_lockPlanes(AHardwareBuffer* buffer, uint64_t usage,
       if (result == 0) {
         outPlanes->planeCount = 3;
         outPlanes->planes[0].data = yuvData.y;
-        if (format == AHARDWAREBUFFER_FORMAT_YCbCr_P010) {
+        // P010 & P210 are word-aligned 10-bit semiplaner, and YCbCr_422_I is a single interleaved
+        // plane
+        if (format == AHARDWAREBUFFER_FORMAT_YCbCr_P010 ||
+            format == AHARDWAREBUFFER_FORMAT_YCbCr_P210 ||
+            format == AHARDWAREBUFFER_FORMAT_YCbCr_422_I) {
             outPlanes->planes[0].pixelStride = 2;
         } else {
             outPlanes->planes[0].pixelStride = 1;
@@ -224,11 +325,14 @@ int AHardwareBuffer_lockPlanes(AHardwareBuffer* buffer, uint64_t usage,
       }
       return result;
     } else {
-      const uint32_t pixelStride = AHardwareBuffer_bytesPerPixel(format);
+      int32_t bytesPerPixel;
+      int32_t bytesPerStride;
+      int result = gBuffer->lockAsync(usage, usage, bounds, &outPlanes->planes[0].data, fence,
+                                      &bytesPerPixel, &bytesPerStride);
       outPlanes->planeCount = 1;
-      outPlanes->planes[0].pixelStride = pixelStride;
-      outPlanes->planes[0].rowStride = gBuffer->getStride() * pixelStride;
-      return gBuffer->lockAsync(usage, usage, bounds, &outPlanes->planes[0].data, fence);
+      outPlanes->planes[0].pixelStride = bytesPerPixel;
+      outPlanes->planes[0].rowStride = bytesPerStride;
+      return result;
     }
 }
 
@@ -357,12 +461,12 @@ int AHardwareBuffer_recvHandleFromUnixSocket(int socketFd, AHardwareBuffer** out
         return INVALID_OPERATION;
     }
 
-    GraphicBuffer* gBuffer = new GraphicBuffer();
+    sp<GraphicBuffer> gBuffer(new GraphicBuffer());
     status_t err = gBuffer->unflatten(data, dataLen, fdData, fdCount);
     if (err != NO_ERROR) {
         return err;
     }
-    *outBuffer = AHardwareBuffer_from_GraphicBuffer(gBuffer);
+    *outBuffer = AHardwareBuffer_from_GraphicBuffer(gBuffer.get());
     // Ensure the buffer has a positive ref-count.
     AHardwareBuffer_acquire(*outBuffer);
 
@@ -374,7 +478,7 @@ int AHardwareBuffer_isSupported(const AHardwareBuffer_Desc* desc) {
     if (!AHardwareBuffer_isValidDescription(desc, /*log=*/false)) return 0;
 
     bool supported = false;
-    GraphicBuffer* gBuffer = new GraphicBuffer();
+    sp<GraphicBuffer> gBuffer(new GraphicBuffer());
     status_t err = gBuffer->isSupported(desc->width, desc->height, desc->format, desc->layers,
                                         desc->usage, &supported);
 
@@ -410,6 +514,43 @@ int AHardwareBuffer_getId(const AHardwareBuffer* buffer, uint64_t* outId) {
     *outId = gb->getId();
 
     return OK;
+}
+
+binder_status_t AHardwareBuffer_readFromParcel(const AParcel* _Nonnull parcel,
+        AHardwareBuffer* _Nullable* _Nonnull outBuffer) {
+    if (!parcel || !outBuffer) return STATUS_BAD_VALUE;
+    auto buffer = sp<GraphicBuffer>::make();
+    status_t status = AParcel_viewPlatformParcel(parcel)->read(*buffer);
+    if (status != STATUS_OK) return status;
+    *outBuffer = AHardwareBuffer_from_GraphicBuffer(buffer.get());
+    AHardwareBuffer_acquire(*outBuffer);
+    return STATUS_OK;
+}
+
+binder_status_t AHardwareBuffer_writeToParcel(const AHardwareBuffer* _Nonnull buffer,
+        AParcel* _Nonnull parcel) {
+    const GraphicBuffer* gb = AHardwareBuffer_to_GraphicBuffer(buffer);
+    if (!gb) return STATUS_BAD_VALUE;
+    if (!parcel) return STATUS_BAD_VALUE;
+    return AParcel_viewPlatformParcel(parcel)->write(*gb);
+}
+
+ADataSpace AHardwareBuffer_getDataSpace(const AHardwareBuffer* _Nonnull buffer) {
+    const GraphicBuffer* gb = AHardwareBuffer_to_GraphicBuffer(buffer);
+    if (!gb) return ADATASPACE_UNKNOWN;
+    ui::Dataspace dataspace = ui::Dataspace::UNKNOWN;
+    status_t status = gb->getDataspace(&dataspace);
+    if (status != OK) {
+        return ADATASPACE_UNKNOWN;
+    }
+    return static_cast<ADataSpace>(dataspace);
+}
+
+enum AHardwareBufferStatus AHardwareBuffer_setDataSpace(AHardwareBuffer* buffer,
+                                                        ADataSpace dataspace) {
+    GraphicBuffer* gb = AHardwareBuffer_to_GraphicBuffer(buffer);
+    auto& mapper = GraphicBufferMapper::get();
+    return filterStatus(mapper.setDataspace(gb->handle, static_cast<ui::Dataspace>(dataspace)));
 }
 
 // ----------------------------------------------------------------------------
@@ -453,6 +594,56 @@ int AHardwareBuffer_createFromHandle(const AHardwareBuffer_Desc* desc,
     return NO_ERROR;
 }
 
+enum AHardwareBufferStatus AHardwareBuffer_allocateWithOptions(
+        const AHardwareBuffer_Desc* desc, const AHardwareBufferLongOptions* additionalOptions,
+        size_t additionalOptionsSize, AHardwareBuffer** outBuffer) {
+    (void)additionalOptions;
+    (void)additionalOptionsSize;
+    if (!outBuffer || !desc) return AHARDWAREBUFFER_STATUS_BAD_VALUE;
+    if (!AHardwareBuffer_isValidDescription(desc, /*log=*/true)) {
+        return AHARDWAREBUFFER_STATUS_BAD_VALUE;
+    }
+
+    int format = AHardwareBuffer_convertToPixelFormat(desc->format);
+    uint64_t usage = AHardwareBuffer_convertToGrallocUsageBits(desc->usage);
+
+    std::vector<GraphicBufferAllocator::AdditionalOptions> extras;
+    extras.reserve(additionalOptionsSize);
+    for (size_t i = 0; i < additionalOptionsSize; i++) {
+        extras.push_back(GraphicBufferAllocator::AdditionalOptions{additionalOptions[i].name,
+                                                                   additionalOptions[i].value});
+    }
+
+    const auto extrasCount = extras.size();
+    auto gbuffer = sp<GraphicBuffer>::make(GraphicBufferAllocator::AllocationRequest{
+            .importBuffer = true,
+            .width = desc->width,
+            .height = desc->height,
+            .format = format,
+            .layerCount = desc->layers,
+            .usage = usage,
+            .requestorName = std::string("AHardwareBuffer pid [") + std::to_string(getpid()) + "]",
+            .extras = std::move(extras),
+    });
+
+    status_t err = gbuffer->initCheck();
+    if (err != 0 || gbuffer->handle == nullptr) {
+        if (err == NO_MEMORY) {
+        GraphicBuffer::dumpAllocationsToSystemLog();
+        }
+        ALOGE("GraphicBuffer(w=%u, h=%u, lc=%u, extrasCount=%zd) failed (%s), handle=%p",
+              desc->width, desc->height, desc->layers, extrasCount, strerror(-err),
+              gbuffer->handle);
+        return filterStatus(err == 0 ? UNKNOWN_ERROR : err);
+    }
+
+    *outBuffer = AHardwareBuffer_from_GraphicBuffer(gbuffer.get());
+
+    // Ensure the buffer doesn't get destroyed when the sp<> goes away.
+    AHardwareBuffer_acquire(*outBuffer);
+    return AHARDWAREBUFFER_STATUS_OK;
+}
+
 // ----------------------------------------------------------------------------
 // Helpers implementation
 // ----------------------------------------------------------------------------
@@ -462,12 +653,6 @@ namespace android {
 bool AHardwareBuffer_isValidDescription(const AHardwareBuffer_Desc* desc, bool log) {
     if (desc->width == 0 || desc->height == 0 || desc->layers == 0) {
         ALOGE_IF(log, "Width, height and layers must all be nonzero");
-        return false;
-    }
-
-    if (!AHardwareBuffer_isValidPixelFormat(desc->format)) {
-        ALOGE_IF(log, "Invalid AHardwareBuffer pixel format %u (%#x))",
-                desc->format, desc->format);
         return false;
     }
 
@@ -513,10 +698,6 @@ bool AHardwareBuffer_isValidDescription(const AHardwareBuffer_Desc* desc, bool l
             ALOGE_IF(log, "AHARDWAREBUFFER_USAGE_SENSOR_DIRECT_DATA requires AHARDWAREBUFFER_FORMAT_BLOB");
             return false;
         }
-        if (desc->usage & AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER) {
-            ALOGE_IF(log, "AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER requires AHARDWAREBUFFER_FORMAT_BLOB");
-            return false;
-        }
     }
 
     if ((desc->usage & (AHARDWAREBUFFER_USAGE_CPU_READ_MASK | AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK)) &&
@@ -539,98 +720,6 @@ bool AHardwareBuffer_isValidDescription(const AHardwareBuffer_Desc* desc, bool l
     return true;
 }
 
-bool AHardwareBuffer_isValidPixelFormat(uint32_t format) {
-    static_assert(HAL_PIXEL_FORMAT_RGBA_8888 == AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RGBX_8888 == AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RGB_565 == AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RGB_888 == AHARDWAREBUFFER_FORMAT_R8G8B8_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RGBA_FP16 == AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RGBA_1010102 == AHARDWAREBUFFER_FORMAT_R10G10B10A2_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_BLOB == AHARDWAREBUFFER_FORMAT_BLOB,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_DEPTH_16 == AHARDWAREBUFFER_FORMAT_D16_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_DEPTH_24 == AHARDWAREBUFFER_FORMAT_D24_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_DEPTH_24_STENCIL_8 == AHARDWAREBUFFER_FORMAT_D24_UNORM_S8_UINT,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_DEPTH_32F == AHARDWAREBUFFER_FORMAT_D32_FLOAT,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_DEPTH_32F_STENCIL_8 == AHARDWAREBUFFER_FORMAT_D32_FLOAT_S8_UINT,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_STENCIL_8 == AHARDWAREBUFFER_FORMAT_S8_UINT,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_BGRA_8888 == AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_YV12 == AHARDWAREBUFFER_FORMAT_YV12,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_Y8 == AHARDWAREBUFFER_FORMAT_Y8,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_Y16 == AHARDWAREBUFFER_FORMAT_Y16,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RAW16 == AHARDWAREBUFFER_FORMAT_RAW16,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RAW10 == AHARDWAREBUFFER_FORMAT_RAW10,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RAW12 == AHARDWAREBUFFER_FORMAT_RAW12,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_RAW_OPAQUE == AHARDWAREBUFFER_FORMAT_RAW_OPAQUE,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED == AHARDWAREBUFFER_FORMAT_IMPLEMENTATION_DEFINED,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_YCBCR_420_888 == AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_YCBCR_422_SP == AHARDWAREBUFFER_FORMAT_YCbCr_422_SP,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_YCRCB_420_SP == AHARDWAREBUFFER_FORMAT_YCrCb_420_SP,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_YCBCR_422_I == AHARDWAREBUFFER_FORMAT_YCbCr_422_I,
-            "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_YCBCR_P010 == AHARDWAREBUFFER_FORMAT_YCbCr_P010,
-            "HAL and AHardwareBuffer pixel format don't match");
-
-    switch (format) {
-        case AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM:
-        case AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM:
-        case AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM:
-        case AHARDWAREBUFFER_FORMAT_R8G8B8_UNORM:
-        case AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT:
-        case AHARDWAREBUFFER_FORMAT_R10G10B10A2_UNORM:
-        case AHARDWAREBUFFER_FORMAT_BLOB:
-        case AHARDWAREBUFFER_FORMAT_D16_UNORM:
-        case AHARDWAREBUFFER_FORMAT_D24_UNORM:
-        case AHARDWAREBUFFER_FORMAT_D24_UNORM_S8_UINT:
-        case AHARDWAREBUFFER_FORMAT_D32_FLOAT:
-        case AHARDWAREBUFFER_FORMAT_D32_FLOAT_S8_UINT:
-        case AHARDWAREBUFFER_FORMAT_S8_UINT:
-        case AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420:
-            // VNDK formats only -- unfortunately we can't differentiate from where we're called
-        case AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM:
-        case AHARDWAREBUFFER_FORMAT_YV12:
-        case AHARDWAREBUFFER_FORMAT_Y8:
-        case AHARDWAREBUFFER_FORMAT_Y16:
-        case AHARDWAREBUFFER_FORMAT_RAW16:
-        case AHARDWAREBUFFER_FORMAT_RAW10:
-        case AHARDWAREBUFFER_FORMAT_RAW12:
-        case AHARDWAREBUFFER_FORMAT_RAW_OPAQUE:
-        case AHARDWAREBUFFER_FORMAT_IMPLEMENTATION_DEFINED:
-        case AHARDWAREBUFFER_FORMAT_YCbCr_422_SP:
-        case AHARDWAREBUFFER_FORMAT_YCrCb_420_SP:
-        case AHARDWAREBUFFER_FORMAT_YCbCr_422_I:
-        case AHARDWAREBUFFER_FORMAT_YCbCr_P010:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
 bool AHardwareBuffer_formatIsYuv(uint32_t format) {
     switch (format) {
         case AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420:
@@ -641,31 +730,11 @@ bool AHardwareBuffer_formatIsYuv(uint32_t format) {
         case AHARDWAREBUFFER_FORMAT_YCrCb_420_SP:
         case AHARDWAREBUFFER_FORMAT_YCbCr_422_I:
         case AHARDWAREBUFFER_FORMAT_YCbCr_P010:
+        case AHARDWAREBUFFER_FORMAT_YCbCr_P210:
             return true;
         default:
             return false;
     }
-}
-
-uint32_t AHardwareBuffer_bytesPerPixel(uint32_t format) {
-  switch (format) {
-      case AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM:
-      case AHARDWAREBUFFER_FORMAT_D16_UNORM:
-          return 2;
-      case AHARDWAREBUFFER_FORMAT_R8G8B8_UNORM:
-      case AHARDWAREBUFFER_FORMAT_D24_UNORM:
-          return 3;
-      case AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM:
-      case AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM:
-      case AHARDWAREBUFFER_FORMAT_D32_FLOAT:
-      case AHARDWAREBUFFER_FORMAT_R10G10B10A2_UNORM:
-      case AHARDWAREBUFFER_FORMAT_D24_UNORM_S8_UINT:
-          return 4;
-      case AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT:
-          return 8;
-      default:
-          return 0;
-  }
 }
 
 uint32_t AHardwareBuffer_convertFromPixelFormat(uint32_t hal_format) {
@@ -674,6 +743,11 @@ uint32_t AHardwareBuffer_convertFromPixelFormat(uint32_t hal_format) {
 
 uint32_t AHardwareBuffer_convertToPixelFormat(uint32_t ahardwarebuffer_format) {
     return ahardwarebuffer_format;
+}
+
+// TODO: Remove, this is just to make an overly aggressive ABI checker happy
+int32_t AHardwareBuffer_getDataSpace(AHardwareBuffer* buffer) {
+    return ::AHardwareBuffer_getDataSpace(buffer);
 }
 
 uint64_t AHardwareBuffer_convertToGrallocUsageBits(uint64_t usage) {

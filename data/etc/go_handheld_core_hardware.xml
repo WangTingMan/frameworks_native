@@ -46,9 +46,13 @@
     <feature name="android.software.autofill" />
     <feature name="android.software.cant_save_state" />
     <feature name="android.software.secure_lock_screen" />
+    <feature name="android.software.window_magnification" />
 
     <!-- Feature to specify if the device supports adding device admins. -->
     <feature name="android.software.device_admin" />
+
+    <!-- Feature to specify if the device support managed users. -->
+    <feature name="android.software.managed_users" />
 
     <!-- Devices with all optimizations required to support VR Mode and
          pass all CDD requirements for this feature may include

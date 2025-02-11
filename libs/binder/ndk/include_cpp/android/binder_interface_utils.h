@@ -30,6 +30,15 @@
 #include <android/binder_auto_utils.h>
 #include <android/binder_ibinder.h>
 
+#if defined(__BIONIC__)
+#define API_LEVEL_AT_LEAST(sdk_api_level) __builtin_available(android sdk_api_level, *)
+#elif defined(TRUSTY_USERSPACE)
+// TODO(b/349936395): set to true for Trusty
+#define API_LEVEL_AT_LEAST(sdk_api_level) (false)
+#else
+#define API_LEVEL_AT_LEAST(sdk_api_level) (true)
+#endif  // __BIONIC__
+
 #if __has_include(<android/binder_shell.h>)
 #include <android/binder_shell.h>
 #define HAS_BINDER_SHELL_COMMAND
@@ -142,6 +151,8 @@ class ICInterface : public SharedRefBase {
 
     /**
      * Dumps information about the interface. By default, dumps nothing.
+     *
+     * This method is not given ownership of the FD.
      */
     virtual inline binder_status_t dump(int fd, const char** args, uint32_t numArgs);
 
@@ -165,6 +176,10 @@ class ICInterface : public SharedRefBase {
     /**
      * Helper method to create a class
      */
+    static inline AIBinder_Class* defineClass(const char* interfaceDescriptor,
+                                              AIBinder_Class_onTransact onTransact,
+                                              const char** codeToFunction, size_t functionCount);
+
     static inline AIBinder_Class* defineClass(const char* interfaceDescriptor,
                                               AIBinder_Class_onTransact onTransact);
 
@@ -199,6 +214,10 @@ class BnCInterface : public INTERFACE {
     SpAIBinder asBinder() override final;
 
     bool isRemote() override final { return false; }
+
+    static std::string makeServiceName(std::string_view instance) {
+        return INTERFACE::descriptor + ("/" + std::string(instance));
+    }
 
    protected:
     /**
@@ -238,6 +257,8 @@ class BpCInterface : public INTERFACE {
 
     SpAIBinder asBinder() override final;
 
+    const SpAIBinder& asBinderReference() { return mBinder; }
+
     bool isRemote() override final { return AIBinder_isRemote(mBinder.get()); }
 
     binder_status_t dump(int fd, const char** args, uint32_t numArgs) override {
@@ -267,6 +288,13 @@ std::shared_ptr<ICInterface> ICInterface::asInterface(AIBinder* binder) {
 
 AIBinder_Class* ICInterface::defineClass(const char* interfaceDescriptor,
                                          AIBinder_Class_onTransact onTransact) {
+
+    return defineClass(interfaceDescriptor, onTransact, nullptr, 0);
+}
+
+AIBinder_Class* ICInterface::defineClass(const char* interfaceDescriptor,
+                                         AIBinder_Class_onTransact onTransact,
+                                         const char** codeToFunction, size_t functionCount) {
     AIBinder_Class* clazz = AIBinder_Class_define(interfaceDescriptor, ICInterfaceData::onCreate,
                                                   ICInterfaceData::onDestroy, onTransact);
     if (clazz == nullptr) {
@@ -285,6 +313,18 @@ AIBinder_Class* ICInterface::defineClass(const char* interfaceDescriptor,
         AIBinder_Class_setHandleShellCommand(clazz, ICInterfaceData::handleShellCommand);
     }
 #endif
+
+#if defined(__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__) || __ANDROID_API__ >= 36
+    if (API_LEVEL_AT_LEAST(36)) {
+        if (codeToFunction != nullptr) {
+            AIBinder_Class_setTransactionCodeToFunctionNameMap(clazz, codeToFunction,
+                                                               functionCount);
+        }
+    }
+#else
+    (void)codeToFunction;
+    (void)functionCount;
+#endif  // defined(__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__) || __ANDROID_API__ >= 36
     return clazz;
 }
 
@@ -310,7 +350,10 @@ void ICInterface::ICInterfaceData::onDestroy(void* userData) {
 binder_status_t ICInterface::ICInterfaceData::onDump(AIBinder* binder, int fd, const char** args,
                                                      uint32_t numArgs) {
     std::shared_ptr<ICInterface> interface = getInterface(binder);
-    return interface->dump(fd, args, numArgs);
+    if (interface != nullptr) {
+        return interface->dump(fd, args, numArgs);
+    }
+    return STATUS_DEAD_OBJECT;
 }
 
 #ifdef HAS_BINDER_SHELL_COMMAND
@@ -318,7 +361,10 @@ binder_status_t ICInterface::ICInterfaceData::handleShellCommand(AIBinder* binde
                                                                  int err, const char** argv,
                                                                  uint32_t argc) {
     std::shared_ptr<ICInterface> interface = getInterface(binder);
-    return interface->handleShellCommand(in, out, err, argv, argc);
+    if (interface != nullptr) {
+        return interface->handleShellCommand(in, out, err, argv, argc);
+    }
+    return STATUS_DEAD_OBJECT;
 }
 #endif
 
@@ -355,5 +401,43 @@ SpAIBinder BpCInterface<INTERFACE>::asBinder() {
 }
 
 }  // namespace ndk
+
+// Once minSdkVersion is 30, we are guaranteed to be building with the
+// Android 11 AIDL compiler which supports the SharedRefBase::make API.
+#if !defined(__ANDROID_API__) || __ANDROID_API__ >= 30 || defined(__ANDROID_APEX__)
+namespace ndk::internal {
+template <typename T, typename = void>
+struct is_complete_type : std::false_type {};
+
+template <typename T>
+struct is_complete_type<T, decltype(void(sizeof(T)))> : std::true_type {};
+}  // namespace ndk::internal
+
+namespace std {
+
+// Define `SharedRefBase` specific versions of `std::make_shared` and
+// `std::make_unique` to block people from using them. Using them to allocate
+// `ndk::SharedRefBase` objects results in double ownership. Use
+// `ndk::SharedRefBase::make<T>(...)` instead.
+//
+// Note: We exclude incomplete types because `std::is_base_of` is undefined in
+// that case.
+
+template <typename T, typename... Args,
+          std::enable_if_t<ndk::internal::is_complete_type<T>::value, bool> = true,
+          std::enable_if_t<std::is_base_of<ndk::SharedRefBase, T>::value, bool> = true>
+shared_ptr<T> make_shared(Args...) {  // SEE COMMENT ABOVE.
+    static_assert(!std::is_base_of<ndk::SharedRefBase, T>::value);
+}
+
+template <typename T, typename... Args,
+          std::enable_if_t<ndk::internal::is_complete_type<T>::value, bool> = true,
+          std::enable_if_t<std::is_base_of<ndk::SharedRefBase, T>::value, bool> = true>
+unique_ptr<T> make_unique(Args...) {  // SEE COMMENT ABOVE.
+    static_assert(!std::is_base_of<ndk::SharedRefBase, T>::value);
+}
+
+}  // namespace std
+#endif
 
 /** @} */

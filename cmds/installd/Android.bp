@@ -25,6 +25,7 @@ cc_defaults {
         "CrateManager.cpp",
         "InstalldNativeService.cpp",
         "QuotaUtils.cpp",
+        "SysTrace.cpp",
         "dexopt.cpp",
         "execv_helper.cpp",
         "globals.cpp",
@@ -33,7 +34,6 @@ cc_defaults {
         "unique_file.cpp",
         "utils.cpp",
         "utils_default.cpp",
-        "view_compiler.cpp",
         ":installd_aidl",
     ],
     shared_libs: [
@@ -173,7 +173,7 @@ cc_binary {
 
     // Needs to be wherever installd is as it's execed by
     // installd.
-    required: ["migrate_legacy_obb_data.sh"],
+    required: ["migrate_legacy_obb_data"],
 }
 
 // OTA chroot tool
@@ -253,7 +253,6 @@ cc_binary {
         "unique_file.cpp",
         "utils.cpp",
         "utils_default.cpp",
-        "view_compiler.cpp",
     ],
 
     static_libs: [
@@ -299,6 +298,6 @@ sh_binary {
 
 // Script to migrate legacy obb data.
 sh_binary {
-    name: "migrate_legacy_obb_data.sh",
+    name: "migrate_legacy_obb_data",
     src: "migrate_legacy_obb_data.sh",
 }

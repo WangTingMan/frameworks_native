@@ -12,7 +12,10 @@ cc_library {
     name: "libETC1",
     srcs: ["ETC1/etc1.cpp"],
     host_supported: true,
-    cflags: ["-Wall", "-Werror"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
 
     target: {
         android: {
@@ -129,8 +132,12 @@ cc_library_static {
     srcs: [
         "EGL/BlobCache.cpp",
         "EGL/FileBlobCache.cpp",
+        "EGL/MultifileBlobCache.cpp",
     ],
     export_include_dirs: ["EGL"],
+    shared_libs: [
+        "libz",
+    ],
 }
 
 cc_library_shared {
@@ -165,12 +172,17 @@ cc_library_shared {
         "libutils",
         "libSurfaceFlingerProp",
         "libunwindstack",
+        "libz",
     ],
     static_libs: [
         "libEGL_getProcAddress",
         "libEGL_blobCache",
     ],
-    ldflags: ["-Wl,--exclude-libs=ALL,--Bsymbolic-functions"],
+    ldflags: [
+        "-Wl,--exclude-libs=libEGL_getProcAddress.a",
+        "-Wl,--exclude-libs=libEGL_blobCache.a",
+        "-Wl,--Bsymbolic-functions",
+    ],
     export_include_dirs: ["EGL/include"],
     stubs: {
         symbol_file: "libEGL.map.txt",
@@ -185,6 +197,13 @@ cc_test {
     srcs: [
         "EGL/BlobCache.cpp",
         "EGL/BlobCache_test.cpp",
+        "EGL/FileBlobCache.cpp",
+        "EGL/MultifileBlobCache.cpp",
+        "EGL/MultifileBlobCache_test.cpp",
+    ],
+    shared_libs: [
+        "libutils",
+        "libz",
     ],
 }
 

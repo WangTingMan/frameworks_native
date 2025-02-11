@@ -98,6 +98,7 @@ struct DeviceData {
 
     VkDevice driver_device;
     DeviceDriverTable driver;
+    VkPhysicalDevice driver_physical_device;
 };
 
 bool OpenHAL();
@@ -106,6 +107,8 @@ const VkAllocationCallbacks& GetDefaultAllocator();
 void QueryPresentationProperties(
     VkPhysicalDevice physicalDevice,
     VkPhysicalDevicePresentationPropertiesANDROID* presentation_properties);
+
+bool GetAndroidNativeBufferSpecVersion9Support(VkPhysicalDevice physicalDevice);
 
 VKAPI_ATTR PFN_vkVoidFunction GetInstanceProcAddr(VkInstance instance,
                                                   const char* pName);

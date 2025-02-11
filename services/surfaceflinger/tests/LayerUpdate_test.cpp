@@ -33,7 +33,9 @@ protected:
         LayerTransactionTest::SetUp();
         ASSERT_EQ(NO_ERROR, mClient->initCheck());
 
-        const auto display = SurfaceComposerClient::getInternalDisplayToken();
+        const auto ids = SurfaceComposerClient::getPhysicalDisplayIds();
+        ASSERT_FALSE(ids.empty());
+        const auto display = SurfaceComposerClient::getPhysicalDisplayToken(ids.front());
         ASSERT_FALSE(display == nullptr);
 
         ui::DisplayMode mode;
@@ -63,7 +65,7 @@ protected:
         TransactionUtils::fillSurfaceRGBA8(mSyncSurfaceControl, 31, 31, 31);
 
         asTransaction([&](Transaction& t) {
-            t.setDisplayLayerStack(display, 0);
+            t.setDisplayLayerStack(display, ui::DEFAULT_LAYER_STACK);
 
             t.setLayer(mBGSurfaceControl, INT32_MAX - 2).show(mBGSurfaceControl);
 

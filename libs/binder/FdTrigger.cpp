@@ -23,17 +23,26 @@
 #include <poll.h>
 #endif
 
-#include <android-base/macros.h>
+#include <binder/Functional.h>
 
+#include "FdUtils.h"
 #include "RpcState.h"
+#include "Utils.h"
+
 namespace android {
+
+using namespace android::binder::impl;
 
 std::unique_ptr<FdTrigger> FdTrigger::make() {
     auto ret = std::make_unique<FdTrigger>();
 #ifndef BINDER_RPC_SINGLE_THREADED
+<<<<<<< HEAD
 
 #ifndef _MSC_VER
     if (!android::base::Pipe(&ret->mRead, &ret->mWrite)) {
+=======
+    if (!binder::Pipe(&ret->mRead, &ret->mWrite)) {
+>>>>>>> d3fb93fb73
         ALOGE("Could not create pipe %s", strerror(errno));
         return nullptr;
     }
@@ -59,39 +68,61 @@ bool FdTrigger::isTriggered() {
 #ifdef BINDER_RPC_SINGLE_THREADED
     return mTriggered;
 #else
+<<<<<<< HEAD
 
 #ifdef _MSC_VER
     return false;
 #else
     return mWrite == -1;
+=======
+    return !mWrite.ok();
+>>>>>>> d3fb93fb73
 #endif
 
 #endif
 }
 
+<<<<<<< HEAD
 
 status_t FdTrigger::triggerablePoll(base::borrowed_fd fd, int16_t event) {
+=======
+status_t FdTrigger::triggerablePoll(const android::RpcTransportFd& transportFd, int16_t event) {
+>>>>>>> d3fb93fb73
 #ifdef BINDER_RPC_SINGLE_THREADED
     if (mTriggered) {
         return DEAD_OBJECT;
     }
 #endif
 
+<<<<<<< HEAD
 #ifdef _MSC_VER
     return OK;
 #else
     LOG_ALWAYS_FATAL_IF(event == 0, "triggerablePoll %d with event 0 is not allowed", fd.get());
+=======
+    LOG_ALWAYS_FATAL_IF(event == 0, "triggerablePoll %d with event 0 is not allowed",
+                        transportFd.fd.get());
+>>>>>>> d3fb93fb73
     pollfd pfd[]{
-            {.fd = fd.get(), .events = static_cast<int16_t>(event), .revents = 0},
+            {.fd = transportFd.fd.get(), .events = static_cast<int16_t>(event), .revents = 0},
 #ifndef BINDER_RPC_SINGLE_THREADED
             {.fd = mRead.get(), .events = 0, .revents = 0},
 #endif
     };
-    int ret = TEMP_FAILURE_RETRY(poll(pfd, arraysize(pfd), -1));
+
+    LOG_ALWAYS_FATAL_IF(transportFd.isInPollingState() == true,
+                        "Only one thread should be polling on Fd!");
+
+    transportFd.setPollingState(true);
+    auto pollingStateGuard = make_scope_guard([&]() { transportFd.setPollingState(false); });
+
+    int ret = TEMP_FAILURE_RETRY(poll(pfd, countof(pfd), -1));
     if (ret < 0) {
-        return -errno;
+        int saved_errno = errno;
+        ALOGE("FdTrigger poll returned error: %d, with error: %s", ret, strerror(saved_errno));
+        return -saved_errno;
     }
-    LOG_ALWAYS_FATAL_IF(ret == 0, "poll(%d) returns 0 with infinite timeout", fd.get());
+    LOG_ALWAYS_FATAL_IF(ret == 0, "poll(%d) returns 0 with infinite timeout", transportFd.fd.get());
 
     // At least one FD has events. Check them.
 
@@ -113,6 +144,7 @@ status_t FdTrigger::triggerablePoll(base::borrowed_fd fd, int16_t event) {
 
     // POLLNVAL: invalid FD number, e.g. not opened.
     if (pfd[0].revents & POLLNVAL) {
+        LOG_ALWAYS_FATAL("Invalid FD number (%d) in FdTrigger (POLLNVAL)", pfd[0].fd);
         return BAD_VALUE;
     }
 

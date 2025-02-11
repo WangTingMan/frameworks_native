@@ -42,9 +42,9 @@ TEST(Future, Example) {
   }
   {
     auto future = ftl::yield(123);
-    std::future<char> futures[] = {ftl::yield('a'), ftl::yield('b')};
+    ftl::Future<char> futures[] = {ftl::yield('a'), ftl::yield('b')};
 
-    std::future<char> chain = ftl::chain(std::move(future))
+    ftl::Future<char> chain = ftl::Future(std::move(future))
                                   .then([](int x) { return static_cast<size_t>(x % 2); })
                                   .then([&futures](size_t i) { return std::move(futures[i]); });
 
@@ -71,7 +71,7 @@ TEST(Future, Chain) {
     return ByteVector{str.begin(), str.end()};
   });
 
-  std::packaged_task<std::future<ByteVector>(ByteVector)> decrement_bytes(
+  std::packaged_task<ftl::Future<ByteVector>(ByteVector)> decrement_bytes(
       [](ByteVector bytes) { return ftl::defer(decrement, std::move(bytes)); });
 
   auto fetch = fetch_string.get_future();
@@ -81,7 +81,7 @@ TEST(Future, Chain) {
 
   EXPECT_EQ(
       "hello, world",
-      ftl::chain(std::move(fetch))
+      ftl::Future(std::move(fetch))
           .then([](const char* str) { return std::string(str); })
           .then([&](std::string str) {
             auto append = append_string.get_future();
@@ -93,13 +93,51 @@ TEST(Future, Chain) {
             decrement_thread = std::thread(std::move(decrement_bytes), std::move(bytes));
             return decrement;
           })
-          .then([](std::future<ByteVector> bytes) { return bytes; })
+          .then([](ftl::Future<ByteVector> bytes) { return bytes; })
           .then([](const ByteVector& bytes) { return std::string(bytes.begin(), bytes.end()); })
           .get());
 
   fetch_thread.join();
   append_thread.join();
   decrement_thread.join();
+}
+
+TEST(Future, WaitFor) {
+  using namespace std::chrono_literals;
+  {
+    auto future = ftl::yield(42);
+    // Check that we can wait_for multiple times without invalidating the future
+    EXPECT_EQ(future.wait_for(1s), std::future_status::ready);
+    EXPECT_EQ(future.wait_for(1s), std::future_status::ready);
+    EXPECT_EQ(future.get(), 42);
+  }
+
+  {
+    std::condition_variable cv;
+    std::mutex m;
+    bool ready = false;
+
+    std::packaged_task<int32_t()> get_int([&] {
+      std::unique_lock lk(m);
+      cv.wait(lk, [&] { return ready; });
+      return 24;
+    });
+
+    auto get_future = ftl::Future(get_int.get_future());
+    std::thread get_thread(std::move(get_int));
+
+    EXPECT_EQ(get_future.wait_for(0s), std::future_status::timeout);
+    {
+      std::unique_lock lk(m);
+      ready = true;
+    }
+    cv.notify_one();
+
+    EXPECT_EQ(get_future.wait_for(1s), std::future_status::ready);
+    EXPECT_EQ(get_future.get(), 24);
+
+    get_thread.join();
+  }
 }
 
 }  // namespace android::test

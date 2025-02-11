@@ -424,6 +424,7 @@ std::vector<userid_t> get_known_users(const char* volume_uuid) {
 
     return users;
 }
+
 long get_project_id(uid_t uid, long start_project_id_range) {
     return uid - AID_APP_START + start_project_id_range;
 }
@@ -462,6 +463,7 @@ int set_quota_project_id(const std::string& path, long project_id, bool set_inhe
     }
     return 0;
 }
+
 int calculate_tree_size(const std::string& path, int64_t* size,
         int32_t include_gid, int32_t exclude_gid, bool exclude_apps) {
     FTS *fts;
@@ -521,7 +523,6 @@ int calculate_tree_size(const std::string& path, int64_t* size,
  */
 bool is_valid_package_name(const std::string& packageName) {
     // This logic is borrowed from PackageParser.java
-    bool hasSep = false;
     bool front = true;
 
     auto it = packageName.begin();
@@ -537,7 +538,6 @@ bool is_valid_package_name(const std::string& packageName) {
             }
         }
         if (c == '.') {
-            hasSep = true;
             front = true;
             continue;
         }
@@ -1040,25 +1040,30 @@ static int validate_path(const std::string& dir, const std::string& path, int ma
         LOG(ERROR) << "Invalid directory " << dir;
         return -1;
     }
-    if (path.find("..") != std::string::npos) {
-        LOG(ERROR) << "Invalid path " << path;
-        return -1;
-    }
 
     if (path.compare(0, dir.size(), dir) != 0) {
         // Common case, path isn't under directory
         return -1;
     }
 
-    // Count number of subdirectories
-    auto pos = path.find('/', dir.size());
+    // Count number of subdirectories and invalidate ".." subdirectories
+    auto last = dir.size();
+    auto pos = path.find('/', last);
     int count = 0;
     while (pos != std::string::npos) {
-        auto next = path.find('/', pos + 1);
-        if (next > pos + 1) {
+        if (pos > last + 1) {
             count++;
         }
-        pos = next;
+        if (path.substr(last, pos - last) == "..") {
+            LOG(ERROR) << "Invalid path " << path;
+            return -1;
+        }
+        last = pos + 1;
+        pos = path.find('/', last);
+    }
+    if (path.substr(last, path.size() - last) == "..") {
+        LOG(ERROR) << "Invalid path " << path;
+        return -1;
     }
 
     if (count > maxSubdirs) {

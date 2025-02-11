@@ -1641,7 +1641,6 @@ static inline binder_status_t AParcel_writeData(AParcel* parcel, const T& value)
         return AParcel_writeParcelable(parcel, value);
     } else {
         static_assert(dependent_false_v<T>, "unrecognized type");
-        return STATUS_OK;
     }
 }
 
@@ -1709,7 +1708,6 @@ static inline binder_status_t AParcel_readData(const AParcel* parcel, T* value) 
         return AParcel_readParcelable(parcel, value);
     } else {
         static_assert(dependent_false_v<T>, "unrecognized type");
-        return STATUS_OK;
     }
 }
 

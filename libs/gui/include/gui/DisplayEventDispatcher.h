@@ -21,26 +21,13 @@
 namespace android {
 using FrameRateOverride = DisplayEventReceiver::Event::FrameRateOverride;
 
-struct VsyncEventData {
-    // The Vsync Id corresponsing to this vsync event. This will be used to
-    // populate ISurfaceComposer::setFrameTimelineVsync and
-    // SurfaceComposerClient::setFrameTimelineVsync
-    int64_t id = FrameTimelineInfo::INVALID_VSYNC_ID;
-
-    // The deadline in CLOCK_MONOTONIC that the app needs to complete its
-    // frame by (both on the CPU and the GPU)
-    int64_t deadlineTimestamp = std::numeric_limits<int64_t>::max();
-
-    // The current frame interval in ns when this frame was scheduled.
-    int64_t frameInterval = 0;
-};
-
 class DisplayEventDispatcher : public LooperCallback {
 public:
-    explicit DisplayEventDispatcher(
-            const sp<Looper>& looper,
-            ISurfaceComposer::VsyncSource vsyncSource = ISurfaceComposer::eVsyncSourceApp,
-            ISurfaceComposer::EventRegistrationFlags eventRegistration = {});
+    explicit DisplayEventDispatcher(const sp<Looper>& looper,
+                                    gui::ISurfaceComposer::VsyncSource vsyncSource =
+                                            gui::ISurfaceComposer::VsyncSource::eVsyncSourceApp,
+                                    EventRegistrationFlags eventRegistration = {},
+                                    const sp<IBinder>& layerHandle = nullptr);
 
     status_t initialize();
     void dispose();
@@ -48,6 +35,7 @@ public:
     void injectEvent(const DisplayEventReceiver::Event& event);
     int getFd() const;
     virtual int handleEvent(int receiveFd, int events, void* data);
+    status_t getLatestVsyncEventData(ParcelableVsyncEventData* outVsyncEventData) const;
 
 protected:
     virtual ~DisplayEventDispatcher() = default;
@@ -65,6 +53,9 @@ private:
                                VsyncEventData vsyncEventData) = 0;
     virtual void dispatchHotplug(nsecs_t timestamp, PhysicalDisplayId displayId,
                                  bool connected) = 0;
+
+    virtual void dispatchHotplugConnectionError(nsecs_t timestamp, int32_t connectionError) = 0;
+
     virtual void dispatchModeChanged(nsecs_t timestamp, PhysicalDisplayId displayId, int32_t modeId,
                                      nsecs_t vsyncPeriod) = 0;
     // AChoreographer-specific hook for processing null-events so that looper
@@ -74,7 +65,13 @@ private:
     virtual void dispatchFrameRateOverrides(nsecs_t timestamp, PhysicalDisplayId displayId,
                                             std::vector<FrameRateOverride> overrides) = 0;
 
+    virtual void dispatchHdcpLevelsChanged(PhysicalDisplayId displayId, int32_t connectedLevel,
+                                           int32_t maxLevel) = 0;
+
     bool processPendingEvents(nsecs_t* outTimestamp, PhysicalDisplayId* outDisplayId,
                               uint32_t* outCount, VsyncEventData* outVsyncEventData);
+
+    void populateFrameTimelines(const DisplayEventReceiver::Event& event,
+                                VsyncEventData* outVsyncEventData) const;
 };
 } // namespace android

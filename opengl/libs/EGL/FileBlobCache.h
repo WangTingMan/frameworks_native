@@ -22,6 +22,8 @@
 
 namespace android {
 
+uint32_t GenerateCRC32(const uint8_t *data, size_t size);
+
 class FileBlobCache : public BlobCache {
 public:
     // FileBlobCache attempts to load the saved cache contents from disk into
@@ -32,6 +34,9 @@ public:
     // writeToFile attempts to save the current contents of BlobCache to
     // disk.
     void writeToFile();
+
+    // Return the total size of the cache
+    size_t getSize();
 
 private:
     // mFilename is the name of the file for storing cache contents.

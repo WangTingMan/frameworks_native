@@ -17,34 +17,35 @@
 
 #include <thread>
 
-#include <android-base/threads.h>
-
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
 
+#include <binder/Common.h>
+
 namespace android {
 
 #ifdef BINDER_RPC_SINGLE_THREADED
-class RpcMutex {
+class LIBBINDER_EXPORTED RpcMutex {
 public:
     void lock() {}
     void unlock() {}
 };
 
-class RpcMutexUniqueLock {
+class LIBBINDER_EXPORTED RpcMutexUniqueLock {
 public:
     RpcMutexUniqueLock(RpcMutex&) {}
     void unlock() {}
 };
 
-class RpcMutexLockGuard {
+class LIBBINDER_EXPORTED RpcMutexLockGuard {
 public:
     RpcMutexLockGuard(RpcMutex&) {}
 };
 
-class RpcConditionVariable {
+class LIBBINDER_EXPORTED RpcConditionVariable {
 public:
     void notify_one() {}
     void notify_all() {}
@@ -67,7 +68,7 @@ public:
     }
 };
 
-class RpcMaybeThread {
+class LIBBINDER_EXPORTED RpcMaybeThread {
 public:
     RpcMaybeThread() = default;
 
@@ -121,10 +122,6 @@ static inline RpcMaybeThread::id get_id() {
 }
 } // namespace rpc_this_thread
 
-static inline uint64_t rpcGetThreadId() {
-    return 0;
-}
-
 static inline void rpcJoinIfSingleThreaded(RpcMaybeThread& t) {
     t.join();
 }
@@ -135,10 +132,6 @@ using RpcMutexLockGuard = std::lock_guard<std::mutex>;
 using RpcConditionVariable = std::condition_variable;
 using RpcMaybeThread = std::thread;
 namespace rpc_this_thread = std::this_thread;
-
-static inline uint64_t rpcGetThreadId() {
-    return base::GetThreadId();
-}
 
 static inline void rpcJoinIfSingleThreaded(RpcMaybeThread&) {}
 #endif // BINDER_RPC_SINGLE_THREADED

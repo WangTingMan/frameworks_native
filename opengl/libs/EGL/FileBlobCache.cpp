@@ -14,6 +14,8 @@
  ** limitations under the License.
  */
 
+#define ATRACE_TAG ATRACE_TAG_GRAPHICS
+
 #include "FileBlobCache.h"
 
 #include <errno.h>
@@ -24,6 +26,8 @@
 #include <unistd.h>
 
 #include <log/log.h>
+#include <utils/Trace.h>
+#include <zlib.h>
 
 // Cache file header
 static const char* cacheFileMagic = "EGL$";
@@ -31,26 +35,18 @@ static const size_t cacheFileHeaderSize = 8;
 
 namespace android {
 
-static uint32_t crc32c(const uint8_t* buf, size_t len) {
-    const uint32_t polyBits = 0x82F63B78;
-    uint32_t r = 0;
-    for (size_t i = 0; i < len; i++) {
-        r ^= buf[i];
-        for (int j = 0; j < 8; j++) {
-            if (r & 1) {
-                r = (r >> 1) ^ polyBits;
-            } else {
-                r >>= 1;
-            }
-        }
-    }
-    return r;
+uint32_t GenerateCRC32(const uint8_t *data, size_t size)
+{
+    const unsigned long initialValue = crc32_z(0u, nullptr, 0u);
+    return static_cast<uint32_t>(crc32_z(initialValue, data, size));
 }
 
 FileBlobCache::FileBlobCache(size_t maxKeySize, size_t maxValueSize, size_t maxTotalSize,
         const std::string& filename)
         : BlobCache(maxKeySize, maxValueSize, maxTotalSize)
         , mFilename(filename) {
+    ATRACE_CALL();
+
     if (mFilename.length() > 0) {
         size_t headerSize = cacheFileHeaderSize;
 
@@ -96,7 +92,7 @@ FileBlobCache::FileBlobCache(size_t maxKeySize, size_t maxValueSize, size_t maxT
             return;
         }
         uint32_t* crc = reinterpret_cast<uint32_t*>(buf + 4);
-        if (crc32c(buf + headerSize, cacheSize) != *crc) {
+        if (GenerateCRC32(buf + headerSize, cacheSize) != *crc) {
             ALOGE("cache file failed CRC check");
             close(fd);
             return;
@@ -117,6 +113,8 @@ FileBlobCache::FileBlobCache(size_t maxKeySize, size_t maxValueSize, size_t maxT
 }
 
 void FileBlobCache::writeToFile() {
+    ATRACE_CALL();
+
     if (mFilename.length() > 0) {
         size_t cacheSize = getFlattenedSize();
         size_t headerSize = cacheFileHeaderSize;
@@ -168,7 +166,7 @@ void FileBlobCache::writeToFile() {
         // Write the file magic and CRC
         memcpy(buf, cacheFileMagic, 4);
         uint32_t* crc = reinterpret_cast<uint32_t*>(buf + 4);
-        *crc = crc32c(buf + headerSize, cacheSize);
+        *crc = GenerateCRC32(buf + headerSize, cacheSize);
 
         if (write(fd, buf, fileSize) == -1) {
             ALOGE("error writing cache file: %s (%d)", strerror(errno),
@@ -185,4 +183,10 @@ void FileBlobCache::writeToFile() {
     }
 }
 
+size_t FileBlobCache::getSize() {
+    if (mFilename.length() > 0) {
+        return getFlattenedSize() + cacheFileHeaderSize;
+    }
+    return 0;
+}
 }

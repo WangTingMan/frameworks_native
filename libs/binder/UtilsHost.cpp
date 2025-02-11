@@ -26,7 +26,12 @@
 
 #include <log/log.h>
 
+#include "FdUtils.h"
+#include "Utils.h"
+
 namespace android {
+
+using android::binder::unique_fd;
 
 CommandResult::~CommandResult() {
     if (!pid.has_value()) return;
@@ -74,8 +79,13 @@ std::string CommandResult::toString() const {
     return ss.str();
 }
 
+<<<<<<< HEAD
 std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
                                              const std::function<bool(const CommandResult&)>& end) {
+=======
+std::optional<CommandResult> execute(std::vector<std::string> argStringVec,
+                                     const std::function<bool(const CommandResult&)>& end) {
+>>>>>>> d3fb93fb73
     // turn vector<string> into null-terminated char* vector.
     std::vector<char*> argv;
     argv.reserve(argStringVec.size() + 1);
@@ -83,15 +93,22 @@ std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
     argv.push_back(nullptr);
 #ifndef _MSC_VER
     CommandResult ret;
-    android::base::unique_fd outWrite;
-    if (!android::base::Pipe(&ret.outPipe, &outWrite))
-        return android::base::ErrnoError() << "pipe() for outPipe";
-    android::base::unique_fd errWrite;
-    if (!android::base::Pipe(&ret.errPipe, &errWrite))
-        return android::base::ErrnoError() << "pipe() for errPipe";
+    unique_fd outWrite;
+    if (!binder::Pipe(&ret.outPipe, &outWrite)) {
+        PLOGE("pipe() for outPipe");
+        return {};
+    }
+    unique_fd errWrite;
+    if (!binder::Pipe(&ret.errPipe, &errWrite)) {
+        PLOGE("pipe() for errPipe");
+        return {};
+    }
 
     int pid = fork();
-    if (pid == -1) return android::base::ErrnoError() << "fork()";
+    if (pid == -1) {
+        PLOGE("fork()");
+        return {};
+    }
     if (pid == 0) {
         // child
         ret.outPipe.reset();
@@ -113,7 +130,7 @@ std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
     errWrite.reset();
     ret.pid = pid;
 
-    auto handlePoll = [](android::base::unique_fd* fd, const pollfd* pfd, std::string* s) {
+    auto handlePoll = [](unique_fd* fd, const pollfd* pfd, std::string* s) {
         if (!fd->ok()) return true;
         if (pfd->revents & POLLIN) {
             char buf[1024];
@@ -142,12 +159,19 @@ std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
             *errPollFd = {.fd = ret.errPipe.get(), .events = POLLIN};
         }
         int pollRet = poll(fds, nfds, 1000 /* ms timeout */);
-        if (pollRet == -1) return android::base::ErrnoError() << "poll()";
+        if (pollRet == -1) {
+            PLOGE("poll()");
+            return {};
+        }
 
-        if (!handlePoll(&ret.outPipe, outPollFd, &ret.stdoutStr))
-            return android::base::ErrnoError() << "read(stdout)";
-        if (!handlePoll(&ret.errPipe, errPollFd, &ret.stderrStr))
-            return android::base::ErrnoError() << "read(stderr)";
+        if (!handlePoll(&ret.outPipe, outPollFd, &ret.stdoutStr)) {
+            PLOGE("read(stdout)");
+            return {};
+        }
+        if (!handlePoll(&ret.errPipe, errPollFd, &ret.stderrStr)) {
+            PLOGE("read(stderr)");
+            return {};
+        }
 
         if (end && end(ret)) return ret;
     }
@@ -156,7 +180,10 @@ std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
     while (ret.pid.has_value()) {
         int status;
         auto exitPid = waitpid(pid, &status, 0);
-        if (exitPid == -1) return android::base::ErrnoError() << "waitpid(" << pid << ")";
+        if (exitPid == -1) {
+            PLOGE("waitpid(%d)", pid);
+            return {};
+        }
         if (exitPid == pid) {
             if (WIFEXITED(status)) {
                 ret.pid = std::nullopt;

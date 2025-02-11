@@ -9,15 +9,23 @@
       ]
     },
     {
-      "name": "dumpstate_smoke_test"
+      "name": "dumpstate_test"
     },
     {
-      "name": "dumpstate_test"
+        "name": "CtsSecurityHostTestCases",
+        "options": [
+            {
+                "include-filter": "android.security.cts.SELinuxHostTest#testNoBugreportDenials"
+            }
+        ]
     }
   ],
   "postsubmit": [
     {
       "name": "BugreportManagerTestCases"
+    },
+    {
+      "name": "dumpstate_smoke_test"
     }
   ],
   "imports": [

@@ -20,6 +20,7 @@
 #include <set>
 #include <vector>
 
+#include <binder/Common.h>
 #include <binder/Parcelable.h>
 #include <utils/String16.h>
 #include <utils/StrongPointer.h>
@@ -33,7 +34,11 @@ namespace os {
  * C++ implementation of PersistableBundle, a mapping from String values to
  * various types that can be saved to persistent and later restored.
  */
+<<<<<<< HEAD
 class LIBBINDER_EXPORT PersistableBundle : public Parcelable {
+=======
+class LIBBINDER_EXPORTED PersistableBundle : public Parcelable {
+>>>>>>> d3fb93fb73
 public:
     PersistableBundle() = default;
     virtual ~PersistableBundle() = default;

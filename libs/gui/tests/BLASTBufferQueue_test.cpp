@@ -18,7 +18,9 @@
 
 #include <gui/BLASTBufferQueue.h>
 
+#include <android-base/thread_annotations.h>
 #include <android/hardware/graphics/common/1.2/types.h>
+#include <gui/AidlUtil.h>
 #include <gui/BufferQueueCore.h>
 #include <gui/BufferQueueProducer.h>
 #include <gui/FrameTimestamps.h>
@@ -29,16 +31,24 @@
 #include <gui/SyncScreenCaptureListener.h>
 #include <gui/test/CallbackUtils.h>
 #include <private/gui/ComposerService.h>
+#include <private/gui/ComposerServiceAIDL.h>
+#include <tests/utils/ScreenshotUtils.h>
 #include <ui/DisplayMode.h>
+#include <ui/DisplayState.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicTypes.h>
+#include <ui/Rect.h>
+#include <ui/Size.h>
 #include <ui/Transform.h>
 
 #include <gtest/gtest.h>
 
+#include <com_android_graphics_libgui_flags.h>
+
 using namespace std::chrono_literals;
 
 namespace android {
+using namespace com::android::graphics::libgui;
 
 using Transaction = SurfaceComposerClient::Transaction;
 using android::hardware::graphics::common::V1_2::BufferUsage;
@@ -52,7 +62,8 @@ public:
     }
 
     void waitOnNumberReleased(int32_t expectedNumReleased) {
-        std::unique_lock<std::mutex> lock(mMutex);
+        std::unique_lock lock{mMutex};
+        base::ScopedLockAssertion assumeLocked(mMutex);
         while (mNumReleased < expectedNumReleased) {
             ASSERT_NE(mReleaseCallback.wait_for(lock, std::chrono::seconds(3)),
                       std::cv_status::timeout)
@@ -66,32 +77,86 @@ private:
     int32_t mNumReleased GUARDED_BY(mMutex) = 0;
 };
 
+class TestBLASTBufferQueue : public BLASTBufferQueue {
+public:
+    TestBLASTBufferQueue(const std::string& name, const sp<SurfaceControl>& surface, int width,
+                         int height, int32_t format)
+          : BLASTBufferQueue(name, surface, width, height, format) {}
+
+    void transactionCallback(nsecs_t latchTime, const sp<Fence>& presentFence,
+                             const std::vector<SurfaceControlStats>& stats) override {
+        BLASTBufferQueue::transactionCallback(latchTime, presentFence, stats);
+        uint64_t frameNumber = stats[0].frameEventStats.frameNumber;
+
+        {
+            std::unique_lock lock{frameNumberMutex};
+            mLastTransactionFrameNumber = frameNumber;
+            mWaitForCallbackCV.notify_all();
+        }
+    }
+
+    void waitForCallback(int64_t frameNumber) {
+        std::unique_lock lock{frameNumberMutex};
+        // Wait until all but one of the submitted buffers have been released.
+        while (mLastTransactionFrameNumber < frameNumber) {
+            mWaitForCallbackCV.wait(lock);
+        }
+    }
+
+private:
+    std::mutex frameNumberMutex;
+    std::condition_variable mWaitForCallbackCV;
+    int64_t mLastTransactionFrameNumber = -1;
+};
+
 class BLASTBufferQueueHelper {
 public:
     BLASTBufferQueueHelper(const sp<SurfaceControl>& sc, int width, int height) {
-        mBlastBufferQueueAdapter = new BLASTBufferQueue("TestBLASTBufferQueue", sc, width, height,
-                                                        PIXEL_FORMAT_RGBA_8888);
+        mBlastBufferQueueAdapter = new TestBLASTBufferQueue("TestBLASTBufferQueue", sc, width,
+                                                            height, PIXEL_FORMAT_RGBA_8888);
     }
 
     void update(const sp<SurfaceControl>& sc, int width, int height) {
         mBlastBufferQueueAdapter->update(sc, width, height, PIXEL_FORMAT_RGBA_8888);
     }
 
-    void setNextTransaction(Transaction* next) {
-        mBlastBufferQueueAdapter->setNextTransaction(next);
+    void setSyncTransaction(Transaction& next, bool acquireSingleBuffer = true) {
+        auto callback = [&next](Transaction* t) { next.merge(std::move(*t)); };
+        mBlastBufferQueueAdapter->syncNextTransaction(callback, acquireSingleBuffer);
     }
 
-    int getWidth() { return mBlastBufferQueueAdapter->mSize.width; }
+    bool syncNextTransaction(std::function<void(Transaction*)> callback,
+                             bool acquireSingleBuffer = true) {
+        return mBlastBufferQueueAdapter->syncNextTransaction(callback, acquireSingleBuffer);
+    }
 
-    int getHeight() { return mBlastBufferQueueAdapter->mSize.height; }
+    void stopContinuousSyncTransaction() {
+        mBlastBufferQueueAdapter->stopContinuousSyncTransaction();
+    }
 
-    Transaction* getNextTransaction() { return mBlastBufferQueueAdapter->mNextTransaction; }
+    void clearSyncTransaction() { mBlastBufferQueueAdapter->clearSyncTransaction(); }
+
+    int getWidth() {
+        std::scoped_lock lock(mBlastBufferQueueAdapter->mMutex);
+        return mBlastBufferQueueAdapter->mSize.width;
+    }
+
+    int getHeight() {
+        std::scoped_lock lock(mBlastBufferQueueAdapter->mMutex);
+        return mBlastBufferQueueAdapter->mSize.height;
+    }
+
+    std::function<void(Transaction*)> getTransactionReadyCallback() {
+        std::scoped_lock lock(mBlastBufferQueueAdapter->mMutex);
+        return mBlastBufferQueueAdapter->mTransactionReadyCallback;
+    }
 
     sp<IGraphicBufferProducer> getIGraphicBufferProducer() {
         return mBlastBufferQueueAdapter->getIGraphicBufferProducer();
     }
 
     const sp<SurfaceControl> getSurfaceControl() {
+        std::scoped_lock lock(mBlastBufferQueueAdapter->mMutex);
         return mBlastBufferQueueAdapter->mSurfaceControl;
     }
 
@@ -101,79 +166,76 @@ public:
 
     void waitForCallbacks() {
         std::unique_lock lock{mBlastBufferQueueAdapter->mMutex};
+        base::ScopedLockAssertion assumeLocked(mBlastBufferQueueAdapter->mMutex);
         // Wait until all but one of the submitted buffers have been released.
         while (mBlastBufferQueueAdapter->mSubmitted.size() > 1) {
             mBlastBufferQueueAdapter->mCallbackCV.wait(lock);
         }
     }
 
-    void setTransactionCompleteCallback(int64_t frameNumber) {
-        mBlastBufferQueueAdapter->setTransactionCompleteCallback(frameNumber, [&](int64_t frame) {
-            std::unique_lock lock{mMutex};
-            mLastTransactionCompleteFrameNumber = frame;
-            mCallbackCV.notify_all();
-        });
+    void waitForCallback(int64_t frameNumber) {
+        mBlastBufferQueueAdapter->waitForCallback(frameNumber);
     }
 
-    void waitForCallback(int64_t frameNumber) {
-        std::unique_lock lock{mMutex};
-        // Wait until all but one of the submitted buffers have been released.
-        while (mLastTransactionCompleteFrameNumber < frameNumber) {
-            mCallbackCV.wait(lock);
-        }
+    void validateNumFramesSubmitted(size_t numFramesSubmitted) {
+        std::scoped_lock lock{mBlastBufferQueueAdapter->mMutex};
+        ASSERT_EQ(numFramesSubmitted, mBlastBufferQueueAdapter->mSubmitted.size());
+    }
+
+    void mergeWithNextTransaction(Transaction* merge, uint64_t frameNumber) {
+        mBlastBufferQueueAdapter->mergeWithNextTransaction(merge, frameNumber);
+    }
+
+    void setApplyToken(sp<IBinder> applyToken) {
+        mBlastBufferQueueAdapter->setApplyToken(std::move(applyToken));
     }
 
 private:
-    sp<BLASTBufferQueue> mBlastBufferQueueAdapter;
-
-    std::mutex mMutex;
-    std::condition_variable mCallbackCV;
-    int64_t mLastTransactionCompleteFrameNumber = -1;
+    sp<TestBLASTBufferQueue> mBlastBufferQueueAdapter;
 };
 
 class BLASTBufferQueueTest : public ::testing::Test {
 public:
 protected:
-    BLASTBufferQueueTest() {
-        const ::testing::TestInfo* const testInfo =
-                ::testing::UnitTest::GetInstance()->current_test_info();
-        ALOGV("Begin test: %s.%s", testInfo->test_case_name(), testInfo->name());
-    }
-
-    ~BLASTBufferQueueTest() {
-        const ::testing::TestInfo* const testInfo =
-                ::testing::UnitTest::GetInstance()->current_test_info();
-        ALOGV("End test:   %s.%s", testInfo->test_case_name(), testInfo->name());
-    }
-
     void SetUp() {
         mComposer = ComposerService::getComposerService();
         mClient = new SurfaceComposerClient();
-        mDisplayToken = mClient->getInternalDisplayToken();
+        const auto ids = SurfaceComposerClient::getPhysicalDisplayIds();
+        ASSERT_FALSE(ids.empty());
+        // display 0 is picked as this test is not much display depedent
+        mDisplayToken = SurfaceComposerClient::getPhysicalDisplayToken(ids.front());
         ASSERT_NE(nullptr, mDisplayToken.get());
         Transaction t;
-        t.setDisplayLayerStack(mDisplayToken, 0);
+        t.setDisplayLayerStack(mDisplayToken, ui::DEFAULT_LAYER_STACK);
         t.apply();
         t.clear();
 
-        ui::DisplayMode mode;
-        ASSERT_EQ(NO_ERROR, SurfaceComposerClient::getActiveDisplayMode(mDisplayToken, &mode));
-        const ui::Size& resolution = mode.resolution;
+        ui::DisplayState displayState;
+        ASSERT_EQ(NO_ERROR, SurfaceComposerClient::getDisplayState(mDisplayToken, &displayState));
+        const ui::Size& resolution = displayState.layerStackSpaceRect;
         mDisplayWidth = resolution.getWidth();
         mDisplayHeight = resolution.getHeight();
+        ALOGD("Display: %dx%d orientation:%d", mDisplayWidth, mDisplayHeight,
+              static_cast<int32_t>(displayState.orientation));
+
+        mRootSurfaceControl = mClient->createSurface(String8("RootTestSurface"), mDisplayWidth,
+                                                     mDisplayHeight, PIXEL_FORMAT_RGBA_8888,
+                                                     ISurfaceComposerClient::eFXSurfaceBufferState,
+                                                     /*parent*/ nullptr);
+
+        t.setLayerStack(mRootSurfaceControl, ui::DEFAULT_LAYER_STACK)
+                .setLayer(mRootSurfaceControl, std::numeric_limits<int32_t>::max())
+                .show(mRootSurfaceControl)
+                .apply();
 
         mSurfaceControl = mClient->createSurface(String8("TestSurface"), mDisplayWidth,
                                                  mDisplayHeight, PIXEL_FORMAT_RGBA_8888,
                                                  ISurfaceComposerClient::eFXSurfaceBufferState,
-                                                 /*parent*/ nullptr);
-        t.setLayerStack(mSurfaceControl, 0)
-                .setLayer(mSurfaceControl, std::numeric_limits<int32_t>::max())
-                .show(mSurfaceControl)
-                .setDataspace(mSurfaceControl, ui::Dataspace::V0_SRGB)
-                .apply();
+                                                 /*parent*/ mRootSurfaceControl->getHandle());
 
-        mCaptureArgs.displayToken = mDisplayToken;
-        mCaptureArgs.dataspace = ui::Dataspace::V0_SRGB;
+        mCaptureArgs.captureArgs.sourceCrop =
+                gui::aidl_utils::toARect(mDisplayWidth, mDisplayHeight);
+        mCaptureArgs.layerHandle = mRootSurfaceControl->getHandle();
     }
 
     void setUpProducer(BLASTBufferQueueHelper& adapter, sp<IGraphicBufferProducer>& producer,
@@ -194,8 +256,8 @@ protected:
 
     void fillBuffer(uint32_t* bufData, Rect rect, uint32_t stride, uint8_t r, uint8_t g,
                     uint8_t b) {
-        for (uint32_t row = rect.top; row < rect.bottom; row++) {
-            for (uint32_t col = rect.left; col < rect.right; col++) {
+        for (int32_t row = rect.top; row < rect.bottom; row++) {
+            for (int32_t col = rect.left; col < rect.right; col++) {
                 uint8_t* pixel = (uint8_t*)(bufData + (row * stride) + col);
                 *pixel = r;
                 *(pixel + 1) = g;
@@ -225,16 +287,16 @@ protected:
                             bool outsideRegion = false) {
         sp<GraphicBuffer>& captureBuf = mCaptureResults.buffer;
         const auto epsilon = 3;
-        const auto width = captureBuf->getWidth();
-        const auto height = captureBuf->getHeight();
+        const int32_t width = static_cast<int32_t>(captureBuf->getWidth());
+        const int32_t height = static_cast<int32_t>(captureBuf->getHeight());
         const auto stride = captureBuf->getStride();
 
         uint32_t* bufData;
         captureBuf->lock(static_cast<uint32_t>(GraphicBuffer::USAGE_SW_READ_OFTEN),
                          reinterpret_cast<void**>(&bufData));
 
-        for (uint32_t row = 0; row < height; row++) {
-            for (uint32_t col = 0; col < width; col++) {
+        for (int32_t row = 0; row < height; row++) {
+            for (int32_t col = 0; col < width; col++) {
                 uint8_t* pixel = (uint8_t*)(bufData + (row * stride) + col);
                 ASSERT_NE(nullptr, pixel);
                 bool inRegion;
@@ -260,20 +322,6 @@ protected:
         captureBuf->unlock();
     }
 
-    static status_t captureDisplay(DisplayCaptureArgs& captureArgs,
-                                   ScreenCaptureResults& captureResults) {
-        const auto sf = ComposerService::getComposerService();
-        SurfaceComposerClient::Transaction().apply(true);
-
-        const sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
-        status_t status = sf->captureDisplay(captureArgs, captureListener);
-        if (status != NO_ERROR) {
-            return status;
-        }
-        captureResults = captureListener->waitForResults();
-        return captureResults.result;
-    }
-
     void queueBuffer(sp<IGraphicBufferProducer> igbp, uint8_t r, uint8_t g, uint8_t b,
                      nsecs_t presentTimeDelay) {
         int slot;
@@ -282,7 +330,7 @@ protected:
         auto ret = igbp->dequeueBuffer(&slot, &fence, mDisplayWidth, mDisplayHeight,
                                        PIXEL_FORMAT_RGBA_8888, GRALLOC_USAGE_SW_WRITE_OFTEN,
                                        nullptr, nullptr);
-        ASSERT_EQ(IGraphicBufferProducer::BUFFER_NEEDS_REALLOCATION, ret);
+        ASSERT_TRUE(ret == IGraphicBufferProducer::BUFFER_NEEDS_REALLOCATION || ret == NO_ERROR);
         ASSERT_EQ(OK, igbp->requestBuffer(slot, &buf));
 
         uint32_t* bufData;
@@ -306,11 +354,12 @@ protected:
     sp<IBinder> mDisplayToken;
 
     sp<SurfaceControl> mSurfaceControl;
+    sp<SurfaceControl> mRootSurfaceControl;
 
     uint32_t mDisplayWidth;
     uint32_t mDisplayHeight;
 
-    DisplayCaptureArgs mCaptureArgs;
+    LayerCaptureArgs mCaptureArgs;
     ScreenCaptureResults mCaptureResults;
     sp<CountProducerListener> mProducerListener;
 };
@@ -319,16 +368,18 @@ TEST_F(BLASTBufferQueueTest, CreateBLASTBufferQueue) {
     // create BLASTBufferQueue adapter associated with this surface
     BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
     ASSERT_EQ(mSurfaceControl, adapter.getSurfaceControl());
-    ASSERT_EQ(mDisplayWidth, adapter.getWidth());
-    ASSERT_EQ(mDisplayHeight, adapter.getHeight());
-    ASSERT_EQ(nullptr, adapter.getNextTransaction());
+    ASSERT_EQ(static_cast<int32_t>(mDisplayWidth), adapter.getWidth());
+    ASSERT_EQ(static_cast<int32_t>(mDisplayHeight), adapter.getHeight());
+    ASSERT_EQ(nullptr, adapter.getTransactionReadyCallback());
 }
 
 TEST_F(BLASTBufferQueueTest, Update) {
     BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
     sp<SurfaceControl> updateSurface =
             mClient->createSurface(String8("UpdateTest"), mDisplayWidth / 2, mDisplayHeight / 2,
-                                   PIXEL_FORMAT_RGBA_8888);
+                                   PIXEL_FORMAT_RGBA_8888,
+                                   ISurfaceComposerClient::eFXSurfaceBufferState,
+                                   /*parent*/ mRootSurfaceControl->getHandle());
     adapter.update(updateSurface, mDisplayWidth / 2, mDisplayHeight / 2);
     ASSERT_EQ(updateSurface, adapter.getSurfaceControl());
     sp<IGraphicBufferProducer> igbProducer;
@@ -336,17 +387,18 @@ TEST_F(BLASTBufferQueueTest, Update) {
 
     int32_t width;
     igbProducer->query(NATIVE_WINDOW_WIDTH, &width);
-    ASSERT_EQ(mDisplayWidth / 2, width);
+    ASSERT_EQ(static_cast<int32_t>(mDisplayWidth) / 2, width);
     int32_t height;
     igbProducer->query(NATIVE_WINDOW_HEIGHT, &height);
-    ASSERT_EQ(mDisplayHeight / 2, height);
+    ASSERT_EQ(static_cast<int32_t>(mDisplayHeight) / 2, height);
 }
 
-TEST_F(BLASTBufferQueueTest, SetNextTransaction) {
+TEST_F(BLASTBufferQueueTest, SyncNextTransaction) {
     BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
-    Transaction next;
-    adapter.setNextTransaction(&next);
-    ASSERT_EQ(&next, adapter.getNextTransaction());
+    ASSERT_EQ(nullptr, adapter.getTransactionReadyCallback());
+    auto callback = [](Transaction*) {};
+    adapter.syncNextTransaction(callback);
+    ASSERT_NE(nullptr, adapter.getTransactionReadyCallback());
 }
 
 TEST_F(BLASTBufferQueueTest, DISABLED_onFrameAvailable_ApplyDesiredPresentTime) {
@@ -410,10 +462,11 @@ TEST_F(BLASTBufferQueueTest, onFrameAvailable_Apply) {
     igbProducer->queueBuffer(slot, input, &qbOutput);
     ASSERT_NE(ui::Transform::ROT_INVALID, qbOutput.transformHint);
 
-    adapter.waitForCallbacks();
+    // ensure the buffer queue transaction has been committed
+    Transaction().apply(true /* synchronous */);
 
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
 }
@@ -439,7 +492,7 @@ TEST_F(BLASTBufferQueueTest, TripleBuffering) {
         ASSERT_EQ(OK, igbProducer->requestBuffer(slot, &buf));
         allocated.push_back({slot, fence});
     }
-    for (int i = 0; i < allocated.size(); i++) {
+    for (size_t i = 0; i < allocated.size(); i++) {
         igbProducer->cancelBuffer(allocated[i].first, allocated[i].second);
     }
 
@@ -460,6 +513,69 @@ TEST_F(BLASTBufferQueueTest, TripleBuffering) {
         igbProducer->queueBuffer(slot, input, &qbOutput);
     }
     adapter.waitForCallbacks();
+}
+
+class WaitForCommittedCallback {
+public:
+    WaitForCommittedCallback() = default;
+    ~WaitForCommittedCallback() = default;
+
+    void wait() {
+        std::unique_lock lock(mMutex);
+        cv.wait(lock, [this] { return mCallbackReceived; });
+    }
+
+    void notify() {
+        std::unique_lock lock(mMutex);
+        mCallbackReceived = true;
+        cv.notify_one();
+        mCallbackReceivedTimeStamp = std::chrono::system_clock::now();
+    }
+    auto getCallback() {
+        return [this](void* /* unused context */, nsecs_t /* latchTime */,
+                      const sp<Fence>& /* presentFence */,
+                      const std::vector<SurfaceControlStats>& /* stats */) { notify(); };
+    }
+    std::chrono::time_point<std::chrono::system_clock> mCallbackReceivedTimeStamp;
+
+private:
+    std::mutex mMutex;
+    std::condition_variable cv;
+    bool mCallbackReceived = false;
+};
+
+TEST_F(BLASTBufferQueueTest, setApplyToken) {
+    sp<IBinder> applyToken = sp<BBinder>::make();
+    WaitForCommittedCallback firstTransaction;
+    WaitForCommittedCallback secondTransaction;
+    {
+        BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+        adapter.setApplyToken(applyToken);
+        sp<IGraphicBufferProducer> igbProducer;
+        setUpProducer(adapter, igbProducer);
+
+        Transaction t;
+        t.addTransactionCommittedCallback(firstTransaction.getCallback(), nullptr);
+        adapter.mergeWithNextTransaction(&t, 1);
+        queueBuffer(igbProducer, 127, 127, 127,
+                    /*presentTimeDelay*/ std::chrono::nanoseconds(500ms).count());
+    }
+    {
+        BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+        adapter.setApplyToken(applyToken);
+        sp<IGraphicBufferProducer> igbProducer;
+        setUpProducer(adapter, igbProducer);
+
+        Transaction t;
+        t.addTransactionCommittedCallback(secondTransaction.getCallback(), nullptr);
+        adapter.mergeWithNextTransaction(&t, 1);
+        queueBuffer(igbProducer, 127, 127, 127, /*presentTimeDelay*/ 0);
+    }
+
+    firstTransaction.wait();
+    secondTransaction.wait();
+    EXPECT_GT(secondTransaction.mCallbackReceivedTimeStamp,
+              firstTransaction.mCallbackReceivedTimeStamp);
 }
 
 TEST_F(BLASTBufferQueueTest, SetCrop_Item) {
@@ -494,9 +610,11 @@ TEST_F(BLASTBufferQueueTest, SetCrop_Item) {
     igbProducer->queueBuffer(slot, input, &qbOutput);
     ASSERT_NE(ui::Transform::ROT_INVALID, qbOutput.transformHint);
 
-    adapter.waitForCallbacks();
+    // ensure the buffer queue transaction has been committed
+    Transaction().apply(true /* synchronous */);
+
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
 
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b,
@@ -511,16 +629,6 @@ TEST_F(BLASTBufferQueueTest, SetCrop_ScalingModeScaleCrop) {
     int32_t bufferSideLength =
             (mDisplayWidth < mDisplayHeight) ? mDisplayWidth / 2 : mDisplayHeight / 2;
     int32_t finalCropSideLength = bufferSideLength / 2;
-
-    auto bg = mClient->createSurface(String8("BGTest"), 0, 0, PIXEL_FORMAT_RGBA_8888,
-                                     ISurfaceComposerClient::eFXSurfaceEffect);
-    ASSERT_NE(nullptr, bg.get());
-    Transaction t;
-    t.setLayerStack(bg, 0)
-            .setCrop(bg, Rect(0, 0, mDisplayWidth, mDisplayHeight))
-            .setColor(bg, half3{0, 0, 0})
-            .setLayer(bg, 0)
-            .apply();
 
     BLASTBufferQueueHelper adapter(mSurfaceControl, bufferSideLength, bufferSideLength);
     sp<IGraphicBufferProducer> igbProducer;
@@ -553,9 +661,11 @@ TEST_F(BLASTBufferQueueTest, SetCrop_ScalingModeScaleCrop) {
     igbProducer->queueBuffer(slot, input, &qbOutput);
     ASSERT_NE(ui::Transform::ROT_INVALID, qbOutput.transformHint);
 
-    adapter.waitForCallbacks();
+    // ensure the buffer queue transaction has been committed
+    Transaction().apply(true /* synchronous */);
+
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(checkScreenCapture(r, g, b,
                                                {10, 10, (int32_t)bufferSideLength - 10,
                                                 (int32_t)bufferSideLength - 10}));
@@ -566,17 +676,6 @@ TEST_F(BLASTBufferQueueTest, SetCrop_ScalingModeScaleCrop) {
 }
 
 TEST_F(BLASTBufferQueueTest, ScaleCroppedBufferToBufferSize) {
-    // add black background
-    auto bg = mClient->createSurface(String8("BGTest"), 0, 0, PIXEL_FORMAT_RGBA_8888,
-                                     ISurfaceComposerClient::eFXSurfaceEffect);
-    ASSERT_NE(nullptr, bg.get());
-    Transaction t;
-    t.setLayerStack(bg, 0)
-            .setCrop(bg, Rect(0, 0, mDisplayWidth, mDisplayHeight))
-            .setColor(bg, half3{0, 0, 0})
-            .setLayer(bg, 0)
-            .apply();
-
     Rect windowSize(1000, 1000);
     Rect bufferSize(windowSize);
     Rect bufferCrop(200, 200, 700, 700);
@@ -616,9 +715,10 @@ TEST_F(BLASTBufferQueueTest, ScaleCroppedBufferToBufferSize) {
     igbProducer->queueBuffer(slot, input, &qbOutput);
     ASSERT_NE(ui::Transform::ROT_INVALID, qbOutput.transformHint);
 
-    adapter.waitForCallbacks();
+    // ensure the buffer queue transaction has been committed
+    Transaction().apply(true /* synchronous */);
 
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
 
     // Verify cropped region is scaled correctly.
     ASSERT_NO_FATAL_FAILURE(checkScreenCapture(255, 0, 0, {10, 10, 490, 490}));
@@ -633,17 +733,6 @@ TEST_F(BLASTBufferQueueTest, ScaleCroppedBufferToBufferSize) {
 }
 
 TEST_F(BLASTBufferQueueTest, ScaleCroppedBufferToWindowSize) {
-    // add black background
-    auto bg = mClient->createSurface(String8("BGTest"), 0, 0, PIXEL_FORMAT_RGBA_8888,
-                                     ISurfaceComposerClient::eFXSurfaceEffect);
-    ASSERT_NE(nullptr, bg.get());
-    Transaction t;
-    t.setLayerStack(bg, 0)
-            .setCrop(bg, Rect(0, 0, mDisplayWidth, mDisplayHeight))
-            .setColor(bg, half3{0, 0, 0})
-            .setLayer(bg, 0)
-            .apply();
-
     Rect windowSize(1000, 1000);
     Rect bufferSize(500, 500);
     Rect bufferCrop(100, 100, 350, 350);
@@ -683,9 +772,10 @@ TEST_F(BLASTBufferQueueTest, ScaleCroppedBufferToWindowSize) {
     igbProducer->queueBuffer(slot, input, &qbOutput);
     ASSERT_NE(ui::Transform::ROT_INVALID, qbOutput.transformHint);
 
-    adapter.waitForCallbacks();
+    // ensure the buffer queue transaction has been committed
+    Transaction().apply(true /* synchronous */);
 
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     // Verify cropped region is scaled correctly.
     ASSERT_NO_FATAL_FAILURE(checkScreenCapture(255, 0, 0, {10, 10, 490, 490}));
     ASSERT_NO_FATAL_FAILURE(checkScreenCapture(0, 255, 0, {10, 510, 490, 990}));
@@ -730,10 +820,12 @@ TEST_F(BLASTBufferQueueTest, ScalingModeChanges) {
                                                        NATIVE_WINDOW_SCALING_MODE_FREEZE, 0,
                                                        Fence::NO_FENCE);
         igbProducer->queueBuffer(slot, input, &qbOutput);
-        adapter.waitForCallbacks();
+
+        // ensure the buffer queue transaction has been committed
+        Transaction().apply(true /* synchronous */);
     }
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
 
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b,
@@ -765,10 +857,11 @@ TEST_F(BLASTBufferQueueTest, ScalingModeChanges) {
                                                        NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW,
                                                        0, Fence::NO_FENCE);
         igbProducer->queueBuffer(slot, input, &qbOutput);
-        adapter.waitForCallbacks();
+        // ensure the buffer queue transaction has been committed
+        Transaction().apply(true /* synchronous */);
     }
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     // verify we still scale the buffer to the new size (half the screen height)
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b,
@@ -785,8 +878,8 @@ TEST_F(BLASTBufferQueueTest, SyncThenNoSync) {
     sp<IGraphicBufferProducer> igbProducer;
     setUpProducer(adapter, igbProducer);
 
-    Transaction next;
-    adapter.setNextTransaction(&next);
+    Transaction sync;
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, 0, 255, 0, 0);
 
     // queue non sync buffer, so this one should get blocked
@@ -795,20 +888,20 @@ TEST_F(BLASTBufferQueueTest, SyncThenNoSync) {
     queueBuffer(igbProducer, r, g, b, presentTimeDelay);
 
     CallbackHelper transactionCallback;
-    next.addTransactionCompletedCallback(transactionCallback.function,
+    sync.addTransactionCompletedCallback(transactionCallback.function,
                                          transactionCallback.getContext())
             .apply();
 
     CallbackData callbackData;
     transactionCallback.getCallbackData(&callbackData);
 
-    // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    // capture screen and verify that it is green
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(0, 255, 0, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
 
     mProducerListener->waitOnNumberReleased(1);
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
 }
@@ -825,16 +918,16 @@ TEST_F(BLASTBufferQueueTest, MultipleSyncTransactions) {
 
     Transaction mainTransaction;
 
-    Transaction next;
-    adapter.setNextTransaction(&next);
+    Transaction sync;
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, 0, 255, 0, 0);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
 
-    adapter.setNextTransaction(&next);
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, r, g, b, 0);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
     // Expect 1 buffer to be released even before sending to SurfaceFlinger
     mProducerListener->waitOnNumberReleased(1);
 
@@ -848,7 +941,7 @@ TEST_F(BLASTBufferQueueTest, MultipleSyncTransactions) {
     transactionCallback.getCallbackData(&callbackData);
 
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
 }
@@ -865,24 +958,24 @@ TEST_F(BLASTBufferQueueTest, MultipleSyncTransactionWithNonSync) {
 
     Transaction mainTransaction;
 
-    Transaction next;
+    Transaction sync;
     // queue a sync transaction
-    adapter.setNextTransaction(&next);
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, 0, 255, 0, 0);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
 
-    // queue another buffer without setting next transaction
+    // queue another buffer without setting sync transaction
     queueBuffer(igbProducer, 0, 0, 255, 0);
 
     // queue another sync transaction
-    adapter.setNextTransaction(&next);
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, r, g, b, 0);
     // Expect 1 buffer to be released because the non sync transaction should merge
     // with the sync
     mProducerListener->waitOnNumberReleased(1);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
     // Expect 2 buffers to be released due to merging the two syncs.
     mProducerListener->waitOnNumberReleased(2);
 
@@ -896,7 +989,7 @@ TEST_F(BLASTBufferQueueTest, MultipleSyncTransactionWithNonSync) {
     transactionCallback.getCallbackData(&callbackData);
 
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
 }
@@ -913,26 +1006,26 @@ TEST_F(BLASTBufferQueueTest, MultipleSyncRunOutOfBuffers) {
 
     Transaction mainTransaction;
 
-    Transaction next;
+    Transaction sync;
     // queue a sync transaction
-    adapter.setNextTransaction(&next);
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, 0, 255, 0, 0);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
 
-    // queue a few buffers without setting next transaction
+    // queue a few buffers without setting sync transaction
     queueBuffer(igbProducer, 0, 0, 255, 0);
     queueBuffer(igbProducer, 0, 0, 255, 0);
     queueBuffer(igbProducer, 0, 0, 255, 0);
 
     // queue another sync transaction
-    adapter.setNextTransaction(&next);
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, r, g, b, 0);
     // Expect 3 buffers to be released because the non sync transactions should merge
     // with the sync
     mProducerListener->waitOnNumberReleased(3);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
     // Expect 4 buffers to be released due to merging the two syncs.
     mProducerListener->waitOnNumberReleased(4);
 
@@ -946,7 +1039,7 @@ TEST_F(BLASTBufferQueueTest, MultipleSyncRunOutOfBuffers) {
     transactionCallback.getCallbackData(&callbackData);
 
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
 }
@@ -970,14 +1063,14 @@ TEST_F(BLASTBufferQueueTest, RunOutOfBuffersWaitingOnSF) {
     // Send a buffer to SF
     queueBuffer(igbProducer, 0, 255, 0, 0);
 
-    Transaction next;
+    Transaction sync;
     // queue a sync transaction
-    adapter.setNextTransaction(&next);
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, 0, 255, 0, 0);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
 
-    // queue a few buffers without setting next transaction
+    // queue a few buffers without setting sync transaction
     queueBuffer(igbProducer, 0, 0, 255, 0);
     queueBuffer(igbProducer, 0, 0, 255, 0);
     queueBuffer(igbProducer, 0, 0, 255, 0);
@@ -986,13 +1079,13 @@ TEST_F(BLASTBufferQueueTest, RunOutOfBuffersWaitingOnSF) {
     mainTransaction.apply();
 
     // queue another sync transaction
-    adapter.setNextTransaction(&next);
+    adapter.setSyncTransaction(sync);
     queueBuffer(igbProducer, r, g, b, 0);
     // Expect 2 buffers to be released because the non sync transactions should merge
     // with the sync
     mProducerListener->waitOnNumberReleased(3);
 
-    mainTransaction.merge(std::move(next));
+    mainTransaction.merge(std::move(sync));
 
     CallbackHelper transactionCallback;
     mainTransaction
@@ -1004,9 +1097,233 @@ TEST_F(BLASTBufferQueueTest, RunOutOfBuffersWaitingOnSF) {
     transactionCallback.getCallbackData(&callbackData);
 
     // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
     ASSERT_NO_FATAL_FAILURE(
             checkScreenCapture(r, g, b, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
+}
+
+TEST_F(BLASTBufferQueueTest, SyncNextTransactionAcquireMultipleBuffers) {
+    BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+
+    sp<IGraphicBufferProducer> igbProducer;
+    setUpProducer(adapter, igbProducer);
+
+    Transaction next;
+    adapter.setSyncTransaction(next, false);
+    queueBuffer(igbProducer, 0, 255, 0, 0);
+    queueBuffer(igbProducer, 0, 0, 255, 0);
+    // There should only be one frame submitted since the first frame will be released.
+    adapter.validateNumFramesSubmitted(1);
+    adapter.stopContinuousSyncTransaction();
+
+    // queue non sync buffer, so this one should get blocked
+    // Add a present delay to allow the first screenshot to get taken.
+    nsecs_t presentTimeDelay = std::chrono::nanoseconds(500ms).count();
+    queueBuffer(igbProducer, 255, 0, 0, presentTimeDelay);
+
+    CallbackHelper transactionCallback;
+    next.addTransactionCompletedCallback(transactionCallback.function,
+                                         transactionCallback.getContext())
+            .apply();
+
+    CallbackData callbackData;
+    transactionCallback.getCallbackData(&callbackData);
+
+    // capture screen and verify that it is blue
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
+    ASSERT_NO_FATAL_FAILURE(
+            checkScreenCapture(0, 0, 255, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
+
+    mProducerListener->waitOnNumberReleased(2);
+    // capture screen and verify that it is red
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
+    ASSERT_NO_FATAL_FAILURE(
+            checkScreenCapture(255, 0, 0, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
+}
+
+TEST_F(BLASTBufferQueueTest, SyncNextTransactionOverwrite) {
+    std::mutex mutex;
+    std::condition_variable callbackReceivedCv;
+    bool receivedCallback = false;
+
+    BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+    ASSERT_EQ(nullptr, adapter.getTransactionReadyCallback());
+    auto callback = [&](Transaction*) {
+        std::unique_lock<std::mutex> lock(mutex);
+        receivedCallback = true;
+        callbackReceivedCv.notify_one();
+    };
+    adapter.syncNextTransaction(callback);
+    ASSERT_NE(nullptr, adapter.getTransactionReadyCallback());
+
+    auto callback2 = [](Transaction*) {};
+    ASSERT_FALSE(adapter.syncNextTransaction(callback2));
+
+    sp<IGraphicBufferProducer> igbProducer;
+    setUpProducer(adapter, igbProducer);
+    queueBuffer(igbProducer, 0, 255, 0, 0);
+
+    std::unique_lock<std::mutex> lock(mutex);
+    if (!receivedCallback) {
+        ASSERT_NE(callbackReceivedCv.wait_for(lock, std::chrono::seconds(3)),
+                  std::cv_status::timeout)
+                << "did not receive callback";
+    }
+
+    ASSERT_TRUE(receivedCallback);
+}
+
+TEST_F(BLASTBufferQueueTest, ClearSyncTransaction) {
+    std::mutex mutex;
+    std::condition_variable callbackReceivedCv;
+    bool receivedCallback = false;
+
+    BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+    ASSERT_EQ(nullptr, adapter.getTransactionReadyCallback());
+    auto callback = [&](Transaction*) {
+        std::unique_lock<std::mutex> lock(mutex);
+        receivedCallback = true;
+        callbackReceivedCv.notify_one();
+    };
+    adapter.syncNextTransaction(callback);
+    ASSERT_NE(nullptr, adapter.getTransactionReadyCallback());
+
+    adapter.clearSyncTransaction();
+
+    sp<IGraphicBufferProducer> igbProducer;
+    setUpProducer(adapter, igbProducer);
+    queueBuffer(igbProducer, 0, 255, 0, 0);
+
+    std::unique_lock<std::mutex> lock(mutex);
+    if (!receivedCallback) {
+        ASSERT_EQ(callbackReceivedCv.wait_for(lock, std::chrono::seconds(3)),
+                  std::cv_status::timeout)
+                << "did not receive callback";
+    }
+
+    ASSERT_FALSE(receivedCallback);
+}
+
+TEST_F(BLASTBufferQueueTest, SyncNextTransactionDropBuffer) {
+    uint8_t r = 255;
+    uint8_t g = 0;
+    uint8_t b = 0;
+
+    BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+
+    sp<IGraphicBufferProducer> igbProducer;
+    setUpProducer(adapter, igbProducer);
+
+    Transaction sync;
+    adapter.setSyncTransaction(sync);
+    queueBuffer(igbProducer, 0, 255, 0, 0);
+
+    // Merge a transaction that has a complete callback into the next frame so we can get notified
+    // when to take a screenshot
+    CallbackHelper transactionCallback;
+    Transaction t;
+    t.addTransactionCompletedCallback(transactionCallback.function,
+                                      transactionCallback.getContext());
+    adapter.mergeWithNextTransaction(&t, 2);
+    queueBuffer(igbProducer, r, g, b, 0);
+
+    // Drop the buffer, but ensure the next one continues to get processed.
+    sync.setBuffer(mSurfaceControl, nullptr);
+
+    CallbackData callbackData;
+    transactionCallback.getCallbackData(&callbackData);
+    ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
+    ASSERT_NO_FATAL_FAILURE(
+            checkScreenCapture(r, g, b, {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
+    sync.apply();
+}
+
+// This test will currently fail because the old surfacecontrol will steal the last presented buffer
+// until the old surface control is destroyed. This is not necessarily a bug but to document a
+// limitation with the update API and to test any changes to make the api more robust. The current
+// approach for the client is to recreate the blastbufferqueue when the surfacecontrol updates.
+TEST_F(BLASTBufferQueueTest, DISABLED_DisconnectProducerTest) {
+    BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+    std::vector<sp<SurfaceControl>> surfaceControls;
+    sp<IGraphicBufferProducer> igbProducer;
+    for (int i = 0; i < 10; i++) {
+        sp<SurfaceControl> sc =
+                mClient->createSurface(String8("TestSurface"), mDisplayWidth, mDisplayHeight,
+                                       PIXEL_FORMAT_RGBA_8888,
+                                       ISurfaceComposerClient::eFXSurfaceBufferState,
+                                       /*parent*/ mRootSurfaceControl->getHandle());
+        Transaction()
+                .setLayerStack(mSurfaceControl, ui::DEFAULT_LAYER_STACK)
+                .setLayer(mSurfaceControl, std::numeric_limits<int32_t>::max())
+                .show(mSurfaceControl)
+                .setDataspace(mSurfaceControl, ui::Dataspace::V0_SRGB)
+                .apply(true);
+        surfaceControls.push_back(sc);
+        adapter.update(sc, mDisplayWidth, mDisplayHeight);
+
+        setUpProducer(adapter, igbProducer);
+        Transaction next;
+        queueBuffer(igbProducer, 0, 255, 0, 0);
+        queueBuffer(igbProducer, 0, 0, 255, 0);
+        adapter.setSyncTransaction(next, true);
+        queueBuffer(igbProducer, 255, 0, 0, 0);
+
+        CallbackHelper transactionCallback;
+        next.addTransactionCompletedCallback(transactionCallback.function,
+                                             transactionCallback.getContext())
+                .apply();
+
+        CallbackData callbackData;
+        transactionCallback.getCallbackData(&callbackData);
+        // capture screen and verify that it is red
+        ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
+        ASSERT_NO_FATAL_FAILURE(
+                checkScreenCapture(255, 0, 0,
+                                   {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
+        igbProducer->disconnect(NATIVE_WINDOW_API_CPU);
+    }
+}
+
+// See DISABLED_DisconnectProducerTest
+TEST_F(BLASTBufferQueueTest, DISABLED_UpdateSurfaceControlTest) {
+    BLASTBufferQueueHelper adapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+    std::vector<sp<SurfaceControl>> surfaceControls;
+    sp<IGraphicBufferProducer> igbProducer;
+    for (int i = 0; i < 10; i++) {
+        sp<SurfaceControl> sc =
+                mClient->createSurface(String8("TestSurface"), mDisplayWidth, mDisplayHeight,
+                                       PIXEL_FORMAT_RGBA_8888,
+                                       ISurfaceComposerClient::eFXSurfaceBufferState,
+                                       /*parent*/ mRootSurfaceControl->getHandle());
+        Transaction()
+                .setLayerStack(mSurfaceControl, ui::DEFAULT_LAYER_STACK)
+                .setLayer(mSurfaceControl, std::numeric_limits<int32_t>::max())
+                .show(mSurfaceControl)
+                .setDataspace(mSurfaceControl, ui::Dataspace::V0_SRGB)
+                .apply(true);
+        surfaceControls.push_back(sc);
+        adapter.update(sc, mDisplayWidth, mDisplayHeight);
+        setUpProducer(adapter, igbProducer);
+
+        Transaction next;
+        queueBuffer(igbProducer, 0, 255, 0, 0);
+        queueBuffer(igbProducer, 0, 0, 255, 0);
+        adapter.setSyncTransaction(next, true);
+        queueBuffer(igbProducer, 255, 0, 0, 0);
+
+        CallbackHelper transactionCallback;
+        next.addTransactionCompletedCallback(transactionCallback.function,
+                                             transactionCallback.getContext())
+                .apply();
+
+        CallbackData callbackData;
+        transactionCallback.getCallbackData(&callbackData);
+        // capture screen and verify that it is red
+        ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
+        ASSERT_NO_FATAL_FAILURE(
+                checkScreenCapture(255, 0, 0,
+                                   {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight}));
+    }
 }
 
 class TestProducerListener : public BnProducerListener {
@@ -1018,6 +1335,20 @@ public:
         sp<Fence> fence;
         mIgbp->detachNextBuffer(&buffer, &fence);
     }
+};
+
+class TestSurfaceListener : public SurfaceListener {
+public:
+    sp<IGraphicBufferProducer> mIgbp;
+    TestSurfaceListener(const sp<IGraphicBufferProducer>& igbp) : mIgbp(igbp) {}
+    void onBufferReleased() override {
+        sp<GraphicBuffer> buffer;
+        sp<Fence> fence;
+        mIgbp->detachNextBuffer(&buffer, &fence);
+    }
+    bool needsReleaseNotify() override { return true; }
+    void onBuffersDiscarded(const std::vector<sp<GraphicBuffer>>& /*buffers*/) override {}
+    void onBufferDetached(int /*slot*/) {}
 };
 
 TEST_F(BLASTBufferQueueTest, CustomProducerListener) {
@@ -1062,43 +1393,6 @@ TEST_F(BLASTBufferQueueTest, QueryNativeWindowQueuesToWindowComposer) {
     ASSERT_EQ(queuesToNativeWindow, 1);
 }
 
-// Test a slow producer doesn't hold up a faster producer from the same client. Essentially tests
-// BBQ uses separate transaction queues.
-TEST_F(BLASTBufferQueueTest, OutOfOrderTransactionTest) {
-    sp<SurfaceControl> bgSurface =
-            mClient->createSurface(String8("BGTest"), 0, 0, PIXEL_FORMAT_RGBA_8888,
-                                   ISurfaceComposerClient::eFXSurfaceBufferState);
-    ASSERT_NE(nullptr, bgSurface.get());
-    Transaction t;
-    t.setLayerStack(bgSurface, 0)
-            .show(bgSurface)
-            .setDataspace(bgSurface, ui::Dataspace::V0_SRGB)
-            .setLayer(bgSurface, std::numeric_limits<int32_t>::max() - 1)
-            .apply();
-
-    BLASTBufferQueueHelper slowAdapter(mSurfaceControl, mDisplayWidth, mDisplayHeight);
-    sp<IGraphicBufferProducer> slowIgbProducer;
-    setUpProducer(slowAdapter, slowIgbProducer);
-    nsecs_t presentTimeDelay = std::chrono::nanoseconds(500ms).count();
-    queueBuffer(slowIgbProducer, 0 /* r */, 255 /* g */, 0 /* b */, presentTimeDelay);
-
-    BLASTBufferQueueHelper fastAdapter(bgSurface, mDisplayWidth, mDisplayHeight);
-    sp<IGraphicBufferProducer> fastIgbProducer;
-    setUpProducer(fastAdapter, fastIgbProducer);
-    uint8_t r = 255;
-    uint8_t g = 0;
-    uint8_t b = 0;
-    queueBuffer(fastIgbProducer, r, g, b, 0 /* presentTimeDelay */);
-    fastAdapter.waitForCallbacks();
-
-    // capture screen and verify that it is red
-    ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
-
-    ASSERT_NO_FATAL_FAILURE(
-            checkScreenCapture(r, g, b,
-                               {0, 0, (int32_t)mDisplayWidth, (int32_t)mDisplayHeight / 2}));
-}
-
 TEST_F(BLASTBufferQueueTest, TransformHint) {
     // Transform hint is provided to BBQ via the surface control passed by WM
     mSurfaceControl->setTransformHint(ui::Transform::ROT_90);
@@ -1112,14 +1406,14 @@ TEST_F(BLASTBufferQueueTest, TransformHint) {
     // Before connecting to the surface, we do not get a valid transform hint
     int transformHint;
     surface->query(NATIVE_WINDOW_TRANSFORM_HINT, &transformHint);
-    ASSERT_EQ(ui::Transform::ROT_0, transformHint);
+    ASSERT_EQ(ui::Transform::ROT_0, static_cast<ui::Transform::RotationFlags>(transformHint));
 
     ASSERT_EQ(NO_ERROR,
-              surface->connect(NATIVE_WINDOW_API_CPU, new TestProducerListener(igbProducer)));
+              surface->connect(NATIVE_WINDOW_API_CPU, new TestSurfaceListener(igbProducer)));
 
     // After connecting to the surface, we should get the correct hint.
     surface->query(NATIVE_WINDOW_TRANSFORM_HINT, &transformHint);
-    ASSERT_EQ(ui::Transform::ROT_90, transformHint);
+    ASSERT_EQ(ui::Transform::ROT_90, static_cast<ui::Transform::RotationFlags>(transformHint));
 
     ANativeWindow_Buffer buffer;
     surface->lock(&buffer, nullptr /* inOutDirtyBounds */);
@@ -1130,13 +1424,13 @@ TEST_F(BLASTBufferQueueTest, TransformHint) {
 
     // The hint does not change and matches the value used when dequeueing the buffer.
     surface->query(NATIVE_WINDOW_TRANSFORM_HINT, &transformHint);
-    ASSERT_EQ(ui::Transform::ROT_90, transformHint);
+    ASSERT_EQ(ui::Transform::ROT_90, static_cast<ui::Transform::RotationFlags>(transformHint));
 
     surface->unlockAndPost();
 
     // After queuing the buffer, we get the updated transform hint
     surface->query(NATIVE_WINDOW_TRANSFORM_HINT, &transformHint);
-    ASSERT_EQ(ui::Transform::ROT_0, transformHint);
+    ASSERT_EQ(ui::Transform::ROT_0, static_cast<ui::Transform::RotationFlags>(transformHint));
 
     adapter.waitForCallbacks();
 }
@@ -1171,8 +1465,8 @@ public:
         igbProducer->queueBuffer(slot, input, &qbOutput);
         ASSERT_NE(ui::Transform::ROT_INVALID, qbOutput.transformHint);
 
-        adapter.waitForCallbacks();
-        ASSERT_EQ(NO_ERROR, captureDisplay(mCaptureArgs, mCaptureResults));
+        Transaction().apply(true /* synchronous */);
+        ASSERT_EQ(NO_ERROR, ScreenCapture::captureLayers(mCaptureArgs, mCaptureResults));
 
         switch (tr) {
             case ui::Transform::ROT_0:
@@ -1366,14 +1660,13 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_Basic) {
     IGraphicBufferProducer::QueueBufferOutput qbOutput;
     nsecs_t requestedPresentTimeA = 0;
     nsecs_t postedTimeA = 0;
-    adapter.setTransactionCompleteCallback(1);
     setUpAndQueueBuffer(igbProducer, &requestedPresentTimeA, &postedTimeA, &qbOutput, true);
     history.applyDelta(qbOutput.frameTimestamps);
 
     FrameEvents* events = nullptr;
     events = history.getFrame(1);
     ASSERT_NE(nullptr, events);
-    ASSERT_EQ(1, events->frameNumber);
+    ASSERT_EQ(1u, events->frameNumber);
     ASSERT_EQ(requestedPresentTimeA, events->requestedPresentTime);
     ASSERT_GE(events->postedTime, postedTimeA);
 
@@ -1384,16 +1677,21 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_Basic) {
     nsecs_t postedTimeB = 0;
     setUpAndQueueBuffer(igbProducer, &requestedPresentTimeB, &postedTimeB, &qbOutput, true);
     history.applyDelta(qbOutput.frameTimestamps);
+
+    adapter.waitForCallback(2);
+
     events = history.getFrame(1);
     ASSERT_NE(nullptr, events);
 
     // frame number, requestedPresentTime, and postTime should not have changed
-    ASSERT_EQ(1, events->frameNumber);
+    ASSERT_EQ(1u, events->frameNumber);
     ASSERT_EQ(requestedPresentTimeA, events->requestedPresentTime);
     ASSERT_GE(events->postedTime, postedTimeA);
 
     ASSERT_GE(events->latchTime, postedTimeA);
-    ASSERT_GE(events->dequeueReadyTime, events->latchTime);
+    if (flags::frametimestamps_previousrelease()) {
+        ASSERT_EQ(events->dequeueReadyTime, FrameEvents::TIMESTAMP_PENDING);
+    }
     ASSERT_NE(nullptr, events->gpuCompositionDoneFence);
     ASSERT_NE(nullptr, events->displayPresentFence);
     ASSERT_NE(nullptr, events->releaseFence);
@@ -1401,9 +1699,53 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_Basic) {
     // we should also have gotten the initial values for the next frame
     events = history.getFrame(2);
     ASSERT_NE(nullptr, events);
-    ASSERT_EQ(2, events->frameNumber);
+    ASSERT_EQ(2u, events->frameNumber);
     ASSERT_EQ(requestedPresentTimeB, events->requestedPresentTime);
     ASSERT_GE(events->postedTime, postedTimeB);
+
+    // Now do the same as above with a third buffer, so that timings related to
+    // buffer releases make it back to the first frame.
+    nsecs_t requestedPresentTimeC = 0;
+    nsecs_t postedTimeC = 0;
+    setUpAndQueueBuffer(igbProducer, &requestedPresentTimeC, &postedTimeC, &qbOutput, true);
+    history.applyDelta(qbOutput.frameTimestamps);
+
+    adapter.waitForCallback(3);
+
+    // Check the first frame...
+    events = history.getFrame(1);
+    ASSERT_NE(nullptr, events);
+    ASSERT_EQ(1u, events->frameNumber);
+    ASSERT_EQ(requestedPresentTimeA, events->requestedPresentTime);
+    ASSERT_GE(events->postedTime, postedTimeA);
+    ASSERT_GE(events->latchTime, postedTimeA);
+    // Now dequeueReadyTime is valid, because the release timings finally
+    // propaged to queueBuffer()
+    ASSERT_GE(events->dequeueReadyTime, events->latchTime);
+    ASSERT_NE(nullptr, events->gpuCompositionDoneFence);
+    ASSERT_NE(nullptr, events->displayPresentFence);
+    ASSERT_NE(nullptr, events->releaseFence);
+
+    // ...and the second
+    events = history.getFrame(2);
+    ASSERT_NE(nullptr, events);
+    ASSERT_EQ(2u, events->frameNumber);
+    ASSERT_EQ(requestedPresentTimeB, events->requestedPresentTime);
+    ASSERT_GE(events->postedTime, postedTimeB);
+    ASSERT_GE(events->latchTime, postedTimeB);
+    if (flags::frametimestamps_previousrelease()) {
+        ASSERT_EQ(events->dequeueReadyTime, FrameEvents::TIMESTAMP_PENDING);
+    }
+    ASSERT_NE(nullptr, events->gpuCompositionDoneFence);
+    ASSERT_NE(nullptr, events->displayPresentFence);
+    ASSERT_NE(nullptr, events->releaseFence);
+
+    // ...and finally the third!
+    events = history.getFrame(3);
+    ASSERT_NE(nullptr, events);
+    ASSERT_EQ(3u, events->frameNumber);
+    ASSERT_EQ(requestedPresentTimeC, events->requestedPresentTime);
+    ASSERT_GE(events->postedTime, postedTimeC);
 
     // wait for any callbacks that have not been received
     adapter.waitForCallbacks();
@@ -1428,14 +1770,13 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_DroppedFrame) {
     FrameEvents* events = nullptr;
     events = history.getFrame(1);
     ASSERT_NE(nullptr, events);
-    ASSERT_EQ(1, events->frameNumber);
+    ASSERT_EQ(1u, events->frameNumber);
     ASSERT_EQ(requestedPresentTimeA, events->requestedPresentTime);
     ASSERT_GE(events->postedTime, postedTimeA);
 
     // queue another buffer so the first can be dropped
     nsecs_t requestedPresentTimeB = 0;
     nsecs_t postedTimeB = 0;
-    adapter.setTransactionCompleteCallback(2);
     presentTime = systemTime() + std::chrono::nanoseconds(1ms).count();
     setUpAndQueueBuffer(igbProducer, &requestedPresentTimeB, &postedTimeB, &qbOutput, true,
                         presentTime);
@@ -1444,7 +1785,7 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_DroppedFrame) {
     ASSERT_NE(nullptr, events);
 
     // frame number, requestedPresentTime, and postTime should not have changed
-    ASSERT_EQ(1, events->frameNumber);
+    ASSERT_EQ(1u, events->frameNumber);
     ASSERT_EQ(requestedPresentTimeA, events->requestedPresentTime);
     ASSERT_GE(events->postedTime, postedTimeA);
 
@@ -1464,8 +1805,10 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_DroppedFrame) {
     setUpAndQueueBuffer(igbProducer, &requestedPresentTimeC, &postedTimeC, &qbOutput, true);
     history.applyDelta(qbOutput.frameTimestamps);
 
+    adapter.waitForCallback(3);
+
     // frame number, requestedPresentTime, and postTime should not have changed
-    ASSERT_EQ(1, events->frameNumber);
+    ASSERT_EQ(1u, events->frameNumber);
     ASSERT_EQ(requestedPresentTimeA, events->requestedPresentTime);
     ASSERT_GE(events->postedTime, postedTimeA);
 
@@ -1479,7 +1822,43 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_DroppedFrame) {
     // we should also have gotten values for the presented frame
     events = history.getFrame(2);
     ASSERT_NE(nullptr, events);
-    ASSERT_EQ(2, events->frameNumber);
+    ASSERT_EQ(2u, events->frameNumber);
+    ASSERT_EQ(requestedPresentTimeB, events->requestedPresentTime);
+    ASSERT_GE(events->postedTime, postedTimeB);
+    ASSERT_GE(events->latchTime, postedTimeB);
+
+    if (flags::frametimestamps_previousrelease()) {
+        ASSERT_EQ(events->dequeueReadyTime, FrameEvents::TIMESTAMP_PENDING);
+    }
+    ASSERT_NE(nullptr, events->gpuCompositionDoneFence);
+    ASSERT_NE(nullptr, events->displayPresentFence);
+    ASSERT_NE(nullptr, events->releaseFence);
+
+    // Queue another buffer to check for timestamps that came late
+    nsecs_t requestedPresentTimeD = 0;
+    nsecs_t postedTimeD = 0;
+    setUpAndQueueBuffer(igbProducer, &requestedPresentTimeD, &postedTimeD, &qbOutput, true);
+    history.applyDelta(qbOutput.frameTimestamps);
+
+    adapter.waitForCallback(4);
+
+    // frame number, requestedPresentTime, and postTime should not have changed
+    events = history.getFrame(1);
+    ASSERT_EQ(1u, events->frameNumber);
+    ASSERT_EQ(requestedPresentTimeA, events->requestedPresentTime);
+    ASSERT_GE(events->postedTime, postedTimeA);
+
+    // a valid latchtime and pre and post composition info should not be set for the dropped frame
+    ASSERT_FALSE(events->hasLatchInfo());
+    ASSERT_FALSE(events->hasDequeueReadyInfo());
+    ASSERT_FALSE(events->hasGpuCompositionDoneInfo());
+    ASSERT_FALSE(events->hasDisplayPresentInfo());
+    ASSERT_FALSE(events->hasReleaseInfo());
+
+    // we should also have gotten values for the presented frame
+    events = history.getFrame(2);
+    ASSERT_NE(nullptr, events);
+    ASSERT_EQ(2u, events->frameNumber);
     ASSERT_EQ(requestedPresentTimeB, events->requestedPresentTime);
     ASSERT_GE(events->postedTime, postedTimeB);
     ASSERT_GE(events->latchTime, postedTimeB);
@@ -1501,7 +1880,6 @@ TEST_F(BLASTFrameEventHistoryTest, FrameEventHistory_CompositorTimings) {
     IGraphicBufferProducer::QueueBufferOutput qbOutput;
     nsecs_t requestedPresentTimeA = 0;
     nsecs_t postedTimeA = 0;
-    adapter.setTransactionCompleteCallback(1);
     setUpAndQueueBuffer(igbProducer, &requestedPresentTimeA, &postedTimeA, &qbOutput, true);
     history.applyDelta(qbOutput.frameTimestamps);
     adapter.waitForCallback(1);

@@ -18,6 +18,7 @@
 
 #include <android-base/stringprintf.h>
 #include <android/native_window.h>
+#include <common/trace.h>
 #include <compositionengine/CompositionEngine.h>
 #include <compositionengine/Display.h>
 #include <compositionengine/DisplaySurface.h>
@@ -28,10 +29,10 @@
 #include <log/log.h>
 #include <renderengine/ExternalTexture.h>
 #include <renderengine/RenderEngine.h>
+#include <renderengine/impl/ExternalTexture.h>
 #include <system/window.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/Rect.h>
-#include <utils/Trace.h>
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic push
@@ -127,19 +128,18 @@ status_t RenderSurface::beginFrame(bool mustRecompose) {
 }
 
 void RenderSurface::prepareFrame(bool usesClientComposition, bool usesDeviceComposition) {
-    DisplaySurface::CompositionType compositionType;
-    if (usesClientComposition && usesDeviceComposition) {
-        compositionType = DisplaySurface::COMPOSITION_MIXED;
-    } else if (usesClientComposition) {
-        compositionType = DisplaySurface::COMPOSITION_GPU;
-    } else if (usesDeviceComposition) {
-        compositionType = DisplaySurface::COMPOSITION_HWC;
-    } else {
+    const auto compositionType = [=] {
+        using CompositionType = DisplaySurface::CompositionType;
+
+        if (usesClientComposition && usesDeviceComposition) return CompositionType::Mixed;
+        if (usesClientComposition) return CompositionType::Gpu;
+        if (usesDeviceComposition) return CompositionType::Hwc;
+
         // Nothing to do -- when turning the screen off we get a frame like
         // this. Call it a HWC frame since we won't be doing any GPU work but
         // will do a prepare/set cycle.
-        compositionType = DisplaySurface::COMPOSITION_HWC;
-    }
+        return CompositionType::Hwc;
+    }();
 
     if (status_t result = mDisplaySurface->prepareFrame(compositionType); result != NO_ERROR) {
         ALOGE("updateCompositionType failed for %s: %d (%s)", mDisplay.getName().c_str(), result,
@@ -149,7 +149,7 @@ void RenderSurface::prepareFrame(bool usesClientComposition, bool usesDeviceComp
 
 std::shared_ptr<renderengine::ExternalTexture> RenderSurface::dequeueBuffer(
         base::unique_fd* bufferFence) {
-    ATRACE_CALL();
+    SFTRACE_CALL();
     int fd = -1;
     ANativeWindowBuffer* buffer = nullptr;
 
@@ -183,9 +183,10 @@ std::shared_ptr<renderengine::ExternalTexture> RenderSurface::dequeueBuffer(
         mTexture = texture;
     } else {
         mTexture = std::make_shared<
-                renderengine::ExternalTexture>(GraphicBuffer::from(buffer),
-                                               mCompositionEngine.getRenderEngine(),
-                                               renderengine::ExternalTexture::Usage::WRITEABLE);
+                renderengine::impl::ExternalTexture>(GraphicBuffer::from(buffer),
+                                                     mCompositionEngine.getRenderEngine(),
+                                                     renderengine::impl::ExternalTexture::Usage::
+                                                             WRITEABLE);
     }
     mTextureCache.push_back(mTexture);
     if (mTextureCache.size() > mMaxTextureCacheSize) {
@@ -197,7 +198,7 @@ std::shared_ptr<renderengine::ExternalTexture> RenderSurface::dequeueBuffer(
     return mTexture;
 }
 
-void RenderSurface::queueBuffer(base::unique_fd readyFence) {
+void RenderSurface::queueBuffer(base::unique_fd readyFence, float hdrSdrRatio) {
     auto& state = mDisplay.getState();
 
     if (state.usesClientComposition || state.flipClientTarget) {
@@ -240,7 +241,7 @@ void RenderSurface::queueBuffer(base::unique_fd readyFence) {
         }
     }
 
-    status_t result = mDisplaySurface->advanceFrame();
+    status_t result = mDisplaySurface->advanceFrame(hdrSdrRatio);
     if (result != NO_ERROR) {
         ALOGE("[%s] failed pushing new frame to HWC: %d", mDisplay.getName().c_str(), result);
     }
@@ -248,10 +249,6 @@ void RenderSurface::queueBuffer(base::unique_fd readyFence) {
 
 void RenderSurface::onPresentDisplayCompleted() {
     mDisplaySurface->onFrameCommitted();
-}
-
-void RenderSurface::flip() {
-    mPageFlipCount++;
 }
 
 void RenderSurface::dump(std::string& out) const {
@@ -264,20 +261,11 @@ void RenderSurface::dump(std::string& out) const {
     dumpVal(out, "size", mSize);
     StringAppendF(&out, "ANativeWindow=%p (format %d) ", mNativeWindow.get(),
                   ANativeWindow_getFormat(mNativeWindow.get()));
-    dumpVal(out, "flips", mPageFlipCount);
     out.append("\n");
 
     String8 surfaceDump;
     mDisplaySurface->dumpAsString(surfaceDump);
     out.append(surfaceDump);
-}
-
-std::uint32_t RenderSurface::getPageFlipCount() const {
-    return mPageFlipCount;
-}
-
-void RenderSurface::setPageFlipCountForTest(std::uint32_t count) {
-    mPageFlipCount = count;
 }
 
 void RenderSurface::setSizeForTest(const ui::Size& size) {
@@ -286,6 +274,10 @@ void RenderSurface::setSizeForTest(const ui::Size& size) {
 
 std::shared_ptr<renderengine::ExternalTexture>& RenderSurface::mutableTextureForTest() {
     return mTexture;
+}
+
+bool RenderSurface::supportsCompositionStrategyPrediction() const {
+    return mDisplaySurface->supportsCompositionStrategyPrediction();
 }
 
 } // namespace impl

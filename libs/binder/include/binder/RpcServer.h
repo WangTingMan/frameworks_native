@@ -15,11 +15,12 @@
  */
 #pragma once
 
-#include <android-base/unique_fd.h>
+#include <binder/Common.h>
 #include <binder/IBinder.h>
 #include <binder/RpcSession.h>
 #include <binder/RpcThreads.h>
 #include <binder/RpcTransport.h>
+#include <binder/unique_fd.h>
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 
@@ -49,8 +50,20 @@ class RpcSocketAddress;
  */
 class LIBBINDER_EXPORT RpcServer final : public virtual RefBase, private RpcSession::EventListener {
 public:
-    static sp<RpcServer> make(
+    LIBBINDER_EXPORTED static sp<RpcServer> make(
             std::unique_ptr<RpcTransportCtxFactory> rpcTransportCtxFactory = nullptr);
+
+    /**
+     * Creates an RPC server that bootstraps sessions using an existing
+     * Unix domain socket pair.
+     *
+     * Callers should create a pair of SOCK_STREAM Unix domain sockets, pass
+     * one to RpcServer::setupUnixDomainSocketBootstrapServer and the other
+     * to RpcSession::setupUnixDomainSocketBootstrapClient. Multiple client
+     * session can be created from the client end of the pair.
+     */
+    [[nodiscard]] LIBBINDER_EXPORTED status_t
+    setupUnixDomainSocketBootstrapServer(binder::unique_fd serverFd);
 
     /**
      * This represents a session for responses, e.g.:
@@ -60,12 +73,26 @@ public:
      *     process B makes binder b and sends it to A
      *     A uses this 'back session' to send things back to B
      */
-    [[nodiscard]] status_t setupUnixDomainServer(const char* path);
+    [[nodiscard]] LIBBINDER_EXPORTED status_t setupUnixDomainServer(const char* path);
 
     /**
-     * Creates an RPC server at the current port.
+     * Sets up an RPC server with a raw socket file descriptor.
+     * The socket should be created and bound to a socket address already, e.g.
+     * the socket can be created in init.rc.
+     *
+     * This method is used in the libbinder_rpc_unstable API
+     * RunInitUnixDomainRpcServer().
      */
-    [[nodiscard]] status_t setupVsockServer(unsigned int port);
+    [[nodiscard]] LIBBINDER_EXPORTED status_t setupRawSocketServer(binder::unique_fd socket_fd);
+
+    /**
+     * Creates an RPC server binding to the given CID at the given port.
+     *
+     * Set |port| to VMADDR_PORT_ANY to pick an ephemeral port. In this case, |assignedPort|
+     * will be set to the picked port number, if it is not null.
+     */
+    [[nodiscard]] LIBBINDER_EXPORTED status_t setupVsockServer(unsigned bindCid, unsigned port,
+                                                               unsigned* assignedPort = nullptr);
 
     /**
      * Creates an RPC server at the current port using IPv4.
@@ -81,42 +108,46 @@ public:
      * "0.0.0.0" allows for connections on any IP address that the device may
      * have
      */
-    [[nodiscard]] status_t setupInetServer(const char* address, unsigned int port,
-                                           unsigned int* assignedPort = nullptr);
+    [[nodiscard]] LIBBINDER_EXPORTED status_t setupInetServer(const char* address,
+                                                              unsigned int port,
+                                                              unsigned int* assignedPort = nullptr);
 
     /**
      * If setup*Server has been successful, return true. Otherwise return false.
      */
-    [[nodiscard]] bool hasServer();
+    [[nodiscard]] LIBBINDER_EXPORTED bool hasServer();
 
     /**
      * If hasServer(), return the server FD. Otherwise return invalid FD.
      */
-    [[nodiscard]] base::unique_fd releaseServer();
+    [[nodiscard]] LIBBINDER_EXPORTED binder::unique_fd releaseServer();
 
     /**
      * Set up server using an external FD previously set up by releaseServer().
      * Return false if there's already a server.
      */
-    [[nodiscard]] status_t setupExternalServer(base::unique_fd serverFd);
+    [[nodiscard]] LIBBINDER_EXPORTED status_t setupExternalServer(binder::unique_fd serverFd);
 
     /**
-     * This must be called before adding a client session.
+     * This must be called before adding a client session. This corresponds
+     * to the number of incoming connections to RpcSession objects in the
+     * server, which will correspond to the number of outgoing connections
+     * in client RpcSession objects.
      *
      * If this is not specified, this will be a single-threaded server.
      *
      * TODO(b/167966510): these are currently created per client, but these
      * should be shared.
      */
-    void setMaxThreads(size_t threads);
-    size_t getMaxThreads();
+    LIBBINDER_EXPORTED void setMaxThreads(size_t threads);
+    LIBBINDER_EXPORTED size_t getMaxThreads();
 
     /**
      * By default, the latest protocol version which is supported by a client is
      * used. However, this can be used in order to prevent newer protocol
      * versions from ever being used. This is expected to be useful for testing.
      */
-    void setProtocolVersion(uint32_t version);
+    [[nodiscard]] LIBBINDER_EXPORTED bool setProtocolVersion(uint32_t version);
 
     /**
      * Set the supported transports for sending and receiving file descriptors.
@@ -124,7 +155,7 @@ public:
      * Clients will propose a mode when connecting. If the mode is not in the
      * provided list, the connection will be rejected.
      */
-    void setSupportedFileDescriptorTransportModes(
+    LIBBINDER_EXPORTED void setSupportedFileDescriptorTransportModes(
             const std::vector<RpcSession::FileDescriptorTransportMode>& modes);
 
     /**
@@ -133,34 +164,56 @@ public:
      *
      * Holds a strong reference to the root object.
      */
-    void setRootObject(const sp<IBinder>& binder);
+    LIBBINDER_EXPORTED void setRootObject(const sp<IBinder>& binder);
     /**
      * Holds a weak reference to the root object.
      */
-    void setRootObjectWeak(const wp<IBinder>& binder);
+    LIBBINDER_EXPORTED void setRootObjectWeak(const wp<IBinder>& binder);
     /**
      * Allows a root object to be created for each session.
      *
      * Takes one argument: a callable that is invoked once per new session.
-     * The callable takes two arguments: a type-erased pointer to an OS- and
-     * transport-specific address structure, e.g., sockaddr_vm for vsock, and
-     * an integer representing the size in bytes of that structure. The
-     * callable should validate the size, then cast the type-erased pointer
-     * to a pointer to the actual type of the address, e.g., const void* to
-     * const sockaddr_vm*.
+     * The callable takes three arguments:
+     * - a weak pointer to the session. If you want to hold onto this in the root object, then
+     *   you should keep a weak pointer, and promote it when needed. For instance, if you refer
+     *   to this from the root object, then you could get ahold of transport-specific information.
+     * - a type-erased pointer to an OS- and transport-specific address structure, e.g.,
+     *   sockaddr_vm for vsock
+     * - an integer representing the size in bytes of that structure. The callable should
+     *   validate the size, then cast the type-erased pointer to a pointer to the actual type of the
+     *   address, e.g., const void* to const sockaddr_vm*.
      */
-    void setPerSessionRootObject(std::function<sp<IBinder>(const void*, size_t)>&& object);
-    sp<IBinder> getRootObject();
+    LIBBINDER_EXPORTED void setPerSessionRootObject(
+            std::function<sp<IBinder>(wp<RpcSession> session, const void*, size_t)>&& object);
+    LIBBINDER_EXPORTED sp<IBinder> getRootObject();
+
+    /**
+     * Set optional filter of incoming connections based on the peer's address.
+     *
+     * Takes one argument: a callable that is invoked on each accept()-ed
+     * connection and returns false if the connection should be dropped.
+     * See the description of setPerSessionRootObject() for details about
+     * the callable's arguments.
+     */
+    LIBBINDER_EXPORTED void setConnectionFilter(std::function<bool(const void*, size_t)>&& filter);
+
+    /**
+     * Set optional modifier of each newly created server socket.
+     *
+     * The only argument is a successfully created file descriptor, not bound to an address yet.
+     */
+    LIBBINDER_EXPORTED void setServerSocketModifier(
+            std::function<void(binder::borrowed_fd)>&& modifier);
 
     /**
      * See RpcTransportCtx::getCertificate
      */
-    std::vector<uint8_t> getCertificate(RpcCertificateFormat);
+    LIBBINDER_EXPORTED std::vector<uint8_t> getCertificate(RpcCertificateFormat);
 
     /**
      * Runs join() in a background thread. Immediately returns.
      */
-    void start();
+    LIBBINDER_EXPORTED void start();
 
     /**
      * You must have at least one client session before calling this.
@@ -173,7 +226,7 @@ public:
      * still occurring. To ensure that the service is fully shutdown, you might
      * want to call shutdown after 'join' returns.
      */
-    void join();
+    LIBBINDER_EXPORTED void join();
 
     /**
      * Shut down any existing join(). Return true if successfully shut down, false otherwise
@@ -182,15 +235,20 @@ public:
      *
      * Warning: this will hang if it is called from its own thread.
      */
-    [[nodiscard]] bool shutdown();
+    [[nodiscard]] LIBBINDER_EXPORTED bool shutdown();
 
     /**
      * For debugging!
      */
-    std::vector<sp<RpcSession>> listSessions();
-    size_t numUninitializedSessions();
+    LIBBINDER_EXPORTED std::vector<sp<RpcSession>> listSessions();
+    LIBBINDER_EXPORTED size_t numUninitializedSessions();
 
-    ~RpcServer();
+    /**
+     * Whether any requests are currently being processed.
+     */
+    LIBBINDER_EXPORTED bool hasActiveRequests();
+
+    LIBBINDER_EXPORTED ~RpcServer();
 
 private:
     friend RpcServerTrusty;
@@ -200,11 +258,18 @@ private:
     void onSessionAllIncomingThreadsEnded(const sp<RpcSession>& session) override;
     void onSessionIncomingThreadEnded() override;
 
+    status_t setupExternalServer(
+            binder::unique_fd serverFd,
+            std::function<status_t(const RpcServer&, RpcTransportFd*)>&& acceptFn);
+
     static constexpr size_t kRpcAddressSize = 128;
     static void establishConnection(
-            sp<RpcServer>&& server, base::unique_fd clientFd,
+            sp<RpcServer>&& server, RpcTransportFd clientFd,
             std::array<uint8_t, kRpcAddressSize> addr, size_t addrLen,
             std::function<void(sp<RpcSession>&&, RpcSession::PreJoinSetupResult&&)>&& joinFn);
+    static status_t acceptSocketConnection(const RpcServer& server, RpcTransportFd* out);
+    static status_t recvmsgSocketConnection(const RpcServer& server, RpcTransportFd* out);
+
     [[nodiscard]] status_t setupSocketServer(const RpcSocketAddress& address);
 
     const std::unique_ptr<RpcTransportCtx> mCtx;
@@ -213,7 +278,7 @@ private:
     // A mode is supported if the N'th bit is on, where N is the mode enum's value.
     std::bitset<8> mSupportedFileDescriptorTransportModes = std::bitset<8>().set(
             static_cast<size_t>(RpcSession::FileDescriptorTransportMode::NONE));
-    base::unique_fd mServer; // socket we are accepting sessions on
+    RpcTransportFd mServer; // socket we are accepting sessions on
 
     RpcMutex mLock; // for below
     std::unique_ptr<RpcMaybeThread> mJoinThread;
@@ -222,10 +287,13 @@ private:
 
     sp<IBinder> mRootObject;
     wp<IBinder> mRootObjectWeak;
-    std::function<sp<IBinder>(const void*, size_t)> mRootObjectFactory;
+    std::function<sp<IBinder>(wp<RpcSession>, const void*, size_t)> mRootObjectFactory;
+    std::function<bool(const void*, size_t)> mConnectionFilter;
+    std::function<void(binder::borrowed_fd)> mServerSocketModifier;
     std::map<std::vector<uint8_t>, sp<RpcSession>> mSessions;
     std::unique_ptr<FdTrigger> mShutdownTrigger;
     RpcConditionVariable mShutdownCv;
+    std::function<status_t(const RpcServer& server, RpcTransportFd* out)> mAcceptFn;
 };
 
 } // namespace android

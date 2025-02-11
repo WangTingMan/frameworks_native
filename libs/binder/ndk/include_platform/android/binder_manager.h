@@ -42,6 +42,21 @@
 
 __BEGIN_DECLS
 
+enum AServiceManager_AddServiceFlag : uint32_t {
+    /**
+     * This allows processes with AID_ISOLATED to get the binder of the service added.
+     *
+     * Services with methods that perform file IO, web socket creation or ways to egress data must
+     * not be added with this flag for privacy concerns.
+     */
+    ADD_SERVICE_ALLOW_ISOLATED = 1 << 0,
+    ADD_SERVICE_DUMP_FLAG_PRIORITY_CRITICAL = 1 << 1,
+    ADD_SERVICE_DUMP_FLAG_PRIORITY_HIGH = 1 << 2,
+    ADD_SERVICE_DUMP_FLAG_PRIORITY_NORMAL = 1 << 3,
+    ADD_SERVICE_DUMP_FLAG_PRIORITY_DEFAULT = 1 << 4,
+    // All other bits are reserved for internal usage
+};
+
 /**
  * This registers the service with the default service manager under this instance name. This does
  * not take ownership of binder.
@@ -56,6 +71,23 @@ __BEGIN_DECLS
  */
 /*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT binder_exception_t AServiceManager_addService(
         AIBinder* binder, const char* instance) __INTRODUCED_IN(29);
+
+/**
+ * This registers the service with the default service manager under this instance name. This does
+ * not take ownership of binder.
+ *
+ * WARNING: when using this API across an APEX boundary, do not use with unstable
+ * AIDL services. TODO(b/139325195)
+ *
+ * \param binder object to register globally with the service manager.
+ * \param instance identifier of the service. This will be used to lookup the service.
+ * \param flags an AServiceManager_AddServiceFlag enum to denote how the service should be added.
+ *
+ * \return EX_NONE on success.
+ */
+__attribute__((warn_unused_result)) binder_exception_t AServiceManager_addServiceWithFlags(
+        AIBinder* binder, const char* instance, const AServiceManager_AddServiceFlag flags)
+        __INTRODUCED_IN(34);
 
 /**
  * Gets a binder object with this specific instance name. Will return nullptr immediately if the
@@ -89,8 +121,13 @@ __BEGIN_DECLS
  *
  * \param instance identifier of the service used to lookup the service.
  */
+<<<<<<< HEAD
 /*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder* AServiceManager_getService(
         const char* instance)
+=======
+[[deprecated("this polls 5s, use AServiceManager_waitForService or AServiceManager_checkService")]]
+__attribute__((warn_unused_result)) AIBinder* AServiceManager_getService(const char* instance)
+>>>>>>> d3fb93fb73
         __INTRODUCED_IN(29);
 
 /**
@@ -115,7 +152,7 @@ LIBBINDER_NDK_EXPORT binder_status_t AServiceManager_registerLazyService(AIBinde
 
 /**
  * Gets a binder object with this specific instance name. Efficiently waits for the service.
- * If the service is not declared, it will wait indefinitely. Requires the threadpool
+ * If the service is not ever registered, it will wait indefinitely. Requires the threadpool
  * to be started in the service.
  * This also implicitly calls AIBinder_incStrong (so the caller of this function is responsible
  * for calling AIBinder_decStrong).
@@ -130,6 +167,67 @@ LIBBINDER_NDK_EXPORT binder_status_t AServiceManager_registerLazyService(AIBinde
 /*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder*
 AServiceManager_waitForService(const char* instance)
         __INTRODUCED_IN(31);
+
+/**
+ * Function to call when a service is registered. The instance is passed as well as
+ * ownership of the binder named 'registered'.
+ *
+ * WARNING: a lock is held when this method is called in order to prevent races with
+ * AServiceManager_NotificationRegistration_delete. Do not make synchronous binder calls when
+ * implementing this method to avoid deadlocks.
+ *
+ * \param instance instance name of service registered
+ * \param registered ownership-passed instance of service registered
+ * \param cookie data passed during registration for notifications
+ */
+typedef void (*AServiceManager_onRegister)(const char* instance, AIBinder* registered,
+                                           void* cookie);
+
+/**
+ * Represents a registration to servicemanager which can be cleared anytime.
+ */
+struct AServiceManager_NotificationRegistration;
+
+/**
+ * Get notifications when a service is registered. If the service is already registered,
+ * you will immediately get a notification.
+ *
+ * WARNING: it is strongly recommended to use AServiceManager_waitForService API instead.
+ * That API will wait synchronously, which is what you usually want in cases, including
+ * using some feature or during boot up. There is a history of bugs where waiting for
+ * notifications like this races with service startup. Also, when this API is used, a service
+ * bug will result in silent failure (rather than a debuggable deadlock). Furthermore, there
+ * is a history of this API being used to know when a service is up as a proxy for whethre
+ * that service should be started. This should only be used if you are intending to get
+ * ahold of the service as a client. For lazy services, whether a service is registered
+ * should not be used as a proxy for when it should be registered, which is only known
+ * by the real client.
+ *
+ * WARNING: if you use this API, you must also ensure that you check missing services are
+ * started and crash otherwise. If service failures are ignored, the system rots.
+ *
+ * \param instance name of service to wait for notifications about
+ * \param onRegister callback for when service is registered
+ * \param cookie data associated with this callback
+ *
+ * \return the token for this registration. Deleting this token will unregister.
+ */
+__attribute__((warn_unused_result)) AServiceManager_NotificationRegistration*
+AServiceManager_registerForServiceNotifications(const char* instance,
+                                                AServiceManager_onRegister onRegister, void* cookie)
+        __INTRODUCED_IN(34);
+
+/**
+ * Unregister for notifications and delete the object.
+ *
+ * After this method is called, the callback is guaranteed to no longer be invoked. This will block
+ * until any in-progress onRegister callbacks have completed. It is therefore safe to immediately
+ * destroy the void* cookie that was registered when this method returns.
+ *
+ * \param notification object to dismiss
+ */
+void AServiceManager_NotificationRegistration_delete(
+        AServiceManager_NotificationRegistration* notification) __INTRODUCED_IN(34);
 
 /**
  * Check if a service is declared (e.g. VINTF manifest).
@@ -167,6 +265,29 @@ LIBBINDER_NDK_EXPORT void AServiceManager_forEachDeclaredInstance(
  */
 LIBBINDER_NDK_EXPORT bool AServiceManager_isUpdatableViaApex(const char* instance)
         __INTRODUCED_IN(31);
+
+/**
+ * Returns the APEX name if a service is declared as updatable via an APEX module.
+ *
+ * \param instance identifier of the service
+ * \param context to pass to callback
+ * \param callback taking the APEX name (e.g. 'com.android.foo') and context
+ */
+void AServiceManager_getUpdatableApexName(const char* instance, void* context,
+                                          void (*callback)(const char*, void*))
+        __INTRODUCED_IN(__ANDROID_API_U__);
+
+/**
+ * Opens a declared passthrough HAL.
+ *
+ * \param instance identifier of the passthrough service (e.g. "mapper")
+ * \param instance identifier of the implemenatation (e.g. "default")
+ * \param flag passed to dlopen()
+ *
+ * \return the result of dlopen of the specified HAL
+ */
+void* AServiceManager_openDeclaredPassthroughHal(const char* interface, const char* instance,
+                                                 int flag) __INTRODUCED_IN(__ANDROID_API_V__);
 
 /**
  * Prevent lazy services without client from shutting down their process

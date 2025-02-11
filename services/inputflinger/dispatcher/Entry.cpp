@@ -14,16 +14,18 @@
  * limitations under the License.
  */
 
+#define LOG_TAG "InputDispatcher"
+
 #include "Entry.h"
 
 #include "Connection.h"
+#include "DebugConfig.h"
 
-#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <cutils/atomic.h>
+#include <ftl/enum.h>
 #include <inttypes.h>
 
-using android::base::GetBoolProperty;
 using android::base::StringPrintf;
 
 namespace android::inputdispatcher {
@@ -32,25 +34,26 @@ VerifiedKeyEvent verifiedKeyEventFromKeyEntry(const KeyEntry& entry) {
     return {{VerifiedInputEvent::Type::KEY, entry.deviceId, entry.eventTime, entry.source,
              entry.displayId},
             entry.action,
-            entry.downTime,
             entry.flags & VERIFIED_KEY_EVENT_FLAGS,
+            entry.downTime,
             entry.keyCode,
             entry.scanCode,
             entry.metaState,
             entry.repeatCount};
 }
 
-VerifiedMotionEvent verifiedMotionEventFromMotionEntry(const MotionEntry& entry) {
-    const float rawX = entry.pointerCoords[0].getAxisValue(AMOTION_EVENT_AXIS_X);
-    const float rawY = entry.pointerCoords[0].getAxisValue(AMOTION_EVENT_AXIS_Y);
+VerifiedMotionEvent verifiedMotionEventFromMotionEntry(const MotionEntry& entry,
+                                                       const ui::Transform& rawTransform) {
+    const vec2 rawXY = MotionEvent::calculateTransformedXY(entry.source, rawTransform,
+                                                           entry.pointerCoords[0].getXYValue());
     const int actionMasked = entry.action & AMOTION_EVENT_ACTION_MASK;
     return {{VerifiedInputEvent::Type::MOTION, entry.deviceId, entry.eventTime, entry.source,
              entry.displayId},
-            rawX,
-            rawY,
+            rawXY.x,
+            rawXY.y,
             actionMasked,
-            entry.downTime,
             entry.flags & VERIFIED_MOTION_EVENT_FLAGS,
+            entry.downTime,
             entry.metaState,
             entry.buttonState};
 }
@@ -65,34 +68,10 @@ EventEntry::EventEntry(int32_t id, Type type, nsecs_t eventTime, uint32_t policy
         injectionState(nullptr),
         dispatchInProgress(false) {}
 
-EventEntry::~EventEntry() {
-    releaseInjectionState();
-}
-
-void EventEntry::releaseInjectionState() {
-    if (injectionState) {
-        injectionState->release();
-        injectionState = nullptr;
-    }
-}
-
-// --- ConfigurationChangedEntry ---
-
-ConfigurationChangedEntry::ConfigurationChangedEntry(int32_t id, nsecs_t eventTime)
-      : EventEntry(id, Type::CONFIGURATION_CHANGED, eventTime, 0) {}
-
-ConfigurationChangedEntry::~ConfigurationChangedEntry() {}
-
-std::string ConfigurationChangedEntry::getDescription() const {
-    return StringPrintf("ConfigurationChangedEvent(), policyFlags=0x%08x", policyFlags);
-}
-
 // --- DeviceResetEntry ---
 
 DeviceResetEntry::DeviceResetEntry(int32_t id, nsecs_t eventTime, int32_t deviceId)
       : EventEntry(id, Type::DEVICE_RESET, eventTime, 0), deviceId(deviceId) {}
-
-DeviceResetEntry::~DeviceResetEntry() {}
 
 std::string DeviceResetEntry::getDescription() const {
     return StringPrintf("DeviceResetEvent(deviceId=%d), policyFlags=0x%08x", deviceId, policyFlags);
@@ -108,8 +87,6 @@ FocusEntry::FocusEntry(int32_t id, nsecs_t eventTime, sp<IBinder> connectionToke
         hasFocus(hasFocus),
         reason(reason) {}
 
-FocusEntry::~FocusEntry() {}
-
 std::string FocusEntry::getDescription() const {
     return StringPrintf("FocusEvent(hasFocus=%s)", hasFocus ? "true" : "false");
 }
@@ -123,11 +100,9 @@ PointerCaptureChangedEntry::PointerCaptureChangedEntry(int32_t id, nsecs_t event
       : EventEntry(id, Type::POINTER_CAPTURE_CHANGED, eventTime, POLICY_FLAG_PASS_TO_USER),
         pointerCaptureRequest(request) {}
 
-PointerCaptureChangedEntry::~PointerCaptureChangedEntry() {}
-
 std::string PointerCaptureChangedEntry::getDescription() const {
     return StringPrintf("PointerCaptureChangedEvent(pointerCaptureEnabled=%s)",
-                        pointerCaptureRequest.enable ? "true" : "false");
+                        pointerCaptureRequest.isEnable() ? "true" : "false");
 }
 
 // --- DragEntry ---
@@ -141,66 +116,75 @@ DragEntry::DragEntry(int32_t id, nsecs_t eventTime, sp<IBinder> connectionToken,
         x(x),
         y(y) {}
 
-DragEntry::~DragEntry() {}
-
 std::string DragEntry::getDescription() const {
     return StringPrintf("DragEntry(isExiting=%s, x=%f, y=%f)", isExiting ? "true" : "false", x, y);
 }
 
 // --- KeyEntry ---
 
-KeyEntry::KeyEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32_t source,
-                   int32_t displayId, uint32_t policyFlags, int32_t action, int32_t flags,
-                   int32_t keyCode, int32_t scanCode, int32_t metaState, int32_t repeatCount,
-                   nsecs_t downTime)
+KeyEntry::KeyEntry(int32_t id, std::shared_ptr<InjectionState> injectionState, nsecs_t eventTime,
+                   int32_t deviceId, uint32_t source, ui::LogicalDisplayId displayId,
+                   uint32_t policyFlags, int32_t action, int32_t flags, int32_t keyCode,
+                   int32_t scanCode, int32_t metaState, int32_t repeatCount, nsecs_t downTime)
       : EventEntry(id, Type::KEY, eventTime, policyFlags),
         deviceId(deviceId),
         source(source),
         displayId(displayId),
         action(action),
-        flags(flags),
         keyCode(keyCode),
         scanCode(scanCode),
         metaState(metaState),
-        repeatCount(repeatCount),
         downTime(downTime),
         syntheticRepeat(false),
-        interceptKeyResult(KeyEntry::INTERCEPT_KEY_RESULT_UNKNOWN),
-        interceptKeyWakeupTime(0) {}
-
-KeyEntry::~KeyEntry() {}
-
-std::string KeyEntry::getDescription() const {
-    if (!GetBoolProperty("ro.debuggable", false)) {
-        return "KeyEvent";
-    }
-    return StringPrintf("KeyEvent(deviceId=%d, eventTime=%" PRIu64
-                        ", source=0x%08x, displayId=%" PRId32 ", action=%s, "
-                        "flags=0x%08x, keyCode=%d, scanCode=%d, metaState=0x%08x, "
-                        "repeatCount=%d), policyFlags=0x%08x",
-                        deviceId, eventTime, source, displayId, KeyEvent::actionToString(action),
-                        flags, keyCode, scanCode, metaState, repeatCount, policyFlags);
+        interceptKeyResult(KeyEntry::InterceptKeyResult::UNKNOWN),
+        interceptKeyWakeupTime(0),
+        flags(flags),
+        repeatCount(repeatCount) {
+    EventEntry::injectionState = std::move(injectionState);
 }
 
-void KeyEntry::recycle() {
-    releaseInjectionState();
+std::string KeyEntry::getDescription() const {
+    if (!IS_DEBUGGABLE_BUILD) {
+        return "KeyEvent";
+    }
+    return StringPrintf("KeyEvent(deviceId=%d, eventTime=%" PRIu64 ", source=%s, displayId=%s, "
+                        "action=%s, "
+                        "flags=0x%08x, keyCode=%s(%d), scanCode=%d, metaState=0x%08x, "
+                        "repeatCount=%d), policyFlags=0x%08x",
+                        deviceId, eventTime, inputEventSourceToString(source).c_str(),
+                        displayId.toString().c_str(), KeyEvent::actionToString(action), flags,
+                        KeyEvent::getLabel(keyCode), keyCode, scanCode, metaState, repeatCount,
+                        policyFlags);
+}
 
-    dispatchInProgress = false;
-    syntheticRepeat = false;
-    interceptKeyResult = KeyEntry::INTERCEPT_KEY_RESULT_UNKNOWN;
-    interceptKeyWakeupTime = 0;
+std::ostream& operator<<(std::ostream& out, const KeyEntry& keyEntry) {
+    out << keyEntry.getDescription();
+    return out;
+}
+
+// --- TouchModeEntry ---
+
+TouchModeEntry::TouchModeEntry(int32_t id, nsecs_t eventTime, bool inTouchMode,
+                               ui::LogicalDisplayId displayId)
+      : EventEntry(id, Type::TOUCH_MODE_CHANGED, eventTime, POLICY_FLAG_PASS_TO_USER),
+        inTouchMode(inTouchMode),
+        displayId(displayId) {}
+
+std::string TouchModeEntry::getDescription() const {
+    return StringPrintf("TouchModeEvent(inTouchMode=%s)", inTouchMode ? "true" : "false");
 }
 
 // --- MotionEntry ---
 
-MotionEntry::MotionEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32_t source,
-                         int32_t displayId, uint32_t policyFlags, int32_t action,
+MotionEntry::MotionEntry(int32_t id, std::shared_ptr<InjectionState> injectionState,
+                         nsecs_t eventTime, int32_t deviceId, uint32_t source,
+                         ui::LogicalDisplayId displayId, uint32_t policyFlags, int32_t action,
                          int32_t actionButton, int32_t flags, int32_t metaState,
                          int32_t buttonState, MotionClassification classification,
                          int32_t edgeFlags, float xPrecision, float yPrecision,
                          float xCursorPosition, float yCursorPosition, nsecs_t downTime,
-                         uint32_t pointerCount, const PointerProperties* pointerProperties,
-                         const PointerCoords* pointerCoords, float xOffset, float yOffset)
+                         const std::vector<PointerProperties>& pointerProperties,
+                         const std::vector<PointerCoords>& pointerCoords)
       : EventEntry(id, Type::MOTION, eventTime, policyFlags),
         deviceId(deviceId),
         source(source),
@@ -217,35 +201,29 @@ MotionEntry::MotionEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32
         xCursorPosition(xCursorPosition),
         yCursorPosition(yCursorPosition),
         downTime(downTime),
-        pointerCount(pointerCount) {
-    for (uint32_t i = 0; i < pointerCount; i++) {
-        this->pointerProperties[i].copyFrom(pointerProperties[i]);
-        this->pointerCoords[i].copyFrom(pointerCoords[i]);
-        if (xOffset || yOffset) {
-            this->pointerCoords[i].applyOffset(xOffset, yOffset);
-        }
-    }
+        pointerProperties(pointerProperties),
+        pointerCoords(pointerCoords) {
+    EventEntry::injectionState = std::move(injectionState);
 }
 
-MotionEntry::~MotionEntry() {}
-
 std::string MotionEntry::getDescription() const {
-    if (!GetBoolProperty("ro.debuggable", false)) {
+    if (!IS_DEBUGGABLE_BUILD) {
         return "MotionEvent";
     }
     std::string msg;
     msg += StringPrintf("MotionEvent(deviceId=%d, eventTime=%" PRIu64
-                        ", source=0x%08x, displayId=%" PRId32
-                        ", action=%s, actionButton=0x%08x, flags=0x%08x, metaState=0x%08x, "
+                        ", source=%s, displayId=%s, action=%s, actionButton=0x%08x, flags=0x%08x,"
+                        " metaState=0x%08x, "
                         "buttonState=0x%08x, "
                         "classification=%s, edgeFlags=0x%08x, xPrecision=%.1f, yPrecision=%.1f, "
                         "xCursorPosition=%0.1f, yCursorPosition=%0.1f, pointers=[",
-                        deviceId, eventTime, source, displayId,
-                        MotionEvent::actionToString(action).c_str(), actionButton, flags, metaState,
-                        buttonState, motionClassificationToString(classification), edgeFlags,
-                        xPrecision, yPrecision, xCursorPosition, yCursorPosition);
+                        deviceId, eventTime, inputEventSourceToString(source).c_str(),
+                        displayId.toString().c_str(), MotionEvent::actionToString(action).c_str(),
+                        actionButton, flags, metaState, buttonState,
+                        motionClassificationToString(classification), edgeFlags, xPrecision,
+                        yPrecision, xCursorPosition, yCursorPosition);
 
-    for (uint32_t i = 0; i < pointerCount; i++) {
+    for (uint32_t i = 0; i < getPointerCount(); i++) {
         if (i) {
             msg += ", ";
         }
@@ -254,6 +232,11 @@ std::string MotionEntry::getDescription() const {
     }
     msg += StringPrintf("]), policyFlags=0x%08x", policyFlags);
     return msg;
+}
+
+std::ostream& operator<<(std::ostream& out, const MotionEntry& motionEntry) {
+    out << motionEntry.getDescription();
+    return out;
 }
 
 // --- SensorEntry ---
@@ -271,15 +254,15 @@ SensorEntry::SensorEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32
         hwTimestamp(hwTimestamp),
         values(std::move(values)) {}
 
-SensorEntry::~SensorEntry() {}
-
 std::string SensorEntry::getDescription() const {
     std::string msg;
-    msg += StringPrintf("SensorEntry(deviceId=%d, source=0x%08x, sensorType=0x%08x, "
-                        "accuracy=0x%08x, hwTimestamp=%" PRId64,
-                        deviceId, source, sensorType, accuracy, hwTimestamp);
+    msg += StringPrintf("SensorEntry(deviceId=%d, source=%s, sensorType=%s, "
+                        "accuracy=%s, hwTimestamp=%" PRId64,
+                        deviceId, inputEventSourceToString(source).c_str(),
+                        ftl::enum_string(sensorType).c_str(), ftl::enum_string(accuracy).c_str(),
+                        hwTimestamp);
 
-    if (!GetBoolProperty("ro.debuggable", false)) {
+    if (IS_DEBUGGABLE_BUILD) {
         for (size_t i = 0; i < values.size(); i++) {
             if (i > 0) {
                 msg += ", ";
@@ -295,19 +278,38 @@ std::string SensorEntry::getDescription() const {
 
 volatile int32_t DispatchEntry::sNextSeqAtomic;
 
-DispatchEntry::DispatchEntry(std::shared_ptr<EventEntry> eventEntry, int32_t targetFlags,
-                             ui::Transform transform, float globalScaleFactor,
-                             uint32_t displayOrientation, int2 displaySize)
+DispatchEntry::DispatchEntry(std::shared_ptr<const EventEntry> eventEntry,
+                             ftl::Flags<InputTargetFlags> targetFlags,
+                             const ui::Transform& transform, const ui::Transform& rawTransform,
+                             float globalScaleFactor, gui::Uid targetUid, int64_t vsyncId,
+                             std::optional<int32_t> windowId)
       : seq(nextSeq()),
         eventEntry(std::move(eventEntry)),
         targetFlags(targetFlags),
         transform(transform),
+        rawTransform(rawTransform),
         globalScaleFactor(globalScaleFactor),
-        displayOrientation(displayOrientation),
-        displaySize(displaySize),
         deliveryTime(0),
-        resolvedAction(0),
-        resolvedFlags(0) {}
+        resolvedFlags(0),
+        targetUid(targetUid),
+        vsyncId(vsyncId),
+        windowId(windowId) {
+    switch (this->eventEntry->type) {
+        case EventEntry::Type::KEY: {
+            const KeyEntry& keyEntry = static_cast<const KeyEntry&>(*this->eventEntry);
+            resolvedFlags = keyEntry.flags;
+            break;
+        }
+        case EventEntry::Type::MOTION: {
+            const MotionEntry& motionEntry = static_cast<const MotionEntry&>(*this->eventEntry);
+            resolvedFlags = motionEntry.flags;
+            break;
+        }
+        default: {
+            break;
+        }
+    }
+}
 
 uint32_t DispatchEntry::nextSeq() {
     // Sequence number 0 is reserved and will never be returned.
@@ -318,16 +320,13 @@ uint32_t DispatchEntry::nextSeq() {
     return seq;
 }
 
-// --- CommandEntry ---
-
-CommandEntry::CommandEntry(Command command)
-      : command(command),
-        eventTime(0),
-        keyEntry(nullptr),
-        userActivityEventType(0),
-        seq(0),
-        handled(false) {}
-
-CommandEntry::~CommandEntry() {}
+std::ostream& operator<<(std::ostream& out, const DispatchEntry& entry) {
+    std::string transform;
+    entry.transform.dump(transform, "transform");
+    out << "DispatchEntry{resolvedFlags=" << entry.resolvedFlags
+        << ", targetFlags=" << entry.targetFlags.string() << ", transform=" << transform
+        << "} original: " << entry.eventEntry->getDescription();
+    return out;
+}
 
 } // namespace android::inputdispatcher

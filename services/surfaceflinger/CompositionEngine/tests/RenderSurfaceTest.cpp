@@ -27,6 +27,7 @@
 #include <compositionengine/mock/OutputLayer.h>
 #include <gtest/gtest.h>
 #include <renderengine/ExternalTexture.h>
+#include <renderengine/impl/ExternalTexture.h>
 #include <renderengine/mock/RenderEngine.h>
 #include <ui/GraphicBuffer.h>
 
@@ -35,7 +36,7 @@ namespace {
 
 constexpr int32_t DEFAULT_DISPLAY_WIDTH = 1920;
 constexpr int32_t DEFAULT_DISPLAY_HEIGHT = 1080;
-constexpr DisplayId DEFAULT_DISPLAY_ID = PhysicalDisplayId(123u);
+constexpr DisplayId DEFAULT_DISPLAY_ID = PhysicalDisplayId::fromPort(123u);
 const std::string DEFAULT_DISPLAY_NAME = "Mock Display";
 
 using testing::_;
@@ -60,8 +61,8 @@ public:
     StrictMock<renderengine::mock::RenderEngine> mRenderEngine;
     StrictMock<mock::CompositionEngine> mCompositionEngine;
     StrictMock<mock::Display> mDisplay;
-    sp<mock::NativeWindow> mNativeWindow = new StrictMock<mock::NativeWindow>();
-    sp<mock::DisplaySurface> mDisplaySurface = new StrictMock<mock::DisplaySurface>();
+    sp<mock::NativeWindow> mNativeWindow = sp<StrictMock<mock::NativeWindow>>::make();
+    sp<mock::DisplaySurface> mDisplaySurface = sp<StrictMock<mock::DisplaySurface>>::make();
     impl::RenderSurface mSurface{mCompositionEngine, mDisplay,
                                  RenderSurfaceCreationArgsBuilder()
                                          .setDisplayWidth(DEFAULT_DISPLAY_WIDTH)
@@ -108,7 +109,7 @@ TEST_F(RenderSurfaceTest, sizeReturnsConstructedSize) {
  */
 
 TEST_F(RenderSurfaceTest, getClientTargetAcquireFenceForwardsCall) {
-    sp<Fence> fence = new Fence();
+    sp<Fence> fence = sp<Fence>::make();
 
     EXPECT_CALL(*mDisplaySurface, getClientTargetAcquireFence()).WillOnce(ReturnRef(fence));
 
@@ -201,28 +202,28 @@ TEST_F(RenderSurfaceTest, beginFrameAppliesChange) {
  */
 
 TEST_F(RenderSurfaceTest, prepareFrameHandlesMixedComposition) {
-    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::COMPOSITION_MIXED))
+    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::CompositionType::Mixed))
             .WillOnce(Return(NO_ERROR));
 
     mSurface.prepareFrame(true, true);
 }
 
 TEST_F(RenderSurfaceTest, prepareFrameHandlesOnlyGpuComposition) {
-    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::COMPOSITION_GPU))
+    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::CompositionType::Gpu))
             .WillOnce(Return(NO_ERROR));
 
     mSurface.prepareFrame(true, false);
 }
 
 TEST_F(RenderSurfaceTest, prepareFrameHandlesOnlyHwcComposition) {
-    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::COMPOSITION_HWC))
+    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::CompositionType::Hwc))
             .WillOnce(Return(NO_ERROR));
 
     mSurface.prepareFrame(false, true);
 }
 
 TEST_F(RenderSurfaceTest, prepareFrameHandlesNoComposition) {
-    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::COMPOSITION_HWC))
+    EXPECT_CALL(*mDisplaySurface, prepareFrame(DisplaySurface::CompositionType::Hwc))
             .WillOnce(Return(NO_ERROR));
 
     mSurface.prepareFrame(false, false);
@@ -233,7 +234,7 @@ TEST_F(RenderSurfaceTest, prepareFrameHandlesNoComposition) {
  */
 
 TEST_F(RenderSurfaceTest, dequeueBufferObtainsABuffer) {
-    sp<GraphicBuffer> buffer = new GraphicBuffer();
+    sp<GraphicBuffer> buffer = sp<GraphicBuffer>::make();
 
     EXPECT_CALL(*mNativeWindow, dequeueBuffer(_, _))
             .WillOnce(
@@ -251,9 +252,10 @@ TEST_F(RenderSurfaceTest, dequeueBufferObtainsABuffer) {
 
 TEST_F(RenderSurfaceTest, queueBufferHandlesNoClientComposition) {
     const auto buffer = std::make_shared<
-            renderengine::ExternalTexture>(new GraphicBuffer(), mRenderEngine,
-                                           renderengine::ExternalTexture::Usage::READABLE |
-                                                   renderengine::ExternalTexture::Usage::WRITEABLE);
+            renderengine::impl::
+                    ExternalTexture>(sp<GraphicBuffer>::make(), mRenderEngine,
+                                     renderengine::impl::ExternalTexture::Usage::READABLE |
+                                             renderengine::impl::ExternalTexture::Usage::WRITEABLE);
     mSurface.mutableTextureForTest() = buffer;
 
     impl::OutputCompositionState state;
@@ -261,16 +263,17 @@ TEST_F(RenderSurfaceTest, queueBufferHandlesNoClientComposition) {
     state.flipClientTarget = false;
 
     EXPECT_CALL(mDisplay, getState()).WillOnce(ReturnRef(state));
-    EXPECT_CALL(*mDisplaySurface, advanceFrame()).Times(1);
+    EXPECT_CALL(*mDisplaySurface, advanceFrame(0.5f)).Times(1);
 
-    mSurface.queueBuffer(base::unique_fd());
+    mSurface.queueBuffer(base::unique_fd(), 0.5f);
 
     EXPECT_EQ(buffer.get(), mSurface.mutableTextureForTest().get());
 }
 
 TEST_F(RenderSurfaceTest, queueBufferHandlesClientComposition) {
-    const auto buffer = std::make_shared<renderengine::ExternalTexture>(new GraphicBuffer(),
-                                                                        mRenderEngine, false);
+    const auto buffer =
+            std::make_shared<renderengine::impl::ExternalTexture>(sp<GraphicBuffer>::make(),
+                                                                  mRenderEngine, false);
     mSurface.mutableTextureForTest() = buffer;
 
     impl::OutputCompositionState state;
@@ -280,16 +283,17 @@ TEST_F(RenderSurfaceTest, queueBufferHandlesClientComposition) {
     EXPECT_CALL(mDisplay, getState()).WillOnce(ReturnRef(state));
     EXPECT_CALL(*mNativeWindow, queueBuffer(buffer->getBuffer()->getNativeBuffer(), -1))
             .WillOnce(Return(NO_ERROR));
-    EXPECT_CALL(*mDisplaySurface, advanceFrame()).Times(1);
+    EXPECT_CALL(*mDisplaySurface, advanceFrame(0.5f)).Times(1);
 
-    mSurface.queueBuffer(base::unique_fd());
+    mSurface.queueBuffer(base::unique_fd(), 0.5f);
 
     EXPECT_EQ(nullptr, mSurface.mutableTextureForTest().get());
 }
 
 TEST_F(RenderSurfaceTest, queueBufferHandlesFlipClientTargetRequest) {
-    const auto buffer = std::make_shared<renderengine::ExternalTexture>(new GraphicBuffer(),
-                                                                        mRenderEngine, false);
+    const auto buffer =
+            std::make_shared<renderengine::impl::ExternalTexture>(sp<GraphicBuffer>::make(),
+                                                                  mRenderEngine, false);
     mSurface.mutableTextureForTest() = buffer;
 
     impl::OutputCompositionState state;
@@ -299,15 +303,15 @@ TEST_F(RenderSurfaceTest, queueBufferHandlesFlipClientTargetRequest) {
     EXPECT_CALL(mDisplay, getState()).WillOnce(ReturnRef(state));
     EXPECT_CALL(*mNativeWindow, queueBuffer(buffer->getBuffer()->getNativeBuffer(), -1))
             .WillOnce(Return(NO_ERROR));
-    EXPECT_CALL(*mDisplaySurface, advanceFrame()).Times(1);
+    EXPECT_CALL(*mDisplaySurface, advanceFrame(0.5f)).Times(1);
 
-    mSurface.queueBuffer(base::unique_fd());
+    mSurface.queueBuffer(base::unique_fd(), 0.5f);
 
     EXPECT_EQ(nullptr, mSurface.mutableTextureForTest().get());
 }
 
 TEST_F(RenderSurfaceTest, queueBufferHandlesFlipClientTargetRequestWithNoBufferYetDequeued) {
-    sp<GraphicBuffer> buffer = new GraphicBuffer();
+    sp<GraphicBuffer> buffer = sp<GraphicBuffer>::make();
 
     impl::OutputCompositionState state;
     state.usesClientComposition = false;
@@ -319,16 +323,17 @@ TEST_F(RenderSurfaceTest, queueBufferHandlesFlipClientTargetRequestWithNoBufferY
                     DoAll(SetArgPointee<0>(buffer.get()), SetArgPointee<1>(-1), Return(NO_ERROR)));
     EXPECT_CALL(*mNativeWindow, queueBuffer(buffer->getNativeBuffer(), -1))
             .WillOnce(Return(NO_ERROR));
-    EXPECT_CALL(*mDisplaySurface, advanceFrame()).Times(1);
+    EXPECT_CALL(*mDisplaySurface, advanceFrame(0.5f)).Times(1);
 
-    mSurface.queueBuffer(base::unique_fd());
+    mSurface.queueBuffer(base::unique_fd(), 0.5f);
 
     EXPECT_EQ(nullptr, mSurface.mutableTextureForTest().get());
 }
 
 TEST_F(RenderSurfaceTest, queueBufferHandlesNativeWindowQueueBufferFailureOnVirtualDisplay) {
-    const auto buffer = std::make_shared<renderengine::ExternalTexture>(new GraphicBuffer(),
-                                                                        mRenderEngine, false);
+    const auto buffer =
+            std::make_shared<renderengine::impl::ExternalTexture>(sp<GraphicBuffer>::make(),
+                                                                  mRenderEngine, false);
     mSurface.mutableTextureForTest() = buffer;
 
     impl::OutputCompositionState state;
@@ -340,9 +345,9 @@ TEST_F(RenderSurfaceTest, queueBufferHandlesNativeWindowQueueBufferFailureOnVirt
     EXPECT_CALL(mDisplay, isVirtual()).WillOnce(Return(true));
     EXPECT_CALL(*mNativeWindow, cancelBuffer(buffer->getBuffer()->getNativeBuffer(), -1))
             .WillOnce(Return(NO_ERROR));
-    EXPECT_CALL(*mDisplaySurface, advanceFrame()).Times(1);
+    EXPECT_CALL(*mDisplaySurface, advanceFrame(0.5f)).Times(1);
 
-    mSurface.queueBuffer(base::unique_fd());
+    mSurface.queueBuffer(base::unique_fd(), 0.5f);
 
     EXPECT_EQ(nullptr, mSurface.mutableTextureForTest().get());
 }
@@ -355,18 +360,6 @@ TEST_F(RenderSurfaceTest, onPresentDisplayCompletedForwardsSignal) {
     EXPECT_CALL(*mDisplaySurface, onFrameCommitted()).Times(1);
 
     mSurface.onPresentDisplayCompleted();
-}
-
-/*
- * RenderSurface::flip()
- */
-
-TEST_F(RenderSurfaceTest, flipForwardsSignal) {
-    mSurface.setPageFlipCountForTest(500);
-
-    mSurface.flip();
-
-    EXPECT_EQ(501u, mSurface.getPageFlipCount());
 }
 
 } // namespace

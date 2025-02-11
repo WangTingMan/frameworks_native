@@ -22,11 +22,13 @@
 #include <compositionengine/DisplayColorProfile.h>
 #include <compositionengine/DisplayCreationArgs.h>
 #include <compositionengine/RenderSurface.h>
+#include <compositionengine/impl/GpuCompositionResult.h>
 #include <compositionengine/impl/Output.h>
 #include <ui/PixelFormat.h>
 #include <ui/Size.h>
 
-#include "DisplayHardware/DisplayIdentification.h"
+#include <ui/DisplayIdentification.h>
+
 #include "DisplayHardware/HWComposer.h"
 #include "DisplayHardware/PowerAdvisor.h"
 
@@ -50,11 +52,18 @@ public:
     void setReleasedLayers(const CompositionRefreshArgs&) override;
     void setColorTransform(const CompositionRefreshArgs&) override;
     void setColorProfile(const ColorProfile&) override;
-    void chooseCompositionStrategy() override;
+
+    void beginFrame() override;
+    using DeviceRequestedChanges = android::HWComposer::DeviceRequestedChanges;
+    bool chooseCompositionStrategy(
+            std::optional<android::HWComposer::DeviceRequestedChanges>*) override;
+    void applyCompositionStrategy(const std::optional<DeviceRequestedChanges>&) override;
     bool getSkipColorTransform() const override;
-    compositionengine::Output::FrameFences presentAndGetFrameFences() override;
+    compositionengine::Output::FrameFences presentFrame() override;
+    void executeCommands() override;
     void setExpensiveRenderingExpected(bool) override;
-    void finishFrame(const CompositionRefreshArgs&) override;
+    void finishFrame(GpuCompositionResult&&) override;
+    bool supportsOffloadPresent() const override;
 
     // compositionengine::Display overrides
     DisplayId getId() const override;
@@ -65,13 +74,14 @@ public:
             const compositionengine::DisplayColorProfileCreationArgs&) override;
     void createRenderSurface(const compositionengine::RenderSurfaceCreationArgs&) override;
     void createClientCompositionCache(uint32_t cacheSize) override;
+    void applyDisplayBrightness(bool applyImmediately) override;
+    void setSecure(bool secure) override;
 
     // Internal helpers used by chooseCompositionStrategy()
     using ChangedTypes = android::HWComposer::DeviceRequestedChanges::ChangedTypes;
     using DisplayRequests = android::HWComposer::DeviceRequestedChanges::DisplayRequests;
     using LayerRequests = android::HWComposer::DeviceRequestedChanges::LayerRequests;
     using ClientTargetProperty = android::HWComposer::DeviceRequestedChanges::ClientTargetProperty;
-    virtual bool anyLayersRequireClientComposition() const;
     virtual bool allLayersRequireClientComposition() const;
     virtual void applyChangedTypesToLayers(const ChangedTypes&);
     virtual void applyDisplayRequests(const DisplayRequests&);
@@ -83,9 +93,13 @@ public:
     std::unique_ptr<compositionengine::OutputLayer> createOutputLayer(const sp<LayerFE>&) const;
 
 private:
-    bool mIsVirtual = false;
-    bool mIsDisconnected = false;
+    bool isPowerHintSessionEnabled() override;
+    bool isPowerHintSessionGpuReportingEnabled() override;
+    void setHintSessionGpuStart(TimePoint startTime) override;
+    void setHintSessionGpuFence(std::unique_ptr<FenceTime>&& gpuFence) override;
+    void setHintSessionRequiresRenderEngine(bool requiresRenderEngine) override;
     DisplayId mId;
+    bool mIsDisconnected = false;
     Hwc2::PowerAdvisor* mPowerAdvisor = nullptr;
 };
 

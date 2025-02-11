@@ -15,13 +15,18 @@
  */
 #pragma once
 
+#include <gui/AidlUtil.h>
 #include <gui/SyncScreenCaptureListener.h>
+#include <private/gui/ComposerServiceAIDL.h>
+#include <ui/FenceResult.h>
 #include <ui/Rect.h>
 #include <utils/String8.h>
 #include <functional>
 #include "TransactionUtils.h"
 
 namespace android {
+
+using gui::aidl_utils::statusTFromBinderStatus;
 
 namespace {
 
@@ -31,22 +36,26 @@ class ScreenCapture : public RefBase {
 public:
     static status_t captureDisplay(DisplayCaptureArgs& captureArgs,
                                    ScreenCaptureResults& captureResults) {
-        const auto sf = ComposerService::getComposerService();
+        const auto sf = ComposerServiceAIDL::getComposerService();
         SurfaceComposerClient::Transaction().apply(true);
 
-        captureArgs.dataspace = ui::Dataspace::V0_SRGB;
-        const sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
-        status_t status = sf->captureDisplay(captureArgs, captureListener);
-
-        if (status != NO_ERROR) {
-            return status;
+        captureArgs.captureArgs.dataspace = static_cast<int32_t>(ui::Dataspace::V0_SRGB);
+        const sp<SyncScreenCaptureListener> captureListener = sp<SyncScreenCaptureListener>::make();
+        binder::Status status = sf->captureDisplay(captureArgs, captureListener);
+        status_t err = statusTFromBinderStatus(status);
+        if (err != NO_ERROR) {
+            return err;
         }
         captureResults = captureListener->waitForResults();
-        return captureResults.result;
+        return fenceStatus(captureResults.fenceResult);
     }
 
     static void captureScreen(std::unique_ptr<ScreenCapture>* sc) {
-        captureScreen(sc, SurfaceComposerClient::getInternalDisplayToken());
+        const auto ids = SurfaceComposerClient::getPhysicalDisplayIds();
+        // TODO(b/248317436): extend to cover all displays for multi-display devices
+        const auto display =
+                ids.empty() ? nullptr : SurfaceComposerClient::getPhysicalDisplayToken(ids.front());
+        captureScreen(sc, display);
     }
 
     static void captureScreen(std::unique_ptr<ScreenCapture>* sc, sp<IBinder> displayToken) {
@@ -59,29 +68,34 @@ public:
                                DisplayCaptureArgs& captureArgs) {
         ScreenCaptureResults captureResults;
         ASSERT_EQ(NO_ERROR, captureDisplay(captureArgs, captureResults));
-        *sc = std::make_unique<ScreenCapture>(captureResults.buffer);
+        *sc = std::make_unique<ScreenCapture>(captureResults.buffer,
+                                              captureResults.capturedHdrLayers);
     }
 
     static status_t captureLayers(LayerCaptureArgs& captureArgs,
                                   ScreenCaptureResults& captureResults) {
-        const auto sf = ComposerService::getComposerService();
+        const auto sf = ComposerServiceAIDL::getComposerService();
         SurfaceComposerClient::Transaction().apply(true);
 
-        captureArgs.dataspace = ui::Dataspace::V0_SRGB;
-        const sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
-        status_t status = sf->captureLayers(captureArgs, captureListener);
-        if (status != NO_ERROR) {
-            return status;
+        captureArgs.captureArgs.dataspace = static_cast<int32_t>(ui::Dataspace::V0_SRGB);
+        const sp<SyncScreenCaptureListener> captureListener = sp<SyncScreenCaptureListener>::make();
+        binder::Status status = sf->captureLayers(captureArgs, captureListener);
+        status_t err = statusTFromBinderStatus(status);
+        if (err != NO_ERROR) {
+            return err;
         }
         captureResults = captureListener->waitForResults();
-        return captureResults.result;
+        return fenceStatus(captureResults.fenceResult);
     }
 
     static void captureLayers(std::unique_ptr<ScreenCapture>* sc, LayerCaptureArgs& captureArgs) {
         ScreenCaptureResults captureResults;
         ASSERT_EQ(NO_ERROR, captureLayers(captureArgs, captureResults));
-        *sc = std::make_unique<ScreenCapture>(captureResults.buffer);
+        *sc = std::make_unique<ScreenCapture>(captureResults.buffer,
+                                              captureResults.capturedHdrLayers);
     }
+
+    bool capturedHdrLayers() const { return mContainsHdr; }
 
     void expectColor(const Rect& rect, const Color& color, uint8_t tolerance = 0) {
         ASSERT_NE(nullptr, mOutBuffer);
@@ -156,7 +170,7 @@ public:
             String8 err(String8::format("pixel @ (%3d, %3d): "
                                         "expected [%3d, %3d, %3d], got [%3d, %3d, %3d]",
                                         x, y, r, g, b, pixel[0], pixel[1], pixel[2]));
-            EXPECT_EQ(String8(), err) << err.string();
+            EXPECT_EQ(String8(), err) << err.c_str();
         }
     }
 
@@ -180,7 +194,8 @@ public:
         EXPECT_EQ(height, mOutBuffer->getHeight());
     }
 
-    explicit ScreenCapture(const sp<GraphicBuffer>& outBuffer) : mOutBuffer(outBuffer) {
+    explicit ScreenCapture(const sp<GraphicBuffer>& outBuffer, bool containsHdr)
+          : mOutBuffer(outBuffer), mContainsHdr(containsHdr) {
         if (mOutBuffer) {
             mOutBuffer->lock(GRALLOC_USAGE_SW_READ_OFTEN, reinterpret_cast<void**>(&mPixels));
         }
@@ -192,6 +207,7 @@ public:
 
 private:
     sp<GraphicBuffer> mOutBuffer;
+    bool mContainsHdr = mContainsHdr;
     uint8_t* mPixels = nullptr;
 };
 } // namespace

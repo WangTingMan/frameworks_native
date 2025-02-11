@@ -20,10 +20,10 @@
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
 #include <android-base/properties.h>
+#include <common/FlagManager.h>
+#include <common/trace.h>
 #include <compositionengine/impl/planner/Flattener.h>
 #include <compositionengine/impl/planner/LayerState.h>
-
-#include <gui/TraceUtils.h>
 
 using time_point = std::chrono::steady_clock::time_point;
 using namespace std::chrono_literals;
@@ -50,8 +50,19 @@ bool isSameStack(const std::vector<const LayerState*>& incomingLayers,
     for (size_t i = 0; i < incomingLayers.size(); i++) {
         // Checking the IDs here is very strict, but we do this as otherwise we may mistakenly try
         // to access destroyed OutputLayers later on.
-        if (incomingLayers[i]->getId() != existingLayers[i]->getId() ||
-            incomingLayers[i]->getDifferingFields(*(existingLayers[i])) != LayerStateField::None) {
+        if (incomingLayers[i]->getId() != existingLayers[i]->getId()) {
+            return false;
+        }
+
+        // Do not unflatten if source crop is only moved.
+        if (FlagManager::getInstance().cache_when_source_crop_layer_only_moved() &&
+            incomingLayers[i]->isSourceCropSizeEqual(*(existingLayers[i])) &&
+            incomingLayers[i]->getDifferingFields(*(existingLayers[i])) ==
+                    LayerStateField::SourceCrop) {
+            continue;
+        }
+
+        if (incomingLayers[i]->getDifferingFields(*(existingLayers[i])) != LayerStateField::None) {
             return false;
         }
     }
@@ -65,7 +76,7 @@ Flattener::Flattener(renderengine::RenderEngine& renderEngine, const Tunables& t
 
 NonBufferHash Flattener::flattenLayers(const std::vector<const LayerState*>& layers,
                                        NonBufferHash hash, time_point now) {
-    ATRACE_CALL();
+    SFTRACE_CALL();
     const size_t unflattenedDisplayCost = calculateDisplayCost(layers);
     mUnflattenedDisplayCost += unflattenedDisplayCost;
 
@@ -99,8 +110,9 @@ NonBufferHash Flattener::flattenLayers(const std::vector<const LayerState*>& lay
 
 void Flattener::renderCachedSets(
         const OutputCompositionState& outputState,
-        std::optional<std::chrono::steady_clock::time_point> renderDeadline) {
-    ATRACE_CALL();
+        std::optional<std::chrono::steady_clock::time_point> renderDeadline,
+        bool deviceHandlesColorTransform) {
+    SFTRACE_CALL();
 
     if (!mNewCachedSet) {
         return;
@@ -108,7 +120,7 @@ void Flattener::renderCachedSets(
 
     // Ensure that a cached set has a valid buffer first
     if (mNewCachedSet->hasRenderedBuffer()) {
-        ATRACE_NAME("mNewCachedSet->hasRenderedBuffer()");
+        SFTRACE_NAME("mNewCachedSet->hasRenderedBuffer()");
         return;
     }
 
@@ -125,18 +137,18 @@ void Flattener::renderCachedSets(
 
             if (mNewCachedSet->getSkipCount() <=
                 mTunables.mRenderScheduling->maxDeferRenderAttempts) {
-                ATRACE_FORMAT("DeadlinePassed: exceeded deadline by: %d us",
-                              std::chrono::duration_cast<std::chrono::microseconds>(
-                                      estimatedRenderFinish - *renderDeadline)
-                                      .count());
+                SFTRACE_FORMAT("DeadlinePassed: exceeded deadline by: %d us",
+                               std::chrono::duration_cast<std::chrono::microseconds>(
+                                       estimatedRenderFinish - *renderDeadline)
+                                       .count());
                 return;
             } else {
-                ATRACE_NAME("DeadlinePassed: exceeded max skips");
+                SFTRACE_NAME("DeadlinePassed: exceeded max skips");
             }
         }
     }
 
-    mNewCachedSet->render(mRenderEngine, mTexturePool, outputState);
+    mNewCachedSet->render(mRenderEngine, mTexturePool, outputState, deviceHandlesColorTransform);
 }
 
 void Flattener::dumpLayers(std::string& result) const {
@@ -211,7 +223,8 @@ size_t Flattener::calculateDisplayCost(const std::vector<const LayerState*>& lay
         displayCost += static_cast<size_t>(layer->getDisplayFrame().width() *
                                            layer->getDisplayFrame().height());
 
-        hasClientComposition |= layer->getCompositionType() == hal::Composition::CLIENT;
+        hasClientComposition |= layer->getCompositionType() ==
+                aidl::android::hardware::graphics::composer3::Composition::CLIENT;
     }
 
     if (hasClientComposition) {
@@ -257,7 +270,7 @@ NonBufferHash Flattener::computeLayersHash() const{
 // was already populated with these layers, i.e. on the second and following
 // calls with the same geometry.
 bool Flattener::mergeWithCachedSets(const std::vector<const LayerState*>& layers, time_point now) {
-    ATRACE_CALL();
+    SFTRACE_CALL();
     std::vector<CachedSet> merged;
 
     if (mLayers.empty()) {
@@ -401,7 +414,7 @@ bool Flattener::mergeWithCachedSets(const std::vector<const LayerState*>& layers
 }
 
 std::vector<Flattener::Run> Flattener::findCandidateRuns(time_point now) const {
-    ATRACE_CALL();
+    SFTRACE_CALL();
     std::vector<Run> runs;
     bool isPartOfRun = false;
     Run::Builder builder;
@@ -409,25 +422,31 @@ std::vector<Flattener::Run> Flattener::findCandidateRuns(time_point now) const {
     bool runHasFirstLayer = false;
 
     for (auto currentSet = mLayers.cbegin(); currentSet != mLayers.cend(); ++currentSet) {
-        const bool layerIsInactive =
-                now - currentSet->getLastUpdate() > mTunables.mActiveLayerTimeout;
+        bool layerIsInactive = now - currentSet->getLastUpdate() > mTunables.mActiveLayerTimeout;
         const bool layerHasBlur = currentSet->hasBlurBehind();
+        const bool layerDeniedFromCaching = currentSet->cachingHintExcludesLayers();
 
-        if (layerIsInactive && (firstLayer || runHasFirstLayer || !layerHasBlur) &&
-            !currentSet->hasUnsupportedDataspace()) {
+        // Layers should also be considered inactive whenever their framerate is lower than 1fps.
+        if (!layerIsInactive && currentSet->getLayerCount() == kNumLayersFpsConsideration) {
+            auto layerFps = currentSet->getFirstLayer().getState()->getFps();
+            if (layerFps > 0 && layerFps <= kFpsActiveThreshold) {
+                SFTRACE_FORMAT("layer is considered inactive due to low FPS [%s] %f",
+                               currentSet->getFirstLayer().getName().c_str(), layerFps);
+                layerIsInactive = true;
+            }
+        }
+
+        if (!layerDeniedFromCaching && layerIsInactive &&
+            (firstLayer || runHasFirstLayer || !layerHasBlur) &&
+            !currentSet->hasKnownColorShift()) {
             if (isPartOfRun) {
-                builder.append(currentSet->getLayerCount());
+                builder.increment();
             } else {
-                // Runs can't start with a non-buffer layer
-                if (currentSet->getFirstLayer().getBuffer() == nullptr) {
-                    ALOGV("[%s] Skipping initial non-buffer layer", __func__);
-                } else {
-                    builder.init(currentSet);
-                    if (firstLayer) {
-                        runHasFirstLayer = true;
-                    }
-                    isPartOfRun = true;
+                builder.init(currentSet);
+                if (firstLayer) {
+                    runHasFirstLayer = true;
                 }
+                isPartOfRun = true;
             }
         } else if (isPartOfRun) {
             builder.setHolePunchCandidate(&(*currentSet));
@@ -474,7 +493,7 @@ std::optional<Flattener::Run> Flattener::findBestRun(std::vector<Flattener::Run>
 }
 
 void Flattener::buildCachedSets(time_point now) {
-    ATRACE_CALL();
+    SFTRACE_CALL();
     if (mLayers.empty()) {
         ALOGV("[%s] No layers found, returning", __func__);
         return;
@@ -488,7 +507,7 @@ void Flattener::buildCachedSets(time_point now) {
     for (const CachedSet& layer : mLayers) {
         // TODO (b/191997217): make it less aggressive, and sync with findCandidateRuns
         if (layer.hasProtectedLayers()) {
-            ATRACE_NAME("layer->hasProtectedLayers()");
+            SFTRACE_NAME("layer->hasProtectedLayers()");
             return;
         }
     }

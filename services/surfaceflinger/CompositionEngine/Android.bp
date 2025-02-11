@@ -5,11 +5,20 @@ package {
     // to get the below license kinds:
     //   SPDX-license-identifier-Apache-2.0
     default_applicable_licenses: ["frameworks_native_license"],
+    default_team: "trendy_team_android_core_graphics_stack",
 }
 
 cc_defaults {
     name: "libcompositionengine_defaults",
-    defaults: ["surfaceflinger_defaults"],
+    defaults: [
+        "aconfig_lib_cc_static_link.defaults",
+        "android.hardware.graphics.composer3-ndk_shared",
+        "android.hardware.power-ndk_shared",
+        "librenderengine_deps",
+        "libtimestats_deps",
+        "surfaceflinger_defaults",
+        "libsurfaceflinger_proto_deps",
+    ],
     cflags: [
         "-DLOG_TAG=\"CompositionEngine\"",
         "-DATRACE_TAG=ATRACE_TAG_GRAPHICS",
@@ -25,32 +34,35 @@ cc_defaults {
         "libbase",
         "libcutils",
         "libgui",
-        "liblayers_proto",
         "liblog",
         "libnativewindow",
         "libprotobuf-cpp-lite",
         "libSurfaceFlingerProp",
-        "libtimestats",
         "libui",
         "libutils",
     ],
     static_libs: [
         "libmath",
         "librenderengine",
-        "libtrace_proto",
+        "libtimestats",
+        "libtonemap",
+        "libaidlcommonsupport",
+        "libprocessgroup",
+        "libprocessgroup_util",
+        "libjsoncpp",
     ],
     header_libs: [
         "android.hardware.graphics.composer@2.1-command-buffer",
         "android.hardware.graphics.composer@2.2-command-buffer",
         "android.hardware.graphics.composer@2.3-command-buffer",
         "android.hardware.graphics.composer@2.4-command-buffer",
+        "android.hardware.graphics.composer3-command-buffer",
         "libsurfaceflinger_headers",
     ],
 }
 
-cc_library {
-    name: "libcompositionengine",
-    defaults: ["libcompositionengine_defaults"],
+filegroup {
+    name: "libcompositionengine_sources",
     srcs: [
         "src/planner/CachedSet.cpp",
         "src/planner/Flattener.cpp",
@@ -64,6 +76,7 @@ cc_library {
         "src/DisplayColorProfile.cpp",
         "src/DisplaySurface.cpp",
         "src/DumpHelpers.cpp",
+        "src/HwcAsyncWorker.cpp",
         "src/HwcBufferCache.cpp",
         "src/LayerFECompositionState.cpp",
         "src/Output.cpp",
@@ -72,13 +85,27 @@ cc_library {
         "src/OutputLayerCompositionState.cpp",
         "src/RenderSurface.cpp",
     ],
+}
+
+cc_library {
+    name: "libcompositionengine",
+    defaults: [
+        "libcompositionengine_defaults",
+        "libsurfaceflinger_common_deps",
+    ],
+    srcs: [
+        ":libcompositionengine_sources",
+    ],
     local_include_dirs: ["include"],
     export_include_dirs: ["include"],
 }
 
 cc_library {
     name: "libcompositionengine_mocks",
-    defaults: ["libcompositionengine_defaults"],
+    defaults: [
+        "libcompositionengine_defaults",
+        "libsurfaceflinger_common_test_deps",
+    ],
     srcs: [
         "mock/CompositionEngine.cpp",
         "mock/Display.cpp",
@@ -102,8 +129,16 @@ cc_library {
 cc_test {
     name: "libcompositionengine_test",
     test_suites: ["device-tests"],
-    defaults: ["libcompositionengine_defaults"],
+    include_dirs: [
+        "frameworks/native/services/surfaceflinger/common/include",
+        "frameworks/native/services/surfaceflinger/tests/unittests",
+    ],
+    defaults: [
+        "libcompositionengine_defaults",
+        "libsurfaceflinger_common_test_deps",
+    ],
     srcs: [
+        ":libcompositionengine_sources",
         "tests/planner/CachedSetTest.cpp",
         "tests/planner/FlattenerTest.cpp",
         "tests/planner/LayerStateTest.cpp",
@@ -112,6 +147,7 @@ cc_test {
         "tests/CompositionEngineTest.cpp",
         "tests/DisplayColorProfileTest.cpp",
         "tests/DisplayTest.cpp",
+        "tests/HwcAsyncWorkerTest.cpp",
         "tests/HwcBufferCacheTest.cpp",
         "tests/MockHWC2.cpp",
         "tests/MockHWComposer.cpp",
@@ -122,26 +158,18 @@ cc_test {
         "tests/RenderSurfaceTest.cpp",
     ],
     static_libs: [
-        "libcompositionengine",
         "libcompositionengine_mocks",
         "libgui_mocks",
         "librenderengine_mocks",
         "libgmock",
         "libgtest",
     ],
+    shared_libs: [
+        // For some reason, libvulkan isn't picked up from librenderengine
+        // Probably ASAN related?
+        "libvulkan",
+    ],
     sanitize: {
-        // By using the address sanitizer, we not only uncover any issues
-        // with the test, but also any issues with the code under test.
-        //
-        // Note: If you get an runtime link error like:
-        //
-        //   CANNOT LINK EXECUTABLE "/data/local/tmp/libcompositionengine_test": library "libclang_rt.asan-aarch64-android.so" not found
-        //
-        // it is because the address sanitizer shared objects are not installed
-        // by default in the system image.
-        //
-        // You can either "make dist tests" before flashing, or set this
-        // option to false temporarily.
-        address: true,
+        hwaddress: true,
     },
 }

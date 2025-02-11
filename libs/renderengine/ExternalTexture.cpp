@@ -14,30 +14,33 @@
  * limitations under the License.
  */
 
-#include <renderengine/ExternalTexture.h>
+#include <common/trace.h>
+#include <log/log.h>
 #include <renderengine/RenderEngine.h>
+#include <renderengine/impl/ExternalTexture.h>
 #include <ui/GraphicBuffer.h>
 
-#include "log/log_main.h"
+namespace android::renderengine::impl {
 
-namespace android::renderengine {
-
-ExternalTexture::ExternalTexture(const sp<GraphicBuffer>& buffer, RenderEngine& renderEngine,
-                                 uint32_t usage)
-      : mBuffer(buffer), mRenderEngine(renderEngine) {
+ExternalTexture::ExternalTexture(const sp<GraphicBuffer>& buffer,
+                                 renderengine::RenderEngine& renderEngine, uint32_t usage)
+      : mBuffer(buffer), mRenderEngine(renderEngine), mWritable(usage & WRITEABLE) {
     LOG_ALWAYS_FATAL_IF(buffer == nullptr,
                         "Attempted to bind a null buffer to an external texture!");
-    // GLESRenderEngine has a separate texture cache for output buffers,
-    if (usage == Usage::WRITEABLE &&
-        (mRenderEngine.getRenderEngineType() == RenderEngine::RenderEngineType::GLES ||
-         mRenderEngine.getRenderEngineType() == RenderEngine::RenderEngineType::THREADED)) {
-        return;
-    }
-    mRenderEngine.mapExternalTextureBuffer(mBuffer, usage & Usage::WRITEABLE);
+    mRenderEngine.mapExternalTextureBuffer(mBuffer, mWritable);
 }
 
 ExternalTexture::~ExternalTexture() {
-    mRenderEngine.unmapExternalTextureBuffer(mBuffer);
+    mRenderEngine.unmapExternalTextureBuffer(std::move(mBuffer));
 }
 
-} // namespace android::renderengine
+void ExternalTexture::remapBuffer() {
+    SFTRACE_CALL();
+    {
+        auto buf = mBuffer;
+        mRenderEngine.unmapExternalTextureBuffer(std::move(buf));
+    }
+    mRenderEngine.mapExternalTextureBuffer(mBuffer, mWritable);
+}
+
+} // namespace android::renderengine::impl

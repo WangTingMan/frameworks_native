@@ -195,17 +195,6 @@ SurfaceFlingerProperties::primary_display_orientation_values primary_display_ori
     return SurfaceFlingerProperties::primary_display_orientation_values::ORIENTATION_0;
 }
 
-bool use_color_management(bool defaultValue) {
-    auto tmpuseColorManagement = SurfaceFlingerProperties::use_color_management();
-    auto tmpHasHDRDisplayVal = has_HDR_display(defaultValue);
-    auto tmpHasWideColorDisplayVal = has_wide_color_display(defaultValue);
-
-    auto tmpuseColorManagementVal = tmpuseColorManagement.has_value() ? *tmpuseColorManagement :
-        defaultValue;
-
-    return tmpuseColorManagementVal || tmpHasHDRDisplayVal || tmpHasWideColorDisplayVal;
-}
-
 int64_t default_composition_dataspace(Dataspace defaultValue) {
     auto temp = SurfaceFlingerProperties::default_composition_dataspace();
     if (temp.has_value()) {
@@ -236,14 +225,6 @@ int32_t wcg_composition_pixel_format(PixelFormat defaultValue) {
         return *temp;
     }
     return static_cast<int32_t>(defaultValue);
-}
-
-int64_t color_space_agnostic_dataspace(Dataspace defaultValue) {
-    auto temp = SurfaceFlingerProperties::color_space_agnostic_dataspace();
-    if (temp.has_value()) {
-        return *temp;
-    }
-    return static_cast<int64_t>(defaultValue);
 }
 
 bool refresh_rate_switching(bool defaultValue) {
@@ -315,14 +296,6 @@ bool support_kernel_idle_timer(bool defaultValue) {
     return defaultValue;
 }
 
-bool use_frame_rate_api(bool defaultValue) {
-    auto temp = SurfaceFlingerProperties::use_frame_rate_api();
-    if (temp.has_value()) {
-        return *temp;
-    }
-    return defaultValue;
-}
-
 bool enable_sdr_dimming(bool defaultValue) {
     return SurfaceFlingerProperties::enable_sdr_dimming().value_or(defaultValue);
 }
@@ -388,6 +361,18 @@ bool enable_frame_rate_override(bool defaultValue) {
 
 bool enable_layer_caching(bool defaultValue) {
     return SurfaceFlingerProperties::enable_layer_caching().value_or(defaultValue);
+}
+
+bool ignore_hdr_camera_layers(bool defaultValue) {
+    return SurfaceFlingerProperties::ignore_hdr_camera_layers().value_or(defaultValue);
+}
+
+bool clear_slots_with_set_layer_buffer(bool defaultValue) {
+    return SurfaceFlingerProperties::clear_slots_with_set_layer_buffer().value_or(defaultValue);
+}
+
+int32_t game_default_frame_rate_override(int32_t defaultValue) {
+    return SurfaceFlingerProperties::game_default_frame_rate_override().value_or(defaultValue);
 }
 
 } // namespace sysprop

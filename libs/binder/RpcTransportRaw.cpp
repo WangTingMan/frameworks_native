@@ -20,29 +20,30 @@
 #include <poll.h>
 #endif
 #include <stddef.h>
+#include <sys/socket.h>
 
 #include <binder/RpcTransportRaw.h>
 
 #include "FdTrigger.h"
+#include "OS.h"
 #include "RpcState.h"
 #include "RpcTransportUtils.h"
 
 namespace android {
 
-namespace {
-
-// Linux kernel supports up to 253 (from SCM_MAX_FD) for unix sockets.
-constexpr size_t kMaxFdsPerMsg = 253;
+using namespace android::binder::impl;
+using android::binder::borrowed_fd;
+using android::binder::unique_fd;
 
 // RpcTransport with TLS disabled.
 class RpcTransportRaw : public RpcTransport {
 public:
-    explicit RpcTransportRaw(android::base::unique_fd socket) : mSocket(std::move(socket)) {}
+    explicit RpcTransportRaw(android::RpcTransportFd socket) : mSocket(std::move(socket)) {}
     status_t pollRead(void) override {
         uint8_t buf;
 #ifndef _MSC_VER
         ssize_t ret = TEMP_FAILURE_RETRY(
-                ::recv(mSocket.get(), &buf, sizeof(buf), MSG_PEEK | MSG_DONTWAIT));
+                ::recv(mSocket.fd.get(), &buf, sizeof(buf), MSG_PEEK | MSG_DONTWAIT));
         if (ret < 0) {
             int savedErrno = errno;
             if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK) {
@@ -59,6 +60,7 @@ public:
     }
 
     status_t interruptableWriteFully(
+<<<<<<< HEAD
             FdTrigger* fdTrigger, iovec_fake* iovs, int niovs,
             const std::optional<android::base::function_ref<status_t()>>& altPoll,
             const std::vector<std::variant<base::unique_fd, base::borrowed_fd>>* ancillaryFds)
@@ -197,22 +199,48 @@ public:
 #else
         return 0;
 #endif
+=======
+            FdTrigger* fdTrigger, iovec* iovs, int niovs,
+            const std::optional<SmallFunction<status_t()>>& altPoll,
+            const std::vector<std::variant<unique_fd, borrowed_fd>>* ancillaryFds) override {
+        bool sentFds = false;
+        auto send = [&](iovec* iovs, int niovs) -> ssize_t {
+            ssize_t ret = binder::os::sendMessageOnSocket(mSocket, iovs, niovs,
+                                                          sentFds ? nullptr : ancillaryFds);
+            sentFds |= ret > 0;
+            return ret;
+        };
+        return interruptableReadOrWrite(mSocket, fdTrigger, iovs, niovs, send, "sendmsg", POLLOUT,
+                                        altPoll);
     }
 
+    status_t interruptableReadFully(
+            FdTrigger* fdTrigger, iovec* iovs, int niovs,
+            const std::optional<SmallFunction<status_t()>>& altPoll,
+            std::vector<std::variant<unique_fd, borrowed_fd>>* ancillaryFds) override {
+        auto recv = [&](iovec* iovs, int niovs) -> ssize_t {
+            return binder::os::receiveMessageFromSocket(mSocket, iovs, niovs, ancillaryFds);
+        };
+        return interruptableReadOrWrite(mSocket, fdTrigger, iovs, niovs, recv, "recvmsg", POLLIN,
+                                        altPoll);
+>>>>>>> d3fb93fb73
+    }
+
+    bool isWaiting() override { return mSocket.isInPollingState(); }
+
 private:
-    base::unique_fd mSocket;
+    android::RpcTransportFd mSocket;
 };
 
 // RpcTransportCtx with TLS disabled.
 class RpcTransportCtxRaw : public RpcTransportCtx {
 public:
-    std::unique_ptr<RpcTransport> newTransport(android::base::unique_fd fd, FdTrigger*) const {
-        return std::make_unique<RpcTransportRaw>(std::move(fd));
+    std::unique_ptr<RpcTransport> newTransport(android::RpcTransportFd socket,
+                                               FdTrigger*) const override {
+        return std::make_unique<RpcTransportRaw>(std::move(socket));
     }
     std::vector<uint8_t> getCertificate(RpcCertificateFormat) const override { return {}; }
 };
-
-} // namespace
 
 std::unique_ptr<RpcTransportCtx> RpcTransportCtxFactoryRaw::newServerCtx() const {
     return std::make_unique<RpcTransportCtxRaw>();

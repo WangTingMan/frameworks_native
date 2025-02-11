@@ -20,9 +20,13 @@
 #include <sys/types.h>
 #include <string>
 
+<<<<<<< HEAD
 #ifndef ssize_t
 #define ssize_t int64_t
 #endif
+=======
+#include <binder/Common.h>
+>>>>>>> d3fb93fb73
 
 namespace android {
 // ---------------------------------------------------------------------------
@@ -39,7 +43,8 @@ void printHexData(int32_t indent, const void *buf, size_t length,
     size_t alignment=0, bool cArrayStyle=false,
     debugPrintFunc func = nullptr, void* cookie = nullptr);
 
-extern "C" ssize_t getBinderKernelReferences(size_t count, uintptr_t* buf);
+// Used by libmemunreachable.
+extern "C" LIBBINDER_EXPORTED ssize_t getBinderKernelReferences(size_t count, uintptr_t* buf);
 
 // ---------------------------------------------------------------------------
 } // namespace android

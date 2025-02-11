@@ -33,34 +33,86 @@
 #include <utils/Thread.h>
 
 #include "InputDevice.h"
+#include "include/gestures.h"
 
 using android::base::StringPrintf;
 
 namespace android {
 
+namespace {
+
+/**
+ * Determines if the identifiers passed are a sub-devices. Sub-devices are physical devices
+ * that expose multiple input device paths such a keyboard that also has a touchpad input.
+ * These are separate devices with unique descriptors in EventHub, but InputReader should
+ * create a single InputDevice for them.
+ * Sub-devices are detected by the following criteria:
+ * 1. The vendor, product, bus, version, and unique id match
+ * 2. The location matches. The location is used to distinguish a single device with multiple
+ *    inputs versus the same device plugged into multiple ports.
+ */
+
+bool isSubDevice(const InputDeviceIdentifier& identifier1,
+                 const InputDeviceIdentifier& identifier2) {
+    return (identifier1.vendor == identifier2.vendor &&
+            identifier1.product == identifier2.product && identifier1.bus == identifier2.bus &&
+            identifier1.version == identifier2.version &&
+            identifier1.uniqueId == identifier2.uniqueId &&
+            identifier1.location == identifier2.location);
+}
+
+bool isStylusPointerGestureStart(const NotifyMotionArgs& motionArgs) {
+    const auto actionMasked = MotionEvent::getActionMasked(motionArgs.action);
+    if (actionMasked != AMOTION_EVENT_ACTION_HOVER_ENTER &&
+        actionMasked != AMOTION_EVENT_ACTION_DOWN &&
+        actionMasked != AMOTION_EVENT_ACTION_POINTER_DOWN) {
+        return false;
+    }
+    const auto actionIndex = MotionEvent::getActionIndex(motionArgs.action);
+    return isStylusToolType(motionArgs.pointerProperties[actionIndex].toolType);
+}
+
+bool isNewGestureStart(const NotifyMotionArgs& motion) {
+    return motion.action == AMOTION_EVENT_ACTION_DOWN ||
+            motion.action == AMOTION_EVENT_ACTION_HOVER_ENTER;
+}
+
+bool isNewGestureStart(const NotifyKeyArgs& key) {
+    return key.action == AKEY_EVENT_ACTION_DOWN;
+}
+
+// Return the event's device ID if it marks the start of a new gesture.
+std::optional<DeviceId> getDeviceIdOfNewGesture(const NotifyArgs& args) {
+    if (const auto* motion = std::get_if<NotifyMotionArgs>(&args); motion != nullptr) {
+        return isNewGestureStart(*motion) ? std::make_optional(motion->deviceId) : std::nullopt;
+    }
+    if (const auto* key = std::get_if<NotifyKeyArgs>(&args); key != nullptr) {
+        return isNewGestureStart(*key) ? std::make_optional(key->deviceId) : std::nullopt;
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
 // --- InputReader ---
 
 InputReader::InputReader(std::shared_ptr<EventHubInterface> eventHub,
                          const sp<InputReaderPolicyInterface>& policy,
-                         const sp<InputListenerInterface>& listener)
+                         InputListenerInterface& listener)
       : mContext(this),
         mEventHub(eventHub),
         mPolicy(policy),
-        mGlobalMetaState(0),
-        mLedMetaState(AMETA_NUM_LOCK_ON),
+        mNextListener(listener),
+        mKeyboardClassifier(std::make_unique<KeyboardClassifier>()),
+        mGlobalMetaState(AMETA_NONE),
+        mLedMetaState(AMETA_NONE),
         mGeneration(1),
         mNextInputDeviceId(END_RESERVED_ID),
         mDisableVirtualKeysTimeout(LLONG_MIN),
         mNextTimeout(LLONG_MAX),
         mConfigurationChangesToRefresh(0) {
-    mQueuedListener = new QueuedInputListener(listener);
-
-    { // acquire lock
-        std::scoped_lock _l(mLock);
-
-        refreshConfigurationLocked(0);
-        updateGlobalMetaStateLocked();
-    } // release lock
+    refreshConfigurationLocked(/*changes=*/{});
+    updateGlobalMetaStateLocked();
 }
 
 InputReader::~InputReader() {}
@@ -86,17 +138,19 @@ status_t InputReader::stop() {
 void InputReader::loopOnce() {
     int32_t oldGeneration;
     int32_t timeoutMillis;
+    // Copy some state so that we can access it outside the lock later.
     bool inputDevicesChanged = false;
     std::vector<InputDeviceInfo> inputDevices;
+    std::list<NotifyArgs> notifyArgs;
     { // acquire lock
         std::scoped_lock _l(mLock);
 
         oldGeneration = mGeneration;
         timeoutMillis = -1;
 
-        uint32_t changes = mConfigurationChangesToRefresh;
-        if (changes) {
-            mConfigurationChangesToRefresh = 0;
+        auto changes = mConfigurationChangesToRefresh;
+        if (changes.any()) {
+            mConfigurationChangesToRefresh.clear();
             timeoutMillis = 0;
             refreshConfigurationLocked(changes);
         } else if (mNextTimeout != LLONG_MAX) {
@@ -105,37 +159,44 @@ void InputReader::loopOnce() {
         }
     } // release lock
 
-    size_t count = mEventHub->getEvents(timeoutMillis, mEventBuffer, EVENT_BUFFER_SIZE);
+    std::vector<RawEvent> events = mEventHub->getEvents(timeoutMillis);
 
     { // acquire lock
         std::scoped_lock _l(mLock);
         mReaderIsAliveCondition.notify_all();
 
-        if (count) {
-            processEventsLocked(mEventBuffer, count);
+        if (!events.empty()) {
+            mPendingArgs += processEventsLocked(events.data(), events.size());
         }
 
         if (mNextTimeout != LLONG_MAX) {
             nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
             if (now >= mNextTimeout) {
-#if DEBUG_RAW_EVENTS
-                ALOGD("Timeout expired, latency=%0.3fms", (now - mNextTimeout) * 0.000001f);
-#endif
+                if (debugRawEvents()) {
+                    ALOGD("Timeout expired, latency=%0.3fms", (now - mNextTimeout) * 0.000001f);
+                }
                 mNextTimeout = LLONG_MAX;
-                timeoutExpiredLocked(now);
+                mPendingArgs += timeoutExpiredLocked(now);
             }
         }
 
         if (oldGeneration != mGeneration) {
+            // Reset global meta state because it depends on connected input devices.
+            updateGlobalMetaStateLocked();
+
             inputDevicesChanged = true;
             inputDevices = getInputDevicesLocked();
+            mPendingArgs.emplace_back(
+                    NotifyInputDevicesChangedArgs{mContext.getNextId(), inputDevices});
+        }
+
+        std::swap(notifyArgs, mPendingArgs);
+
+        // Keep track of the last used device
+        for (const NotifyArgs& args : notifyArgs) {
+            mLastUsedDeviceId = getDeviceIdOfNewGesture(args).value_or(mLastUsedDeviceId);
         }
     } // release lock
-
-    // Send out a message that the describes the changed input devices.
-    if (inputDevicesChanged) {
-        mPolicy->notifyInputDevicesChanged(inputDevices);
-    }
 
     // Flush queued events out to the listener.
     // This must happen outside of the lock because the listener could potentially call
@@ -144,10 +205,28 @@ void InputReader::loopOnce() {
     // resulting in a deadlock.  This situation is actually quite plausible because the
     // listener is actually the input dispatcher, which calls into the window manager,
     // which occasionally calls into the input reader.
-    mQueuedListener->flush();
+    for (const NotifyArgs& args : notifyArgs) {
+        mNextListener.notify(args);
+    }
+
+    // Notify the policy that input devices have changed.
+    // This must be done after flushing events down the listener chain to ensure that the rest of
+    // the listeners are synchronized with the changes before the policy reacts to them.
+    if (inputDevicesChanged) {
+        mPolicy->notifyInputDevicesChanged(inputDevices);
+    }
+
+    // Notify the policy of the start of every new stylus gesture.
+    for (const auto& args : notifyArgs) {
+        const auto* motionArgs = std::get_if<NotifyMotionArgs>(&args);
+        if (motionArgs != nullptr && isStylusPointerGestureStart(*motionArgs)) {
+            mPolicy->notifyStylusGestureStarted(motionArgs->deviceId, motionArgs->eventTime);
+        }
+    }
 }
 
-void InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
+std::list<NotifyArgs> InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
+    std::list<NotifyArgs> out;
     for (const RawEvent* rawEvent = rawEvents; count;) {
         int32_t type = rawEvent->type;
         size_t batchSize = 1;
@@ -160,10 +239,10 @@ void InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
                 }
                 batchSize += 1;
             }
-#if DEBUG_RAW_EVENTS
-            ALOGD("BatchSize: %zu Count: %zu", batchSize, count);
-#endif
-            processEventsForDeviceLocked(deviceId, rawEvent, batchSize);
+            if (debugRawEvents()) {
+                ALOGD("BatchSize: %zu Count: %zu", batchSize, count);
+            }
+            out += processEventsForDeviceLocked(deviceId, rawEvent, batchSize);
         } else {
             switch (rawEvent->type) {
                 case EventHubInterface::DEVICE_ADDED:
@@ -171,9 +250,6 @@ void InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
                     break;
                 case EventHubInterface::DEVICE_REMOVED:
                     removeDeviceLocked(rawEvent->when, rawEvent->deviceId);
-                    break;
-                case EventHubInterface::FINISHED_DEVICE_SCAN:
-                    handleConfigurationChangedLocked(rawEvent->when);
                     break;
                 default:
                     ALOG_ASSERT(false); // can't happen
@@ -183,6 +259,7 @@ void InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
         count -= batchSize;
         rawEvent += batchSize;
     }
+    return out;
 }
 
 void InputReader::addDeviceLocked(nsecs_t when, int32_t eventHubId) {
@@ -192,18 +269,19 @@ void InputReader::addDeviceLocked(nsecs_t when, int32_t eventHubId) {
     }
 
     InputDeviceIdentifier identifier = mEventHub->getDeviceIdentifier(eventHubId);
-    std::shared_ptr<InputDevice> device = createDeviceLocked(eventHubId, identifier);
-    device->configure(when, &mConfig, 0);
-    device->reset(when);
+    std::shared_ptr<InputDevice> device = createDeviceLocked(when, eventHubId, identifier);
+
+    mPendingArgs += device->configure(when, mConfig, /*changes=*/{});
+    mPendingArgs += device->reset(when);
 
     if (device->isIgnored()) {
         ALOGI("Device added: id=%d, eventHubId=%d, name='%s', descriptor='%s' "
               "(ignored non-input device)",
               device->getId(), eventHubId, identifier.name.c_str(), identifier.descriptor.c_str());
     } else {
-        ALOGI("Device added: id=%d, eventHubId=%d, name='%s', descriptor='%s',sources=0x%08x",
+        ALOGI("Device added: id=%d, eventHubId=%d, name='%s', descriptor='%s',sources=%s",
               device->getId(), eventHubId, identifier.name.c_str(), identifier.descriptor.c_str(),
-              device->getSources());
+              inputEventSourceToString(device->getSources()).c_str());
     }
 
     mDevices.emplace(eventHubId, device);
@@ -242,9 +320,7 @@ void InputReader::removeDeviceLocked(nsecs_t when, int32_t eventHubId) {
     auto mapIt = mDeviceToEventHubIdsMap.find(device);
     if (mapIt != mDeviceToEventHubIdsMap.end()) {
         std::vector<int32_t>& eventHubIds = mapIt->second;
-        eventHubIds.erase(std::remove_if(eventHubIds.begin(), eventHubIds.end(),
-                                         [eventHubId](int32_t eId) { return eId == eventHubId; }),
-                          eventHubIds.end());
+        std::erase_if(eventHubIds, [eventHubId](int32_t eId) { return eId == eventHubId; });
         if (eventHubIds.size() == 0) {
             mDeviceToEventHubIdsMap.erase(mapIt);
         }
@@ -257,9 +333,10 @@ void InputReader::removeDeviceLocked(nsecs_t when, int32_t eventHubId) {
               device->getId(), eventHubId, device->getName().c_str(),
               device->getDescriptor().c_str());
     } else {
-        ALOGI("Device removed: id=%d, eventHubId=%d, name='%s', descriptor='%s', sources=0x%08x",
+        ALOGI("Device removed: id=%d, eventHubId=%d, name='%s', descriptor='%s', sources=%s",
               device->getId(), eventHubId, device->getName().c_str(),
-              device->getDescriptor().c_str(), device->getSources());
+              device->getDescriptor().c_str(),
+              inputEventSourceToString(device->getSources()).c_str());
     }
 
     device->removeEventHubDevice(eventHubId);
@@ -269,16 +346,17 @@ void InputReader::removeDeviceLocked(nsecs_t when, int32_t eventHubId) {
     }
 
     if (device->hasEventHubDevices()) {
-        device->configure(when, &mConfig, 0);
+        mPendingArgs += device->configure(when, mConfig, /*changes=*/{});
     }
-    device->reset(when);
+    mPendingArgs += device->reset(when);
 }
 
 std::shared_ptr<InputDevice> InputReader::createDeviceLocked(
-        int32_t eventHubId, const InputDeviceIdentifier& identifier) {
+        nsecs_t when, int32_t eventHubId, const InputDeviceIdentifier& identifier) {
     auto deviceIt = std::find_if(mDevices.begin(), mDevices.end(), [identifier](auto& devicePair) {
-        return devicePair.second->getDescriptor().size() && identifier.descriptor.size() &&
-                devicePair.second->getDescriptor() == identifier.descriptor;
+        const InputDeviceIdentifier identifier2 =
+                devicePair.second->getDeviceInfo().getIdentifier();
+        return isSubDevice(identifier, identifier2);
     });
 
     std::shared_ptr<InputDevice> device;
@@ -289,28 +367,29 @@ std::shared_ptr<InputDevice> InputReader::createDeviceLocked(
         device = std::make_shared<InputDevice>(&mContext, deviceId, bumpGenerationLocked(),
                                                identifier);
     }
-    device->addEventHubDevice(eventHubId);
+    mPendingArgs += device->addEventHubDevice(when, eventHubId, mConfig);
     return device;
 }
 
-void InputReader::processEventsForDeviceLocked(int32_t eventHubId, const RawEvent* rawEvents,
-                                               size_t count) {
+std::list<NotifyArgs> InputReader::processEventsForDeviceLocked(int32_t eventHubId,
+                                                                const RawEvent* rawEvents,
+                                                                size_t count) {
     auto deviceIt = mDevices.find(eventHubId);
     if (deviceIt == mDevices.end()) {
         ALOGW("Discarding event for unknown eventHubId %d.", eventHubId);
-        return;
+        return {};
     }
 
     std::shared_ptr<InputDevice>& device = deviceIt->second;
     if (device->isIgnored()) {
         // ALOGD("Discarding event for ignored deviceId %d.", deviceId);
-        return;
+        return {};
     }
 
-    device->process(rawEvents, count);
+    return device->process(rawEvents, count);
 }
 
-InputDevice* InputReader::findInputDeviceLocked(int32_t deviceId) {
+InputDevice* InputReader::findInputDeviceLocked(int32_t deviceId) const {
     auto deviceIt =
             std::find_if(mDevices.begin(), mDevices.end(), [deviceId](const auto& devicePair) {
                 return devicePair.second->getId() == deviceId;
@@ -321,60 +400,49 @@ InputDevice* InputReader::findInputDeviceLocked(int32_t deviceId) {
     return nullptr;
 }
 
-void InputReader::timeoutExpiredLocked(nsecs_t when) {
+std::list<NotifyArgs> InputReader::timeoutExpiredLocked(nsecs_t when) {
+    std::list<NotifyArgs> out;
     for (auto& devicePair : mDevices) {
         std::shared_ptr<InputDevice>& device = devicePair.second;
         if (!device->isIgnored()) {
-            device->timeoutExpired(when);
+            out += device->timeoutExpired(when);
         }
     }
+    return out;
 }
 
 int32_t InputReader::nextInputDeviceIdLocked() {
     return ++mNextInputDeviceId;
 }
 
-void InputReader::handleConfigurationChangedLocked(nsecs_t when) {
-    // Reset global meta state because it depends on the list of all configured devices.
-    updateGlobalMetaStateLocked();
-
-    // Enqueue configuration changed.
-    NotifyConfigurationChangedArgs args(mContext.getNextId(), when);
-    mQueuedListener->notifyConfigurationChanged(&args);
-}
-
-void InputReader::refreshConfigurationLocked(uint32_t changes) {
+void InputReader::refreshConfigurationLocked(ConfigurationChanges changes) {
     mPolicy->getReaderConfiguration(&mConfig);
     mEventHub->setExcludedDevices(mConfig.excludedDeviceNames);
 
-    if (!changes) return;
+    using Change = InputReaderConfiguration::Change;
+    if (!changes.any()) return;
 
-    ALOGI("Reconfiguring input devices, changes=%s",
-          InputReaderConfiguration::changesToString(changes).c_str());
+    ALOGI("Reconfiguring input devices, changes=%s", changes.string().c_str());
     nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
 
-    if (changes & InputReaderConfiguration::CHANGE_DISPLAY_INFO) {
-        updatePointerDisplayLocked();
-    }
-
-    if (changes & InputReaderConfiguration::CHANGE_MUST_REOPEN) {
+    if (changes.test(Change::MUST_REOPEN)) {
         mEventHub->requestReopenDevices();
     } else {
         for (auto& devicePair : mDevices) {
             std::shared_ptr<InputDevice>& device = devicePair.second;
-            device->configure(now, &mConfig, changes);
+            mPendingArgs += device->configure(now, mConfig, changes);
         }
     }
 
-    if (changes & InputReaderConfiguration::CHANGE_POINTER_CAPTURE) {
+    if (changes.test(Change::POINTER_CAPTURE)) {
         if (mCurrentPointerCaptureRequest == mConfig.pointerCaptureRequest) {
             ALOGV("Skipping notifying pointer capture changes: "
                   "There was no change in the pointer capture state.");
         } else {
             mCurrentPointerCaptureRequest = mConfig.pointerCaptureRequest;
-            const NotifyPointerCaptureChangedArgs args(mContext.getNextId(), now,
-                                                       mCurrentPointerCaptureRequest);
-            mQueuedListener->notifyPointerCaptureChanged(&args);
+            mPendingArgs.emplace_back(
+                    NotifyPointerCaptureChangedArgs{mContext.getNextId(), now,
+                                                    mCurrentPointerCaptureRequest});
         }
     }
 }
@@ -405,7 +473,7 @@ int32_t InputReader::getLedMetaStateLocked() {
 }
 
 void InputReader::notifyExternalStylusPresenceChangedLocked() {
-    refreshConfigurationLocked(InputReaderConfiguration::CHANGE_EXTERNAL_STYLUS_PRESENCE);
+    refreshConfigurationLocked(InputReaderConfiguration::Change::EXTERNAL_STYLUS_PRESENCE);
 }
 
 void InputReader::getExternalStylusDevicesLocked(std::vector<InputDeviceInfo>& outDevices) {
@@ -417,11 +485,13 @@ void InputReader::getExternalStylusDevicesLocked(std::vector<InputDeviceInfo>& o
     }
 }
 
-void InputReader::dispatchExternalStylusStateLocked(const StylusState& state) {
+std::list<NotifyArgs> InputReader::dispatchExternalStylusStateLocked(const StylusState& state) {
+    std::list<NotifyArgs> out;
     for (auto& devicePair : mDevices) {
         std::shared_ptr<InputDevice>& device = devicePair.second;
-        device->updateExternalStylusState(state);
+        out += device->updateExternalStylusState(state);
     }
+    return out;
 }
 
 void InputReader::disableVirtualKeysUntilLocked(nsecs_t time) {
@@ -436,47 +506,6 @@ bool InputReader::shouldDropVirtualKeyLocked(nsecs_t now, int32_t keyCode, int32
         return true;
     } else {
         return false;
-    }
-}
-
-std::shared_ptr<PointerControllerInterface> InputReader::getPointerControllerLocked(
-        int32_t deviceId) {
-    std::shared_ptr<PointerControllerInterface> controller = mPointerController.lock();
-    if (controller == nullptr) {
-        controller = mPolicy->obtainPointerController(deviceId);
-        mPointerController = controller;
-        updatePointerDisplayLocked();
-    }
-    return controller;
-}
-
-void InputReader::updatePointerDisplayLocked() {
-    std::shared_ptr<PointerControllerInterface> controller = mPointerController.lock();
-    if (controller == nullptr) {
-        return;
-    }
-
-    std::optional<DisplayViewport> viewport =
-            mConfig.getDisplayViewportById(mConfig.defaultPointerDisplayId);
-    if (!viewport) {
-        ALOGW("Can't find the designated viewport with ID %" PRId32 " to update cursor input "
-              "mapper. Fall back to default display",
-              mConfig.defaultPointerDisplayId);
-        viewport = mConfig.getDisplayViewportById(ADISPLAY_ID_DEFAULT);
-    }
-    if (!viewport) {
-        ALOGE("Still can't find a viable viewport to update cursor input mapper. Skip setting it to"
-              " PointerController.");
-        return;
-    }
-
-    controller->setDisplayViewport(*viewport);
-}
-
-void InputReader::fadePointerLocked() {
-    std::shared_ptr<PointerControllerInterface> controller = mPointerController.lock();
-    if (controller != nullptr) {
-        controller->fade(PointerControllerInterface::Transition::GRADUAL);
     }
 }
 
@@ -561,45 +590,58 @@ void InputReader::toggleCapsLockState(int32_t deviceId) {
     }
 
     if (device->isIgnored()) {
+        ALOGW("Ignoring toggleCapsLock for ignored deviceId %" PRId32 ".", deviceId);
         return;
     }
 
     device->updateMetaState(AKEYCODE_CAPS_LOCK);
 }
 
-bool InputReader::hasKeys(int32_t deviceId, uint32_t sourceMask, size_t numCodes,
-                          const int32_t* keyCodes, uint8_t* outFlags) {
+bool InputReader::hasKeys(int32_t deviceId, uint32_t sourceMask,
+                          const std::vector<int32_t>& keyCodes, uint8_t* outFlags) {
     std::scoped_lock _l(mLock);
 
-    memset(outFlags, 0, numCodes);
-    return markSupportedKeyCodesLocked(deviceId, sourceMask, numCodes, keyCodes, outFlags);
+    memset(outFlags, 0, keyCodes.size());
+    return markSupportedKeyCodesLocked(deviceId, sourceMask, keyCodes, outFlags);
 }
 
 bool InputReader::markSupportedKeyCodesLocked(int32_t deviceId, uint32_t sourceMask,
-                                              size_t numCodes, const int32_t* keyCodes,
+                                              const std::vector<int32_t>& keyCodes,
                                               uint8_t* outFlags) {
     bool result = false;
     if (deviceId >= 0) {
         InputDevice* device = findInputDeviceLocked(deviceId);
         if (device && !device->isIgnored() && sourcesMatchMask(device->getSources(), sourceMask)) {
-            result = device->markSupportedKeyCodes(sourceMask, numCodes, keyCodes, outFlags);
+            result = device->markSupportedKeyCodes(sourceMask, keyCodes, outFlags);
         }
     } else {
         for (auto& devicePair : mDevices) {
             std::shared_ptr<InputDevice>& device = devicePair.second;
             if (!device->isIgnored() && sourcesMatchMask(device->getSources(), sourceMask)) {
-                result |= device->markSupportedKeyCodes(sourceMask, numCodes, keyCodes, outFlags);
+                result |= device->markSupportedKeyCodes(sourceMask, keyCodes, outFlags);
             }
         }
     }
     return result;
 }
 
-void InputReader::requestRefreshConfiguration(uint32_t changes) {
+int32_t InputReader::getKeyCodeForKeyLocation(int32_t deviceId, int32_t locationKeyCode) const {
     std::scoped_lock _l(mLock);
 
-    if (changes) {
-        bool needWake = !mConfigurationChangesToRefresh;
+    InputDevice* device = findInputDeviceLocked(deviceId);
+    if (device == nullptr) {
+        ALOGW("Failed to get key code for key location: Input device with id %d not found",
+              deviceId);
+        return AKEYCODE_UNKNOWN;
+    }
+    return device->getKeyCodeForKeyLocation(locationKeyCode);
+}
+
+void InputReader::requestRefreshConfiguration(ConfigurationChanges changes) {
+    std::scoped_lock _l(mLock);
+
+    if (changes.any()) {
+        bool needWake = !mConfigurationChangesToRefresh.any();
         mConfigurationChangesToRefresh |= changes;
 
         if (needWake) {
@@ -614,7 +656,7 @@ void InputReader::vibrate(int32_t deviceId, const VibrationSequence& sequence, s
 
     InputDevice* device = findInputDeviceLocked(deviceId);
     if (device) {
-        device->vibrate(sequence, repeat, token);
+        mPendingArgs += device->vibrate(sequence, repeat, token);
     }
 }
 
@@ -623,7 +665,7 @@ void InputReader::cancelVibrate(int32_t deviceId, int32_t token) {
 
     InputDevice* device = findInputDeviceLocked(deviceId);
     if (device) {
-        device->cancelVibrate(token);
+        mPendingArgs += device->cancelVibrate(token);
     }
 }
 
@@ -678,23 +720,71 @@ void InputReader::flushSensor(int32_t deviceId, InputDeviceSensorType sensorType
 }
 
 std::optional<int32_t> InputReader::getBatteryCapacity(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
+    std::optional<int32_t> eventHubId;
+    {
+        // Do not query the battery state while holding the lock. For some peripheral devices,
+        // reading battery state can be broken and take 5+ seconds. Holding the lock in this case
+        // would block all other event processing during this time. For now, we assume this
+        // call never happens on the InputReader thread and get the battery state outside the
+        // lock to prevent event processing from being blocked by this call.
+        std::scoped_lock _l(mLock);
+        InputDevice* device = findInputDeviceLocked(deviceId);
+        if (!device) return {};
+        eventHubId = device->getBatteryEventHubId();
+    } // release lock
 
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->getBatteryCapacity();
+    if (!eventHubId) return {};
+    const auto batteryIds = mEventHub->getRawBatteryIds(*eventHubId);
+    if (batteryIds.empty()) {
+        ALOGW("%s: There are no battery ids for EventHub device %d", __func__, *eventHubId);
+        return {};
     }
-    return std::nullopt;
+    return mEventHub->getBatteryCapacity(*eventHubId, batteryIds.front());
 }
 
 std::optional<int32_t> InputReader::getBatteryStatus(int32_t deviceId) {
+    std::optional<int32_t> eventHubId;
+    {
+        // Do not query the battery state while holding the lock. For some peripheral devices,
+        // reading battery state can be broken and take 5+ seconds. Holding the lock in this case
+        // would block all other event processing during this time. For now, we assume this
+        // call never happens on the InputReader thread and get the battery state outside the
+        // lock to prevent event processing from being blocked by this call.
+        std::scoped_lock _l(mLock);
+        InputDevice* device = findInputDeviceLocked(deviceId);
+        if (!device) return {};
+        eventHubId = device->getBatteryEventHubId();
+    } // release lock
+
+    if (!eventHubId) return {};
+    const auto batteryIds = mEventHub->getRawBatteryIds(*eventHubId);
+    if (batteryIds.empty()) {
+        ALOGW("%s: There are no battery ids for EventHub device %d", __func__, *eventHubId);
+        return {};
+    }
+    return mEventHub->getBatteryStatus(*eventHubId, batteryIds.front());
+}
+
+std::optional<std::string> InputReader::getBatteryDevicePath(int32_t deviceId) {
     std::scoped_lock _l(mLock);
 
     InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->getBatteryStatus();
+    if (!device) return {};
+
+    std::optional<int32_t> eventHubId = device->getBatteryEventHubId();
+    if (!eventHubId) return {};
+    const auto batteryIds = mEventHub->getRawBatteryIds(*eventHubId);
+    if (batteryIds.empty()) {
+        ALOGW("%s: There are no battery ids for EventHub device %d", __func__, *eventHubId);
+        return {};
     }
-    return std::nullopt;
+    const auto batteryInfo = mEventHub->getRawBatteryInfo(*eventHubId, batteryIds.front());
+    if (!batteryInfo) {
+        ALOGW("%s: Failed to get RawBatteryInfo for battery %d of EventHub device %d", __func__,
+              batteryIds.front(), *eventHubId);
+        return {};
+    }
+    return batteryInfo->path;
 }
 
 std::vector<InputDeviceLightInfo> InputReader::getLights(int32_t deviceId) {
@@ -717,6 +807,18 @@ std::vector<InputDeviceSensorInfo> InputReader::getSensors(int32_t deviceId) {
     }
 
     return device->getDeviceInfo().getSensors();
+}
+
+std::optional<HardwareProperties> InputReader::getTouchpadHardwareProperties(int32_t deviceId) {
+    std::scoped_lock _l(mLock);
+
+    InputDevice* device = findInputDeviceLocked(deviceId);
+
+    if (device == nullptr) {
+        return {};
+    }
+
+    return device->getTouchpadHardwareProperties();
 }
 
 bool InputReader::setLightColor(int32_t deviceId, int32_t lightId, int32_t color) {
@@ -759,18 +861,17 @@ std::optional<int32_t> InputReader::getLightPlayerId(int32_t deviceId, int32_t l
     return std::nullopt;
 }
 
-bool InputReader::isInputDeviceEnabled(int32_t deviceId) {
+std::optional<std::string> InputReader::getBluetoothAddress(int32_t deviceId) const {
     std::scoped_lock _l(mLock);
 
     InputDevice* device = findInputDeviceLocked(deviceId);
     if (device) {
-        return device->isEnabled();
+        return device->getBluetoothAddress();
     }
-    ALOGW("Ignoring invalid device id %" PRId32 ".", deviceId);
-    return false;
+    return std::nullopt;
 }
 
-bool InputReader::canDispatchToDisplay(int32_t deviceId, int32_t displayId) {
+bool InputReader::canDispatchToDisplay(int32_t deviceId, ui::LogicalDisplayId displayId) {
     std::scoped_lock _l(mLock);
 
     InputDevice* device = findInputDeviceLocked(deviceId);
@@ -784,18 +885,28 @@ bool InputReader::canDispatchToDisplay(int32_t deviceId, int32_t displayId) {
         return false;
     }
 
-    std::optional<int32_t> associatedDisplayId = device->getAssociatedDisplayId();
+    std::optional<ui::LogicalDisplayId> associatedDisplayId = device->getAssociatedDisplayId();
     // No associated display. By default, can dispatch to all displays.
-    if (!associatedDisplayId) {
-        return true;
-    }
-
-    if (*associatedDisplayId == ADISPLAY_ID_NONE) {
-        ALOGW("Device %s is associated with display ADISPLAY_ID_NONE.", device->getName().c_str());
+    if (!associatedDisplayId || !associatedDisplayId->isValid()) {
         return true;
     }
 
     return *associatedDisplayId == displayId;
+}
+
+void InputReader::sysfsNodeChanged(const std::string& sysfsNodePath) {
+    mEventHub->sysfsNodeChanged(sysfsNodePath);
+}
+
+DeviceId InputReader::getLastUsedInputDeviceId() {
+    std::scoped_lock _l(mLock);
+    return mLastUsedDeviceId;
+}
+
+void InputReader::notifyMouseCursorFadedOnTyping() {
+    std::scoped_lock _l(mLock);
+    // disable touchpad taps when cursor has faded due to typing
+    mPreventingTouchpadTaps = true;
 }
 
 void InputReader::dump(std::string& dump) {
@@ -817,6 +928,7 @@ void InputReader::dump(std::string& dump) {
         device->dump(dump, eventHubDevStr);
     }
 
+    dump += StringPrintf(INDENT "NextTimeout: %" PRId64 "\n", mNextTimeout);
     dump += INDENT "Configuration:\n";
     dump += INDENT2 "ExcludedDeviceNames: [";
     for (size_t i = 0; i < mConfig.excludedDeviceNames.size(); i++) {
@@ -906,6 +1018,24 @@ int32_t InputReader::ContextImpl::getLedMetaState() {
     return mReader->getLedMetaStateLocked();
 }
 
+void InputReader::ContextImpl::setPreventingTouchpadTaps(bool prevent) {
+    // lock is already held by the input loop
+    mReader->mPreventingTouchpadTaps = prevent;
+}
+
+bool InputReader::ContextImpl::isPreventingTouchpadTaps() {
+    // lock is already held by the input loop
+    return mReader->mPreventingTouchpadTaps;
+}
+
+void InputReader::ContextImpl::setLastKeyDownTimestamp(nsecs_t when) {
+    mReader->mLastKeyDownTimestamp = when;
+}
+
+nsecs_t InputReader::ContextImpl::getLastKeyDownTimestamp() {
+    return mReader->mLastKeyDownTimestamp;
+}
+
 void InputReader::ContextImpl::disableVirtualKeysUntil(nsecs_t time) {
     // lock is already held by the input loop
     mReader->disableVirtualKeysUntilLocked(time);
@@ -915,17 +1045,6 @@ bool InputReader::ContextImpl::shouldDropVirtualKey(nsecs_t now, int32_t keyCode
                                                     int32_t scanCode) {
     // lock is already held by the input loop
     return mReader->shouldDropVirtualKeyLocked(now, keyCode, scanCode);
-}
-
-void InputReader::ContextImpl::fadePointer() {
-    // lock is already held by the input loop
-    mReader->fadePointerLocked();
-}
-
-std::shared_ptr<PointerControllerInterface> InputReader::ContextImpl::getPointerController(
-        int32_t deviceId) {
-    // lock is already held by the input loop
-    return mReader->getPointerControllerLocked(deviceId);
 }
 
 void InputReader::ContextImpl::requestTimeoutAtTime(nsecs_t when) {
@@ -943,16 +1062,13 @@ void InputReader::ContextImpl::getExternalStylusDevices(std::vector<InputDeviceI
     mReader->getExternalStylusDevicesLocked(outDevices);
 }
 
-void InputReader::ContextImpl::dispatchExternalStylusState(const StylusState& state) {
-    mReader->dispatchExternalStylusStateLocked(state);
+std::list<NotifyArgs> InputReader::ContextImpl::dispatchExternalStylusState(
+        const StylusState& state) {
+    return mReader->dispatchExternalStylusStateLocked(state);
 }
 
 InputReaderPolicyInterface* InputReader::ContextImpl::getPolicy() {
     return mReader->mPolicy.get();
-}
-
-InputListenerInterface* InputReader::ContextImpl::getListener() {
-    return mReader->mQueuedListener.get();
 }
 
 EventHubInterface* InputReader::ContextImpl::getEventHub() {
@@ -961,6 +1077,10 @@ EventHubInterface* InputReader::ContextImpl::getEventHub() {
 
 int32_t InputReader::ContextImpl::getNextId() {
     return mIdGenerator.nextId();
+}
+
+KeyboardClassifier& InputReader::ContextImpl::getKeyboardClassifier() {
+    return *mReader->mKeyboardClassifier;
 }
 
 } // namespace android

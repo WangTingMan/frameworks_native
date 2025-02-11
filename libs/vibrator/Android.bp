@@ -21,30 +21,11 @@ package {
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
-cc_library {
-    name: "libvibrator",
-    vendor_available: true,
-    double_loadable: true,
+cc_defaults {
+    name: "libvibrator_defaults",
 
-    shared_libs: [
-        "libbinder",
-        "liblog",
-        "libutils",
-    ],
-
-    header_libs: [
-        "libaudio_system_headers",
-    ],
-
-    aidl: {
-        include_dirs: ["frameworks/base/core/java"],
-        local_include_dirs: ["include/"],
-        export_aidl_headers: true,
-    },
-
-    srcs: [
-        ":libvibrator_aidl",
-        "*.cpp",
+    defaults: [
+        "aconfig_lib_cc_shared_link.defaults",
     ],
 
     cflags: [
@@ -63,4 +44,64 @@ cc_library {
             enabled: false,
         },
     },
+}
+
+cc_library {
+    name: "libvibrator",
+    defaults: ["libvibrator_defaults"],
+
+    shared_libs: [
+        "libbinder",
+        "liblog",
+        "libutils",
+        "server_configurable_flags",
+    ],
+
+    whole_static_libs: [
+        "android.os.vibrator.flags-aconfig-cc",
+        "libvibratorutils",
+    ],
+
+    header_libs: [
+        "libaudio_system_headers",
+    ],
+
+    aidl: {
+        include_dirs: ["frameworks/base/core/java"],
+        local_include_dirs: ["include/"],
+        export_aidl_headers: true,
+    },
+
+    srcs: [
+        ":libvibrator_aidl",
+        "ExternalVibration.cpp",
+    ],
+}
+
+cc_library {
+    name: "libvibratorutils",
+    defaults: ["libvibrator_defaults"],
+
+    vendor_available: true,
+    double_loadable: true,
+
+    static_libs: [
+        "android.os.vibrator.flags-aconfig-cc",
+    ],
+
+    shared_libs: [
+        "liblog",
+        "libutils",
+        "server_configurable_flags",
+    ],
+
+    srcs: [
+        "ExternalVibrationUtils.cpp",
+    ],
+
+    visibility: [
+        "//frameworks/native/libs/vibrator",
+        "//frameworks/native/libs/vibrator/tests",
+        "//frameworks/av/media/libeffects/hapticgenerator",
+    ],
 }

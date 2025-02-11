@@ -26,7 +26,7 @@ use binder::binder_impl::{
 
 use std::convert::{TryFrom, TryInto};
 use std::ffi::CStr;
-use std::fs::File;
+use std::io::Write;
 use std::sync::Mutex;
 
 /// Name of service runner.
@@ -118,7 +118,7 @@ impl TryFrom<u32> for TestTransactionCode {
 }
 
 impl Interface for TestService {
-    fn dump(&self, _file: &File, args: &[&CStr]) -> Result<(), StatusCode> {
+    fn dump(&self, _writer: &mut dyn Write, args: &[&CStr]) -> Result<(), StatusCode> {
         let mut dump_args = self.dump_args.lock().unwrap();
         dump_args.extend(args.iter().map(|s| s.to_str().unwrap().to_owned()));
         Ok(())
@@ -182,7 +182,7 @@ declare_binder_interface! {
         proxy: BpTest {
             x: i32 = 100
         },
-        async: IATest,
+        async: IATest(try_into_local_async),
     }
 }
 
@@ -323,6 +323,14 @@ impl<P: binder::BinderAsyncPool> IATest<P> for Binder<BnTest> {
     }
 }
 
+impl BnTest {
+    fn try_into_local_async<P: binder::BinderAsyncPool + 'static>(
+        me: Binder<BnTest>,
+    ) -> Option<binder::Strong<dyn IATest<P>>> {
+        Some(binder::Strong::new(Box::new(me) as _))
+    }
+}
+
 /// Trivial testing binder interface
 pub trait ITestSameDescriptor: Interface {}
 
@@ -376,8 +384,8 @@ mod tests {
     use std::time::Duration;
 
     use binder::{
-        BinderFeatures, DeathRecipient, FromIBinder, IBinder, Interface, SpIBinder, StatusCode,
-        Strong,
+        Accessor, AccessorProvider, BinderFeatures, DeathRecipient, FromIBinder, IBinder,
+        Interface, SpIBinder, StatusCode, Strong,
     };
     // Import from impl API for testing only, should not be necessary as long as
     // you are using AIDL.
@@ -421,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn check_services() {
+    fn check_get_service() {
         let mut sm = binder::get_service("manager").expect("Did not get manager binder service");
         assert!(sm.is_binder_alive());
         assert!(sm.ping_binder().is_ok());
@@ -445,7 +453,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_services_async() {
+    async fn check_get_service_async() {
         let mut sm = binder::get_service("manager").expect("Did not get manager binder service");
         assert!(sm.is_binder_alive());
         assert!(sm.ping_binder().is_ok());
@@ -469,6 +477,62 @@ mod tests {
         );
         assert_eq!(
             binder_tokio::get_interface::<dyn IATest<Tokio>>("manager").await.err(),
+            Some(StatusCode::BAD_TYPE)
+        );
+    }
+
+    #[test]
+    fn check_check_service() {
+        let mut sm = binder::check_service("manager").expect("Did not find manager binder service");
+        assert!(sm.is_binder_alive());
+        assert!(sm.ping_binder().is_ok());
+
+        assert!(binder::check_service("this_service_does_not_exist").is_none());
+        assert_eq!(
+            binder::check_interface::<dyn ITest>("this_service_does_not_exist").err(),
+            Some(StatusCode::NAME_NOT_FOUND)
+        );
+        assert_eq!(
+            binder::check_interface::<dyn IATest<Tokio>>("this_service_does_not_exist").err(),
+            Some(StatusCode::NAME_NOT_FOUND)
+        );
+
+        // The service manager service isn't an ITest, so this must fail.
+        assert_eq!(
+            binder::check_interface::<dyn ITest>("manager").err(),
+            Some(StatusCode::BAD_TYPE)
+        );
+        assert_eq!(
+            binder::check_interface::<dyn IATest<Tokio>>("manager").err(),
+            Some(StatusCode::BAD_TYPE)
+        );
+    }
+
+    #[tokio::test]
+    async fn check_check_service_async() {
+        let mut sm = binder::check_service("manager").expect("Did not find manager binder service");
+        assert!(sm.is_binder_alive());
+        assert!(sm.ping_binder().is_ok());
+
+        assert!(binder::check_service("this_service_does_not_exist").is_none());
+        assert_eq!(
+            binder_tokio::check_interface::<dyn ITest>("this_service_does_not_exist").await.err(),
+            Some(StatusCode::NAME_NOT_FOUND)
+        );
+        assert_eq!(
+            binder_tokio::check_interface::<dyn IATest<Tokio>>("this_service_does_not_exist")
+                .await
+                .err(),
+            Some(StatusCode::NAME_NOT_FOUND)
+        );
+
+        // The service manager service isn't an ITest, so this must fail.
+        assert_eq!(
+            binder_tokio::check_interface::<dyn ITest>("manager").await.err(),
+            Some(StatusCode::BAD_TYPE)
+        );
+        assert_eq!(
+            binder_tokio::check_interface::<dyn IATest<Tokio>>("manager").await.err(),
             Some(StatusCode::BAD_TYPE)
         );
     }
@@ -502,7 +566,7 @@ mod tests {
         let instances = binder::get_declared_instances("android.hardware.light.ILights")
             .expect("Could not get declared instances");
 
-        let expected_defaults = if has_lights { 1 } else { 0 };
+        let expected_defaults = usize::from(has_lights);
         assert_eq!(expected_defaults, instances.iter().filter(|i| i.as_str() == "default").count());
     }
 
@@ -545,6 +609,11 @@ mod tests {
     }
 
     fn get_expected_selinux_context() -> &'static str {
+        // SAFETY: The pointer we pass to `getcon` is valid because it comes from a reference, and
+        // `getcon` doesn't retain it after it returns. If `getcon` succeeds then `out_ptr` will
+        // point to a valid C string, otherwise it will remain null. We check for null, so the
+        // pointer we pass to `CStr::from_ptr` must be a valid pointer to a C string. There is a
+        // memory leak as we don't call `freecon`, but that's fine because this is just a test.
         unsafe {
             let mut out_ptr = ptr::null_mut();
             assert_eq!(selinux_sys::getcon(&mut out_ptr), 0);
@@ -837,6 +906,177 @@ mod tests {
             service_ibinder.into_interface().expect("Could not reassociate the generic ibinder");
 
         assert_eq!(service.test().unwrap(), service_name);
+    }
+
+    struct ToBeDeleted {
+        deleted: Arc<AtomicBool>,
+    }
+
+    impl Drop for ToBeDeleted {
+        fn drop(&mut self) {
+            assert!(!self.deleted.load(Ordering::Relaxed));
+            self.deleted.store(true, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn test_accessor_callback_destruction() {
+        let deleted: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        {
+            let accessor: Accessor;
+            {
+                let helper = ToBeDeleted { deleted: deleted.clone() };
+                let get_connection_info = move |_instance: &str| {
+                    // Capture this object so we can see it get destructed
+                    // after the parent scope
+                    let _ = &helper;
+                    None
+                };
+                accessor = Accessor::new("foo.service", get_connection_info);
+            }
+
+            match accessor.as_binder() {
+                Some(_) => {
+                    assert!(!deleted.load(Ordering::Relaxed));
+                }
+                None => panic!("failed to get that accessor binder"),
+            }
+        }
+        assert!(deleted.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_accessor_delegator_new_each_time() {
+        let get_connection_info = move |_instance: &str| None;
+        let accessor = Accessor::new("foo.service", get_connection_info);
+        let delegator_binder =
+            binder::delegate_accessor("foo.service", accessor.as_binder().unwrap());
+        let delegator_binder2 =
+            binder::delegate_accessor("foo.service", accessor.as_binder().unwrap());
+
+        // The delegate_accessor creates new delegators each time
+        assert!(delegator_binder != delegator_binder2);
+    }
+
+    #[test]
+    fn test_accessor_delegate_the_delegator() {
+        let get_connection_info = move |_instance: &str| None;
+        let accessor = Accessor::new("foo.service", get_connection_info);
+        let delegator_binder =
+            binder::delegate_accessor("foo.service", accessor.as_binder().unwrap());
+        let delegator_binder2 =
+            binder::delegate_accessor("foo.service", delegator_binder.clone().unwrap());
+
+        assert!(delegator_binder.clone() == delegator_binder);
+        // The delegate_accessor creates new delegators each time. Even when they are delegators
+        // of delegators.
+        assert!(delegator_binder != delegator_binder2);
+    }
+
+    #[test]
+    fn test_accessor_delegator_wrong_name() {
+        let get_connection_info = move |_instance: &str| None;
+        let accessor = Accessor::new("foo.service", get_connection_info);
+        let delegator_binder =
+            binder::delegate_accessor("NOT.foo.service", accessor.as_binder().unwrap());
+        assert_eq!(delegator_binder, Err(StatusCode::NAME_NOT_FOUND));
+    }
+
+    #[test]
+    fn test_accessor_provider_simple() {
+        let instances: Vec<String> = vec!["foo.service".to_owned(), "foo.other_service".to_owned()];
+        let accessor = AccessorProvider::new(&instances, move |_inst: &str| None);
+        assert!(accessor.is_some());
+    }
+
+    #[test]
+    fn test_accessor_provider_no_instance() {
+        let instances: Vec<String> = vec![];
+        let accessor = AccessorProvider::new(&instances, move |_inst: &str| None);
+        assert!(accessor.is_none());
+    }
+
+    #[test]
+    fn test_accessor_provider_double_register() {
+        let instances: Vec<String> = vec!["foo.service".to_owned(), "foo.other_service".to_owned()];
+        let accessor = AccessorProvider::new(&instances, move |_inst: &str| None);
+        assert!(accessor.is_some());
+        let accessor2 = AccessorProvider::new(&instances, move |_inst: &str| None);
+        assert!(accessor2.is_none());
+    }
+
+    #[test]
+    fn test_accessor_provider_register_drop_register() {
+        let instances: Vec<String> = vec!["foo.service".to_owned(), "foo.other_service".to_owned()];
+        {
+            let accessor = AccessorProvider::new(&instances, move |_inst: &str| None);
+            assert!(accessor.is_some());
+            // accessor drops and unregisters the provider
+        }
+        {
+            let accessor = AccessorProvider::new(&instances, move |_inst: &str| None);
+            assert!(accessor.is_some());
+        }
+    }
+
+    #[test]
+    fn test_accessor_provider_callback_destruction() {
+        let deleted: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        let instances: Vec<String> = vec!["foo.service".to_owned(), "foo.other_service".to_owned()];
+        {
+            let accessor: Option<AccessorProvider>;
+            {
+                let helper = ToBeDeleted { deleted: deleted.clone() };
+                accessor = AccessorProvider::new(&instances, move |_inst: &str| {
+                    let _ = &helper;
+                    None
+                });
+            }
+            assert!(accessor.is_some());
+            assert!(!deleted.load(Ordering::Relaxed));
+        }
+        assert!(deleted.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_accessor_from_accessor_binder() {
+        let get_connection_info = move |_instance: &str| None;
+        let accessor = Accessor::new("foo.service", get_connection_info);
+        let accessor2 =
+            Accessor::from_binder("foo.service", accessor.as_binder().unwrap()).unwrap();
+        assert_eq!(accessor.as_binder(), accessor2.as_binder());
+    }
+
+    #[test]
+    fn test_accessor_from_non_accessor_binder() {
+        let service_name = "rust_test_ibinder";
+        let _process = ScopedServiceProcess::new(service_name);
+        let binder = binder::get_service(service_name).unwrap();
+        assert!(binder.is_binder_alive());
+
+        let accessor = Accessor::from_binder("rust_test_ibinder", binder);
+        assert!(accessor.is_none());
+    }
+
+    #[test]
+    fn test_accessor_from_wrong_accessor_binder() {
+        let get_connection_info = move |_instance: &str| None;
+        let accessor = Accessor::new("foo.service", get_connection_info);
+        let accessor2 = Accessor::from_binder("NOT.foo.service", accessor.as_binder().unwrap());
+        assert!(accessor2.is_none());
+    }
+
+    #[tokio::test]
+    async fn reassociate_rust_binder_async() {
+        let service_name = "testing_service";
+        let service_ibinder =
+            BnTest::new_binder(TestService::new(service_name), BinderFeatures::default())
+                .as_binder();
+
+        let service: Strong<dyn IATest<Tokio>> =
+            service_ibinder.into_interface().expect("Could not reassociate the generic ibinder");
+
+        assert_eq!(service.test().await.unwrap(), service_name);
     }
 
     #[test]

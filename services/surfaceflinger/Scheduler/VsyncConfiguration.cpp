@@ -42,20 +42,18 @@ namespace android::scheduler::impl {
 
 VsyncConfiguration::VsyncConfiguration(Fps currentFps) : mRefreshRateFps(currentFps) {}
 
-PhaseOffsets::VsyncConfigSet VsyncConfiguration::getConfigsForRefreshRate(Fps fps) const {
+VsyncConfigSet VsyncConfiguration::getConfigsForRefreshRate(Fps fps) const {
     std::lock_guard lock(mLock);
     return getConfigsForRefreshRateLocked(fps);
 }
 
-PhaseOffsets::VsyncConfigSet VsyncConfiguration::getConfigsForRefreshRateLocked(Fps fps) const {
-    const auto iter = mOffsetsCache.find(fps);
-    if (iter != mOffsetsCache.end()) {
-        return iter->second;
+VsyncConfigSet VsyncConfiguration::getConfigsForRefreshRateLocked(Fps fps) const {
+    if (const auto offsets = mOffsetsCache.get(fps)) {
+        return offsets->get();
     }
 
-    const auto offset = constructOffsets(fps.getPeriodNsecs());
-    mOffsetsCache[fps] = offset;
-    return offset;
+    const auto [it, _] = mOffsetsCache.try_emplace(fps, constructOffsets(fps.getPeriodNsecs()));
+    return it->second;
 }
 
 void VsyncConfiguration::dump(std::string& result) const {
@@ -136,7 +134,7 @@ PhaseOffsets::PhaseOffsets(Fps currentFps, nsecs_t vsyncPhaseOffsetNs, nsecs_t s
         mThresholdForNextVsync(thresholdForNextVsync),
         mHwcMinWorkDuration(hwcMinWorkDuration) {}
 
-PhaseOffsets::VsyncConfigSet PhaseOffsets::constructOffsets(nsecs_t vsyncDuration) const {
+VsyncConfigSet PhaseOffsets::constructOffsets(nsecs_t vsyncDuration) const {
     if (vsyncDuration < std::chrono::nanoseconds(15ms).count()) {
         return getHighFpsOffsets(vsyncDuration);
     } else {
@@ -160,7 +158,7 @@ std::chrono::nanoseconds appOffsetToDuration(nsecs_t appOffset, nsecs_t sfOffset
 }
 } // namespace
 
-PhaseOffsets::VsyncConfigSet PhaseOffsets::getDefaultOffsets(nsecs_t vsyncDuration) const {
+VsyncConfigSet PhaseOffsets::getDefaultOffsets(nsecs_t vsyncDuration) const {
     const auto earlySfOffset =
             mEarlySfOffsetNs.value_or(mSfVSyncPhaseOffsetNs) < mThresholdForNextVsync
 
@@ -198,7 +196,7 @@ PhaseOffsets::VsyncConfigSet PhaseOffsets::getDefaultOffsets(nsecs_t vsyncDurati
     };
 }
 
-PhaseOffsets::VsyncConfigSet PhaseOffsets::getHighFpsOffsets(nsecs_t vsyncDuration) const {
+VsyncConfigSet PhaseOffsets::getHighFpsOffsets(nsecs_t vsyncDuration) const {
     const auto earlySfOffset =
             mHighFpsEarlySfOffsetNs.value_or(mHighFpsSfVSyncPhaseOffsetNs) < mThresholdForNextVsync
             ? mHighFpsEarlySfOffsetNs.value_or(mHighFpsSfVSyncPhaseOffsetNs)
@@ -288,7 +286,7 @@ nsecs_t appDurationToOffset(std::chrono::nanoseconds appDuration,
 }
 } // namespace
 
-WorkDuration::VsyncConfigSet WorkDuration::constructOffsets(nsecs_t vsyncDuration) const {
+VsyncConfigSet WorkDuration::constructOffsets(nsecs_t vsyncDuration) const {
     const auto sfDurationFixup = [vsyncDuration](nsecs_t duration) {
         return duration == -1 ? std::chrono::nanoseconds(vsyncDuration) - 1ms
                               : std::chrono::nanoseconds(duration);

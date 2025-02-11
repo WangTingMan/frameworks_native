@@ -16,9 +16,9 @@
 
 #pragma once
 
+#include <binder/Common.h>
 #include <binder/IInterface.h>
 #include <binder/Parcel.h>
-#include <cutils/compiler.h>
 
 // Set to 1 to enable CallStacks when logging errors
 #define SI_DUMP_CALLSTACKS 0
@@ -36,7 +36,11 @@ namespace android {
 namespace SafeInterface {
 
 // ParcelHandler is responsible for writing/reading various types to/from a Parcel in a generic way
+<<<<<<< HEAD
 class LIBBINDER_EXPORT ParcelHandler {
+=======
+class LIBBINDER_EXPORTED ParcelHandler {
+>>>>>>> d3fb93fb73
 public:
     explicit ParcelHandler(const char* logTag) : mLogTag(logTag) {}
 
@@ -153,6 +157,14 @@ public:
         return callParcel("writeParcelableVector",
                           [&]() { return parcel->writeParcelableVector(v); });
     }
+
+    status_t read(const Parcel& parcel, std::vector<bool>* v) const {
+        return callParcel("readBoolVector", [&]() { return parcel.readBoolVector(v); });
+    }
+    status_t write(Parcel* parcel, const std::vector<bool>& v) const {
+        return callParcel("writeBoolVector", [&]() { return parcel->writeBoolVector(v); });
+    }
+
     status_t read(const Parcel& parcel, float* f) const {
         return callParcel("readFloat", [&]() { return parcel.readFloat(f); });
     }
@@ -219,7 +231,7 @@ private:
     template <typename Function>
     status_t callParcel(const char* name, Function f) const {
         status_t error = f();
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             ALOG(LOG_ERROR, mLogTag, "Failed to %s, (%d: %s)", name, error, strerror(-error));
 #if SI_DUMP_CALLSTACKS
             CallStack callStack(mLogTag);
@@ -245,7 +257,7 @@ struct ParamExtractor<Return (Class::*)(Params...) const> {
 } // namespace SafeInterface
 
 template <typename Interface>
-class SafeBpInterface : public BpInterface<Interface> {
+class LIBBINDER_EXPORTED SafeBpInterface : public BpInterface<Interface> {
 protected:
     SafeBpInterface(const sp<IBinder>& impl, const char* logTag)
           : BpInterface<Interface>(impl), mLogTag(logTag) {}
@@ -266,7 +278,7 @@ protected:
         data.writeInterfaceToken(this->getInterfaceDescriptor());
 
         status_t error = writeInputs(&data, std::forward<Args>(args)...);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by writeInputs
             return error;
         }
@@ -274,7 +286,7 @@ protected:
         // Send the data Parcel to the remote and retrieve the reply parcel
         Parcel reply;
         error = this->remote()->transact(static_cast<uint32_t>(tag), data, &reply);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             ALOG(LOG_ERROR, mLogTag, "Failed to transact (%d)", error);
 #if SI_DUMP_CALLSTACKS
             CallStack callStack(mLogTag);
@@ -284,7 +296,7 @@ protected:
 
         // Read the outputs from the reply Parcel into the output arguments
         error = readOutputs(reply, std::forward<Args>(args)...);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by readOutputs
             return error;
         }
@@ -292,7 +304,7 @@ protected:
         // Retrieve the result code from the reply Parcel
         status_t result = NO_ERROR;
         error = reply.readInt32(&result);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             ALOG(LOG_ERROR, mLogTag, "Failed to obtain result");
 #if SI_DUMP_CALLSTACKS
             CallStack callStack(mLogTag);
@@ -316,7 +328,7 @@ protected:
         Parcel data;
         data.writeInterfaceToken(this->getInterfaceDescriptor());
         status_t error = writeInputs(&data, std::forward<Args>(args)...);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by writeInputs
             return;
         }
@@ -325,7 +337,7 @@ protected:
         Parcel reply;
         error = this->remote()->transact(static_cast<uint32_t>(tag), data, &reply,
                                          IBinder::FLAG_ONEWAY);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             ALOG(LOG_ERROR, mLogTag, "Failed to transact (%d)", error);
 #if SI_DUMP_CALLSTACKS
             CallStack callStack(mLogTag);
@@ -407,7 +419,7 @@ private:
     template <typename T, typename... Remaining>
     status_t writeInputs(Parcel* data, T&& t, Remaining&&... remaining) const {
         status_t error = writeIfInput(data, std::forward<T>(t));
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by writeIfInput
             return error;
         }
@@ -430,7 +442,7 @@ private:
     template <typename T, typename... Remaining>
     status_t readOutputs(const Parcel& reply, T&& t, Remaining&&... remaining) const {
         status_t error = readIfOutput(reply, std::forward<T>(t));
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by readIfOutput
             return error;
         }
@@ -440,7 +452,7 @@ private:
 };
 
 template <typename Interface>
-class SafeBnInterface : public BnInterface<Interface> {
+class LIBBINDER_EXPORTED SafeBnInterface : public BnInterface<Interface> {
 public:
     explicit SafeBnInterface(const char* logTag) : mLogTag(logTag) {}
 
@@ -459,7 +471,7 @@ protected:
 
         // Read the inputs from the data Parcel into the argument tuple
         status_t error = InputReader<ParamTuple>{mLogTag}.readInputs(data, &rawArgs);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by read
             return error;
         }
@@ -469,14 +481,14 @@ protected:
 
         // Extract the outputs from the argument tuple and write them into the reply Parcel
         error = OutputWriter<ParamTuple>{mLogTag}.writeOutputs(reply, &rawArgs);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by write
             return error;
         }
 
         // Return the result code in the reply Parcel
         error = reply->writeInt32(result);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             ALOG(LOG_ERROR, mLogTag, "Failed to write result");
 #if SI_DUMP_CALLSTACKS
             CallStack callStack(mLogTag);
@@ -501,7 +513,7 @@ protected:
 
         // Read the inputs from the data Parcel into the argument tuple
         status_t error = InputReader<ParamTuple>{mLogTag}.readInputs(data, &rawArgs);
-        if (CC_UNLIKELY(error != NO_ERROR)) {
+        if (error != NO_ERROR) [[unlikely]] {
             // A message will have been logged by read
             return error;
         }
@@ -597,7 +609,7 @@ private:
         typename std::enable_if<(I < sizeof...(Params)), status_t>::type dispatchArg(
                 const Parcel& data, RawTuple* args) {
             status_t error = readIfInput<I>(data, args);
-            if (CC_UNLIKELY(error != NO_ERROR)) {
+            if (error != NO_ERROR) [[unlikely]] {
                 // A message will have been logged in read
                 return error;
             }
@@ -695,7 +707,7 @@ private:
         typename std::enable_if<(I < sizeof...(Params)), status_t>::type dispatchArg(
                 Parcel* reply, RawTuple* args) {
             status_t error = writeIfOutput<I>(reply, args);
-            if (CC_UNLIKELY(error != NO_ERROR)) {
+            if (error != NO_ERROR) [[unlikely]] {
                 // A message will have been logged in read
                 return error;
             }

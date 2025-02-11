@@ -17,12 +17,16 @@
 #pragma once
 
 #include <android/gui/TouchOcclusionMode.h>
+#include <android/os/InputConfig.h>
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
-#include <ftl/Flags.h>
-#include <gui/constants.h>
+#include <ftl/flags.h>
+#include <ftl/mixins.h>
+#include <gui/PidUid.h>
+#include <ui/LogicalDisplayId.h>
 #include <ui/Rect.h>
 #include <ui/Region.h>
+#include <ui/Size.h>
 #include <ui/Transform.h>
 #include <utils/RefBase.h>
 #include <utils/Timers.h>
@@ -71,8 +75,9 @@ struct WindowInfo : public Parcelable {
         SLIPPERY = 0x20000000,
         LAYOUT_ATTACHED_IN_DECOR = 0x40000000,
         DRAWS_SYSTEM_BAR_BACKGROUNDS = 0x80000000,
-    }; // Window types from WindowManager.LayoutParams
+    };
 
+    // Window types from WindowManager.LayoutParams
     enum class Type : int32_t {
         UNKNOWN = 0,
         FIRST_APPLICATION_WINDOW = 1,
@@ -87,45 +92,95 @@ struct WindowInfo : public Parcelable {
         APPLICATION_ATTACHED_DIALOG = FIRST_SUB_WINDOW + 3,
         APPLICATION_MEDIA_OVERLAY = FIRST_SUB_WINDOW + 4,
         LAST_SUB_WINDOW = 1999,
-        FIRST_SYSTEM_WINDOW = 2000,
-        STATUS_BAR = FIRST_SYSTEM_WINDOW,
-        SEARCH_BAR = FIRST_SYSTEM_WINDOW + 1,
-        PHONE = FIRST_SYSTEM_WINDOW + 2,
-        SYSTEM_ALERT = FIRST_SYSTEM_WINDOW + 3,
-        KEYGUARD = FIRST_SYSTEM_WINDOW + 4,
-        TOAST = FIRST_SYSTEM_WINDOW + 5,
-        SYSTEM_OVERLAY = FIRST_SYSTEM_WINDOW + 6,
-        PRIORITY_PHONE = FIRST_SYSTEM_WINDOW + 7,
-        SYSTEM_DIALOG = FIRST_SYSTEM_WINDOW + 8,
-        KEYGUARD_DIALOG = FIRST_SYSTEM_WINDOW + 9,
-        SYSTEM_ERROR = FIRST_SYSTEM_WINDOW + 10,
-        INPUT_METHOD = FIRST_SYSTEM_WINDOW + 11,
-        INPUT_METHOD_DIALOG = FIRST_SYSTEM_WINDOW + 12,
-        WALLPAPER = FIRST_SYSTEM_WINDOW + 13,
-        STATUS_BAR_PANEL = FIRST_SYSTEM_WINDOW + 14,
-        SECURE_SYSTEM_OVERLAY = FIRST_SYSTEM_WINDOW + 15,
-        DRAG = FIRST_SYSTEM_WINDOW + 16,
-        STATUS_BAR_SUB_PANEL = FIRST_SYSTEM_WINDOW + 17,
-        POINTER = FIRST_SYSTEM_WINDOW + 18,
-        NAVIGATION_BAR = FIRST_SYSTEM_WINDOW + 19,
-        VOLUME_OVERLAY = FIRST_SYSTEM_WINDOW + 20,
-        BOOT_PROGRESS = FIRST_SYSTEM_WINDOW + 21,
-        INPUT_CONSUMER = FIRST_SYSTEM_WINDOW + 22,
-        NAVIGATION_BAR_PANEL = FIRST_SYSTEM_WINDOW + 24,
-        MAGNIFICATION_OVERLAY = FIRST_SYSTEM_WINDOW + 27,
-        ACCESSIBILITY_OVERLAY = FIRST_SYSTEM_WINDOW + 32,
-        DOCK_DIVIDER = FIRST_SYSTEM_WINDOW + 34,
-        ACCESSIBILITY_MAGNIFICATION_OVERLAY = FIRST_SYSTEM_WINDOW + 39,
-        NOTIFICATION_SHADE = FIRST_SYSTEM_WINDOW + 40,
+
+#define FIRST_SYSTEM_WINDOW_ 2000
+
+        STATUS_BAR = FIRST_SYSTEM_WINDOW_,
+        SEARCH_BAR = FIRST_SYSTEM_WINDOW_ + 1,
+        PHONE = FIRST_SYSTEM_WINDOW_ + 2,
+        SYSTEM_ALERT = FIRST_SYSTEM_WINDOW_ + 3,
+        KEYGUARD = FIRST_SYSTEM_WINDOW_ + 4,
+        TOAST = FIRST_SYSTEM_WINDOW_ + 5,
+        SYSTEM_OVERLAY = FIRST_SYSTEM_WINDOW_ + 6,
+        PRIORITY_PHONE = FIRST_SYSTEM_WINDOW_ + 7,
+        SYSTEM_DIALOG = FIRST_SYSTEM_WINDOW_ + 8,
+        KEYGUARD_DIALOG = FIRST_SYSTEM_WINDOW_ + 9,
+        SYSTEM_ERROR = FIRST_SYSTEM_WINDOW_ + 10,
+        INPUT_METHOD = FIRST_SYSTEM_WINDOW_ + 11,
+        INPUT_METHOD_DIALOG = FIRST_SYSTEM_WINDOW_ + 12,
+        WALLPAPER = FIRST_SYSTEM_WINDOW_ + 13,
+        STATUS_BAR_PANEL = FIRST_SYSTEM_WINDOW_ + 14,
+        SECURE_SYSTEM_OVERLAY = FIRST_SYSTEM_WINDOW_ + 15,
+        DRAG = FIRST_SYSTEM_WINDOW_ + 16,
+        STATUS_BAR_SUB_PANEL = FIRST_SYSTEM_WINDOW_ + 17,
+        POINTER = FIRST_SYSTEM_WINDOW_ + 18,
+        NAVIGATION_BAR = FIRST_SYSTEM_WINDOW_ + 19,
+        VOLUME_OVERLAY = FIRST_SYSTEM_WINDOW_ + 20,
+        BOOT_PROGRESS = FIRST_SYSTEM_WINDOW_ + 21,
+        INPUT_CONSUMER = FIRST_SYSTEM_WINDOW_ + 22,
+        NAVIGATION_BAR_PANEL = FIRST_SYSTEM_WINDOW_ + 24,
+        MAGNIFICATION_OVERLAY = FIRST_SYSTEM_WINDOW_ + 27,
+        ACCESSIBILITY_OVERLAY = FIRST_SYSTEM_WINDOW_ + 32,
+        DOCK_DIVIDER = FIRST_SYSTEM_WINDOW_ + 34,
+        ACCESSIBILITY_MAGNIFICATION_OVERLAY = FIRST_SYSTEM_WINDOW_ + 39,
+        NOTIFICATION_SHADE = FIRST_SYSTEM_WINDOW_ + 40,
+
+        FIRST_SYSTEM_WINDOW = FIRST_SYSTEM_WINDOW_,
         LAST_SYSTEM_WINDOW = 2999,
+
+#undef FIRST_SYSTEM_WINDOW_
+
+        // Small range to limit LUT size.
+        ftl_first = FIRST_SYSTEM_WINDOW,
+        ftl_last = FIRST_SYSTEM_WINDOW + 15
     };
 
-    enum class Feature {
-        DISABLE_TOUCH_PAD_GESTURES = 1u << 0,
-        NO_INPUT_CHANNEL = 1u << 1,
-        DISABLE_USER_ACTIVITY = 1u << 2,
-        DROP_INPUT = 1u << 3,
-        DROP_INPUT_IF_OBSCURED = 1u << 4,
+    // Flags used to determine configuration of this input window.
+    // This is a conversion of os::InputConfig to an enum backed by an unsigned
+    // type. This indicates that they are flags, so it can be used with ftl/enum.h.
+    enum class InputConfig : uint32_t {
+        // clang-format off
+        DEFAULT =
+                static_cast<uint32_t>(os::InputConfig::DEFAULT),
+        NO_INPUT_CHANNEL =
+                static_cast<uint32_t>(os::InputConfig::NO_INPUT_CHANNEL),
+        NOT_VISIBLE =
+                static_cast<uint32_t>(os::InputConfig::NOT_VISIBLE),
+        NOT_FOCUSABLE =
+                static_cast<uint32_t>(os::InputConfig::NOT_FOCUSABLE),
+        NOT_TOUCHABLE =
+                static_cast<uint32_t>(os::InputConfig::NOT_TOUCHABLE),
+        PREVENT_SPLITTING =
+                static_cast<uint32_t>(os::InputConfig::PREVENT_SPLITTING),
+        DUPLICATE_TOUCH_TO_WALLPAPER =
+                static_cast<uint32_t>(os::InputConfig::DUPLICATE_TOUCH_TO_WALLPAPER),
+        IS_WALLPAPER =
+                static_cast<uint32_t>(os::InputConfig::IS_WALLPAPER),
+        PAUSE_DISPATCHING =
+                static_cast<uint32_t>(os::InputConfig::PAUSE_DISPATCHING),
+        TRUSTED_OVERLAY =
+                static_cast<uint32_t>(os::InputConfig::TRUSTED_OVERLAY),
+        WATCH_OUTSIDE_TOUCH =
+                static_cast<uint32_t>(os::InputConfig::WATCH_OUTSIDE_TOUCH),
+        SLIPPERY =
+                static_cast<uint32_t>(os::InputConfig::SLIPPERY),
+        DISABLE_USER_ACTIVITY =
+                static_cast<uint32_t>(os::InputConfig::DISABLE_USER_ACTIVITY),
+        DROP_INPUT =
+                static_cast<uint32_t>(os::InputConfig::DROP_INPUT),
+        DROP_INPUT_IF_OBSCURED =
+                static_cast<uint32_t>(os::InputConfig::DROP_INPUT_IF_OBSCURED),
+        SPY =
+                static_cast<uint32_t>(os::InputConfig::SPY),
+        INTERCEPTS_STYLUS =
+                static_cast<uint32_t>(os::InputConfig::INTERCEPTS_STYLUS),
+        CLONE =
+                static_cast<uint32_t>(os::InputConfig::CLONE),
+        GLOBAL_STYLUS_BLOCKS_TOUCH =
+                static_cast<uint32_t>(os::InputConfig::GLOBAL_STYLUS_BLOCKS_TOUCH),
+        SENSITIVE_FOR_PRIVACY =
+                static_cast<uint32_t>(os::InputConfig::SENSITIVE_FOR_PRIVACY),
+        // clang-format on
     };
 
     /* These values are filled in by the WM and passed through SurfaceFlinger
@@ -141,15 +196,13 @@ struct WindowInfo : public Parcelable {
     // This uniquely identifies the input window.
     int32_t id = -1;
     std::string name;
-    Flags<Flag> flags;
-    Type type = Type::UNKNOWN;
     std::chrono::nanoseconds dispatchingTimeout = std::chrono::seconds(5);
 
     /* These values are filled in by SurfaceFlinger. */
-    int32_t frameLeft = -1;
-    int32_t frameTop = -1;
-    int32_t frameRight = -1;
-    int32_t frameBottom = -1;
+    Rect frame = Rect::INVALID_RECT;
+
+    // The real size of the content, excluding any crop. If no buffer is rendered, this is 0,0
+    ui::Size contentSize = ui::Size(0, 0);
 
     /*
      * SurfaceFlinger consumes this value to shrink the computed frame. This is
@@ -170,46 +223,44 @@ struct WindowInfo : public Parcelable {
     // Transform applied to individual windows.
     ui::Transform transform;
 
-    // Display orientation as ui::Transform::RotationFlags. Used for compatibility raw coordinates.
-    uint32_t displayOrientation = ui::Transform::ROT_0;
-
-    // Display size in its natural rotation. Used to rotate raw coordinates for compatibility.
-    int32_t displayWidth = 0;
-    int32_t displayHeight = 0;
-
     /*
      * This is filled in by the WM relative to the frame and then translated
      * to absolute coordinates by SurfaceFlinger once the frame is computed.
      */
     Region touchableRegion;
-    bool visible = false;
-    bool focusable = false;
-    bool hasWallpaper = false;
-    bool paused = false;
-    /* This flag is set when the window is of a trusted type that is allowed to silently
-     * overlay other windows for the purpose of implementing the secure views feature.
-     * Trusted overlays, such as IME windows, can partly obscure other windows without causing
-     * motion events to be delivered to them with AMOTION_EVENT_FLAG_WINDOW_IS_OBSCURED.
-     */
-    bool trustedOverlay = false;
+
     TouchOcclusionMode touchOcclusionMode = TouchOcclusionMode::BLOCK_UNTRUSTED;
-    int32_t ownerPid = -1;
-    int32_t ownerUid = -1;
+    Pid ownerPid = Pid::INVALID;
+    Uid ownerUid = Uid::INVALID;
     std::string packageName;
-    Flags<Feature> inputFeatures;
-    int32_t displayId = ADISPLAY_ID_NONE;
-    int32_t portalToDisplayId = ADISPLAY_ID_NONE;
+    ftl::Flags<InputConfig> inputConfig;
+    ui::LogicalDisplayId displayId = ui::LogicalDisplayId::INVALID;
     InputApplicationInfo applicationInfo;
     bool replaceTouchableRegionWithCrop = false;
     wp<IBinder> touchableRegionCropHandle;
 
+    // The window's layout params flags and type set by WM.
+    Type layoutParamsType = Type::UNKNOWN;
+    ftl::Flags<Flag> layoutParamsFlags;
+
+    // The input token for the window to which focus should be transferred when this input window
+    // can be successfully focused. If null, this input window will not transfer its focus to
+    // any other window.
+    sp<IBinder> focusTransferTarget;
+
+    // Sets a property on this window indicating that its visible region should be considered when
+    // computing TrustedPresentation Thresholds.
+    bool canOccludePresentation = false;
+
+    void setInputConfig(ftl::Flags<InputConfig> config, bool value);
+
     void addTouchableRegion(const Rect& region);
 
-    bool touchableRegionContainsPoint(int32_t x, int32_t y) const;
-
-    bool frameContainsPoint(int32_t x, int32_t y) const;
-
     bool supportsSplitTouch() const;
+
+    bool isSpy() const;
+
+    bool interceptsStylus() const;
 
     bool overlaps(const WindowInfo* other) const;
 
@@ -219,6 +270,8 @@ struct WindowInfo : public Parcelable {
 
     status_t readFromParcel(const android::Parcel* parcel) override;
 };
+
+std::ostream& operator<<(std::ostream& out, const WindowInfo& window);
 
 /*
  * Handle for a window that can receive input.
@@ -233,6 +286,7 @@ public:
     WindowInfoHandle(const WindowInfo& other);
 
     inline const WindowInfo* getInfo() const { return &mInfo; }
+    inline WindowInfo* editInfo() { return &mInfo; }
 
     sp<IBinder> getToken() const;
 
@@ -267,4 +321,7 @@ protected:
 
     WindowInfo mInfo;
 };
+
+std::ostream& operator<<(std::ostream& out, const WindowInfoHandle& window);
+
 } // namespace android::gui

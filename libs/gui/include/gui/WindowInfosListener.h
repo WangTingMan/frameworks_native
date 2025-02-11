@@ -16,13 +16,13 @@
 
 #pragma once
 
-#include <gui/WindowInfo.h>
+#include <gui/WindowInfosUpdate.h>
 #include <utils/RefBase.h>
 
 namespace android::gui {
 
 class WindowInfosListener : public virtual RefBase {
 public:
-    virtual void onWindowInfosChanged(const std::vector<WindowInfo>& /*windowInfos*/) = 0;
+    virtual void onWindowInfosChanged(const WindowInfosUpdate& update) = 0;
 };
 } // namespace android::gui

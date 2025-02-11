@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <ftl/flags.h>
+
 #include <compositionengine/impl/planner/LayerState.h>
 
 namespace android::compositionengine::impl::planner {
@@ -35,7 +37,7 @@ public:
         // This implies that only one layer is allowed to differ in an approximate match.
         size_t differingIndex;
         // Set of fields that differ for the differing layer in the approximate match.
-        Flags<LayerStateField> differingFields;
+        ftl::Flags<LayerStateField> differingFields;
     };
 
     // Returns an approximate match when comparing this layer stack with the provided list of
@@ -90,15 +92,15 @@ public:
     }
 
 private:
-    std::vector<const LayerState> copyLayers(const std::vector<const LayerState*>& layers) {
-        std::vector<const LayerState> copiedLayers;
+    std::vector<LayerState> copyLayers(const std::vector<const LayerState*>& layers) {
+        std::vector<LayerState> copiedLayers;
         copiedLayers.reserve(layers.size());
         std::transform(layers.cbegin(), layers.cend(), std::back_inserter(copiedLayers),
                        [](const LayerState* layerState) { return *layerState; });
         return copiedLayers;
     }
 
-    std::vector<const LayerState> mLayers;
+    std::vector<LayerState> mLayers;
 
     // TODO(b/180976743): Tune kMaxDifferingFields
     constexpr static int kMaxDifferingFields = 6;
@@ -109,7 +111,7 @@ public:
     static std::optional<Plan> fromString(const std::string&);
 
     void reset() { mLayerTypes.clear(); }
-    void addLayerType(hardware::graphics::composer::hal::Composition type) {
+    void addLayerType(aidl::android::hardware::graphics::composer3::Composition type) {
         mLayerTypes.emplace_back(type);
     }
 
@@ -125,7 +127,7 @@ public:
     }
 
 private:
-    std::vector<hardware::graphics::composer::hal::Composition> mLayerTypes;
+    std::vector<aidl::android::hardware::graphics::composer3::Composition> mLayerTypes;
 };
 
 } // namespace android::compositionengine::impl::planner

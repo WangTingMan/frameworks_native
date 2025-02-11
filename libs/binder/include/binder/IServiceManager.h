@@ -15,10 +15,16 @@
  */
 
 #pragma once
+#include <binder/Common.h>
 #include <binder/IInterface.h>
-#include <utils/Vector.h>
+// Trusty has its own definition of socket APIs from trusty_ipc.h
+#ifndef __TRUSTY__
+#include <sys/socket.h>
+#endif // __TRUSTY__
 #include <utils/String16.h>
+#include <utils/Vector.h>
 #include <optional>
+#include <set>
 
 #include <binder/libbinder_export.h>
 
@@ -34,15 +40,17 @@
 
 namespace android {
 
-// ----------------------------------------------------------------------
-
 /**
  * Service manager for C++ services.
  *
  * IInterface is only for legacy ABI compatibility
  */
+<<<<<<< HEAD
 class LIBBINDER_EXPORT IServiceManager : public IInterface
 {
+=======
+class LIBBINDER_EXPORTED IServiceManager : public IInterface {
+>>>>>>> d3fb93fb73
 public:
     // for ABI compatibility
     virtual const String16& getInterfaceDescriptor() const;
@@ -79,7 +87,8 @@ public:
      * a system property, or in the case of services in the VINTF manifest, it can be checked
      * with isDeclared).
      */
-    virtual sp<IBinder>         getService( const String16& name) const = 0;
+    [[deprecated("this polls for 5s, prefer waitForService or checkService")]]
+    virtual sp<IBinder> getService(const String16& name) const = 0;
 
     /**
      * Retrieve an existing service, non-blocking.
@@ -127,6 +136,12 @@ public:
     virtual std::optional<String16> updatableViaApex(const String16& name) = 0;
 
     /**
+     * Returns all instances which are updatable via the APEX. Instance names are fully qualified
+     * like `pack.age.IFoo/default`.
+     */
+    virtual Vector<String16> getUpdatableNames(const String16& apexName) = 0;
+
+    /**
      * If this instance has declared remote connection information, returns
      * the ConnectionInfo.
      */
@@ -152,9 +167,19 @@ public:
         int pid;
     };
     virtual std::vector<ServiceDebugInfo> getServiceDebugInfo() = 0;
+
+    /**
+     * Directly enable or disable caching binder during addService calls.
+     * Only used for testing. This is enabled by default.
+     */
+    virtual void enableAddServiceCache(bool value) = 0;
 };
 
+<<<<<<< HEAD
 LIBBINDER_EXPORT sp<IServiceManager> defaultServiceManager();
+=======
+LIBBINDER_EXPORTED sp<IServiceManager> defaultServiceManager();
+>>>>>>> d3fb93fb73
 
 /**
  * Directly set the default service manager. Only used for testing.
@@ -162,7 +187,11 @@ LIBBINDER_EXPORT sp<IServiceManager> defaultServiceManager();
  * *before* any call to defaultServiceManager(); if the latter is
  * called first, setDefaultServiceManager() will abort.
  */
+<<<<<<< HEAD
 LIBBINDER_EXPORT void setDefaultServiceManager(const sp<IServiceManager>& sm);
+=======
+LIBBINDER_EXPORTED void setDefaultServiceManager(const sp<IServiceManager>& sm);
+>>>>>>> d3fb93fb73
 
 template<typename INTERFACE>
 sp<INTERFACE> waitForService(const String16& name) {
@@ -203,17 +232,127 @@ status_t getService(const String16& name, sp<INTERFACE>* outService)
 {
     const sp<IServiceManager> sm = defaultServiceManager();
     if (sm != nullptr) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         *outService = interface_cast<INTERFACE>(sm->getService(name));
+#pragma clang diagnostic pop // getService deprecation
         if ((*outService) != nullptr) return NO_ERROR;
     }
     return NAME_NOT_FOUND;
 }
 
+<<<<<<< HEAD
 LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission);
 LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission,
                             int32_t* outPid, int32_t* outUid);
 LIBBINDER_EXPORT bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
                      bool logPermissionFailure = true);
+=======
+LIBBINDER_EXPORTED void* openDeclaredPassthroughHal(const String16& interface,
+                                                    const String16& instance, int flag);
+
+LIBBINDER_EXPORTED bool checkCallingPermission(const String16& permission);
+LIBBINDER_EXPORTED bool checkCallingPermission(const String16& permission, int32_t* outPid,
+                                               int32_t* outUid);
+LIBBINDER_EXPORTED bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
+                                        bool logPermissionFailure = true);
+
+// ----------------------------------------------------------------------
+// Trusty's definition of the socket APIs does not include sockaddr types
+#ifndef __TRUSTY__
+typedef std::function<status_t(const String16& name, sockaddr* outAddr, socklen_t addrSize)>
+        RpcSocketAddressProvider;
+
+/**
+ * This callback provides a way for clients to get access to remote services by
+ * providing an Accessor object from libbinder that can connect to the remote
+ * service over sockets.
+ *
+ * \param instance name of the service that the callback will provide an
+ *        Accessor for. The provided accessor will be used to set up a client
+ *        RPC connection in libbinder in order to return a binder for the
+ *        associated remote service.
+ *
+ * \return IBinder of the Accessor object that libbinder implements.
+ *         nullptr if the provider callback doesn't know how to reach the
+ *         service or doesn't want to provide access for any other reason.
+ */
+typedef std::function<sp<IBinder>(const String16& instance)> RpcAccessorProvider;
+
+class AccessorProvider;
+
+/**
+ * Register a RpcAccessorProvider for the service manager APIs.
+ *
+ * \param instances that the RpcAccessorProvider knows about and can provide an
+ *        Accessor for.
+ * \param provider callback that generates Accessors.
+ *
+ * \return A pointer used as a recept for the successful addition of the
+ *         AccessorProvider. This is needed to unregister it later.
+ */
+[[nodiscard]] LIBBINDER_EXPORTED std::weak_ptr<AccessorProvider> addAccessorProvider(
+        std::set<std::string>&& instances, RpcAccessorProvider&& providerCallback);
+
+/**
+ * Remove an accessor provider using the pointer provided by addAccessorProvider
+ * along with the cookie pointer that was used.
+ *
+ * \param provider cookie that was returned by addAccessorProvider to keep track
+ *        of this instance.
+ */
+[[nodiscard]] LIBBINDER_EXPORTED status_t
+removeAccessorProvider(std::weak_ptr<AccessorProvider> provider);
+
+/**
+ * Create an Accessor associated with a service that can create a socket connection based
+ * on the connection info from the supplied RpcSocketAddressProvider.
+ *
+ * \param instance name of the service that this Accessor is associated with
+ * \param connectionInfoProvider a callback that returns connection info for
+ *        connecting to the service.
+ * \return the binder of the IAccessor implementation from libbinder
+ */
+LIBBINDER_EXPORTED sp<IBinder> createAccessor(const String16& instance,
+                                              RpcSocketAddressProvider&& connectionInfoProvider);
+
+/**
+ * Check to make sure this binder is the expected binder that is an IAccessor
+ * associated with a specific instance.
+ *
+ * This helper function exists to avoid adding the IAccessor type to
+ * libbinder_ndk.
+ *
+ * \param instance name of the service that this Accessor should be associated with
+ * \param binder to validate
+ *
+ * \return OK if the binder is an IAccessor for `instance`
+ */
+LIBBINDER_EXPORTED status_t validateAccessor(const String16& instance, const sp<IBinder>& binder);
+
+/**
+ * Have libbinder wrap this IAccessor binder in an IAccessorDelegator and return
+ * it.
+ *
+ * This is required only in very specific situations when the process that has
+ * permissions to connect the to RPC service's socket and create the FD for it
+ * is in a separate process from this process that wants to service the Accessor
+ * binder and the communication between these two processes is binder RPC. This
+ * is needed because the binder passed over the binder RPC connection can not be
+ * used as a kernel binder, and needs to be wrapped by a kernel binder that can
+ * then be registered with service manager.
+ *
+ * \param instance name of the Accessor.
+ * \param binder to wrap in a Delegator and register with service manager.
+ * \param outDelegator the wrapped kernel binder for IAccessorDelegator
+ *
+ * \return OK if the binder is an IAccessor for `instance` and the delegator was
+ * successfully created.
+ */
+LIBBINDER_EXPORTED status_t delegateAccessor(const String16& name, const sp<IBinder>& accessor,
+                                             sp<IBinder>* delegator);
+#endif // __TRUSTY__
+>>>>>>> d3fb93fb73
 
 #ifndef __ANDROID__
 // Create an IServiceManager that delegates the service manager on the device via adb.
@@ -226,14 +365,18 @@ LIBBINDER_EXPORT bool checkPermission(const String16& permission, pid_t pid, uid
 //    }
 // Resources are cleaned up when the object is destroyed.
 //
-// For each returned binder object, at most |maxOutgoingThreads| outgoing threads are instantiated.
-// Hence, only |maxOutgoingThreads| calls can be made simultaneously. Additional calls are blocked
-// if there are |maxOutgoingThreads| ongoing calls. See RpcSession::setMaxOutgoingThreads.
-// If |maxOutgoingThreads| is not set, default is |RpcSession::kDefaultMaxOutgoingThreads|.
+// For each returned binder object, at most |maxOutgoingConnections| outgoing connections are
+// instantiated, depending on how many the service on the device is configured with.
+// Hence, only |maxOutgoingConnections| calls can be made simultaneously.
+// See also RpcSession::setMaxOutgoingConnections.
 struct RpcDelegateServiceManagerOptions {
-    std::optional<size_t> maxOutgoingThreads;
+    std::optional<size_t> maxOutgoingConnections;
 };
+<<<<<<< HEAD
 LIBBINDER_EXPORT sp<IServiceManager> createRpcDelegateServiceManager(
+=======
+LIBBINDER_EXPORTED sp<IServiceManager> createRpcDelegateServiceManager(
+>>>>>>> d3fb93fb73
         const RpcDelegateServiceManagerOptions& options);
 #endif
 

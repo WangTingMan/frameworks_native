@@ -17,23 +17,68 @@
 #ifndef ANDROID_EXTERNAL_VIBRATION_UTILS_H
 #define ANDROID_EXTERNAL_VIBRATION_UTILS_H
 
-#include <android/os/IExternalVibratorService.h>
+#include <cstring>
+#include <sstream>
+#include <string>
 
 namespace android::os {
 
-enum class HapticScale {
-    MUTE = IExternalVibratorService::SCALE_MUTE,
-    VERY_LOW = IExternalVibratorService::SCALE_VERY_LOW,
-    LOW = IExternalVibratorService::SCALE_LOW,
-    NONE = IExternalVibratorService::SCALE_NONE,
-    HIGH = IExternalVibratorService::SCALE_HIGH,
-    VERY_HIGH = IExternalVibratorService::SCALE_VERY_HIGH,
+enum class HapticLevel : int32_t {
+    MUTE = -100,
+    VERY_LOW = -2,
+    LOW = -1,
+    NONE = 0,
+    HIGH = 1,
+    VERY_HIGH = 2,
+};
+
+class HapticScale {
+private:
+HapticLevel mLevel = HapticLevel::NONE;
+float mScaleFactor = -1.0f; // undefined, use haptic level to define scale factor
+float mAdaptiveScaleFactor = 1.0f;
+
+public:
+    explicit HapticScale(HapticLevel level, float scaleFactor, float adaptiveScaleFactor)
+          : mLevel(level), mScaleFactor(scaleFactor), mAdaptiveScaleFactor(adaptiveScaleFactor) {}
+    explicit HapticScale(HapticLevel level) : mLevel(level) {}
+    constexpr HapticScale() {}
+
+    HapticLevel getLevel() const { return mLevel; }
+    float getScaleFactor() const { return mScaleFactor; }
+    float getAdaptiveScaleFactor() const { return mAdaptiveScaleFactor; }
+
+    bool operator==(const HapticScale& other) const {
+        return mLevel == other.mLevel && mScaleFactor == other.mScaleFactor &&
+                mAdaptiveScaleFactor == other.mAdaptiveScaleFactor;
+    }
+
+bool isScaleNone() const {
+    return (mLevel == HapticLevel::NONE || mScaleFactor == 1.0f) && mAdaptiveScaleFactor == 1.0f;
+}
+
+bool isScaleMute() const {
+    return mLevel == HapticLevel::MUTE || mScaleFactor == 0 || mAdaptiveScaleFactor == 0;
+}
+
+std::string toString() const {
+    std::ostringstream os;
+    os << "HapticScale { level: " << static_cast<int>(mLevel);
+    os << ", scaleFactor: " << mScaleFactor;
+    os << ", adaptiveScaleFactor: " << mAdaptiveScaleFactor;
+    os << "}";
+    return os.str();
+}
+
+static HapticScale mute() { return os::HapticScale(os::HapticLevel::MUTE); }
+
+static HapticScale none() { return os::HapticScale(os::HapticLevel::NONE); }
 };
 
 bool isValidHapticScale(HapticScale scale);
 
-/* Scales the haptic data in given buffer using the selected HapticScale and ensuring no absolute
- * value will be larger than the absolute of given limit.
+/* Scales the haptic data in given buffer using the selected HapticScaleLevel and ensuring no
+ * absolute value will be larger than the absolute of given limit.
  * The limit will be ignored if it is NaN or zero.
  */
 void scaleHapticData(float* buffer, size_t length, HapticScale scale, float limit);

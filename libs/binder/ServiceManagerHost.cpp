@@ -57,17 +57,23 @@ public:
     [[nodiscard]] const std::optional<unsigned int>& hostPort() const { return mPort; }
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(AdbForwarder);
+    AdbForwarder(const AdbForwarder&) = delete;
+    void operator=(const AdbForwarder&) = delete;
     explicit AdbForwarder(unsigned int port) : mPort(port) {}
     std::optional<unsigned int> mPort;
 };
 std::optional<AdbForwarder> AdbForwarder::forward(unsigned int devicePort) {
     auto result =
             execute({"adb", "forward", "tcp:0", "tcp:" + std::to_string(devicePort)}, nullptr);
+<<<<<<< HEAD
 #ifndef _MSC_VER
     if (!result.ok()) {
         ALOGE("Unable to run `adb forward tcp:0 tcp:%d`: %s", devicePort,
               result.error().message().c_str());
+=======
+    if (!result.has_value()) {
+        ALOGE("Unable to run `adb forward tcp:0 tcp:%d`", devicePort);
+>>>>>>> d3fb93fb73
         return std::nullopt;
     }
 #endif
@@ -97,10 +103,15 @@ AdbForwarder::~AdbForwarder() {
     if (!mPort.has_value()) return;
 
     auto result = execute({"adb", "forward", "--remove", "tcp:" + std::to_string(*mPort)}, nullptr);
+<<<<<<< HEAD
 #ifndef _MSC_VER
     if (!result.ok()) {
         ALOGE("Unable to run `adb forward --remove tcp:%d`: %s", *mPort,
               result.error().message().c_str());
+=======
+    if (!result.has_value()) {
+        ALOGE("Unable to run `adb forward --remove tcp:%d`", *mPort);
+>>>>>>> d3fb93fb73
         return;
     }
 #endif
@@ -135,9 +146,13 @@ sp<IBinder> getDeviceService(std::vector<std::string>&& serviceDispatcherArgs,
     serviceDispatcherArgs.insert(serviceDispatcherArgs.begin(), prefix.begin(), prefix.end());
 
     auto result = execute(std::move(serviceDispatcherArgs), &CommandResult::stdoutEndsWithNewLine);
+<<<<<<< HEAD
 #ifndef _MSC_VER
     if (!result.ok()) {
         ALOGE("%s", result.error().message().c_str());
+=======
+    if (!result.has_value()) {
+>>>>>>> d3fb93fb73
         return nullptr;
     }
 #endif
@@ -165,8 +180,8 @@ sp<IBinder> getDeviceService(std::vector<std::string>&& serviceDispatcherArgs,
     LOG_ALWAYS_FATAL_IF(!forwardResult->hostPort().has_value());
 
     auto rpcSession = RpcSession::make();
-    if (options.maxOutgoingThreads.has_value()) {
-        rpcSession->setMaxOutgoingThreads(*options.maxOutgoingThreads);
+    if (options.maxOutgoingConnections.has_value()) {
+        rpcSession->setMaxOutgoingConnections(*options.maxOutgoingConnections);
     }
 
     if (status_t status = rpcSession->setupInetClient("127.0.0.1", *forwardResult->hostPort());

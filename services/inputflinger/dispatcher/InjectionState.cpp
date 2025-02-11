@@ -20,23 +20,10 @@
 
 namespace android::inputdispatcher {
 
-InjectionState::InjectionState(int32_t injectorPid, int32_t injectorUid)
-      : refCount(1),
-        injectorPid(injectorPid),
-        injectorUid(injectorUid),
+InjectionState::InjectionState(const std::optional<gui::Uid>& targetUid, bool isAsync)
+      : targetUid(targetUid),
+        injectionIsAsync(isAsync),
         injectionResult(android::os::InputEventInjectionResult::PENDING),
-        injectionIsAsync(false),
         pendingForegroundDispatches(0) {}
-
-InjectionState::~InjectionState() {}
-
-void InjectionState::release() {
-    refCount -= 1;
-    if (refCount == 0) {
-        delete this;
-    } else {
-        ALOG_ASSERT(refCount > 0);
-    }
-}
 
 } // namespace android::inputdispatcher

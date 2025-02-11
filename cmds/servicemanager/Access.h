@@ -44,6 +44,8 @@ public:
         pid_t debugPid;
         uid_t uid;
         std::string sid;
+
+        std::string toDebugString() const;
     };
 
     virtual CallingContext getCallingContext();

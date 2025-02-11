@@ -22,11 +22,7 @@
 #include <binder/BpBinder.h>
 #include <binder/TextOutput.h>
 
-#include <android-base/macros.h>
-#include <cutils/sched_policy.h>
 #include <utils/CallStack.h>
-#include <utils/Log.h>
-#include <utils/SystemClock.h>
 
 #include <atomic>
 #include <errno.h>
@@ -50,7 +46,7 @@
 #include "binder_driver/ipc_connection_token.h"
 #endif
 
-#include "Static.h"
+#include "Utils.h"
 #include "binder_module.h"
 
 #include <cutils\threads.h>
@@ -63,11 +59,11 @@
 
 #define IF_LOG_TRANSACTIONS() if (false)
 #define IF_LOG_COMMANDS() if (false)
-#define LOG_REMOTEREFS(...) 
+#define LOG_REMOTEREFS(...)
 #define IF_LOG_REMOTEREFS() if (false)
 
-#define LOG_THREADPOOL(...) 
-#define LOG_ONEWAY(...) 
+#define LOG_THREADPOOL(...)
+#define LOG_ONEWAY(...)
 
 #else
 
@@ -87,50 +83,59 @@
 
 namespace android {
 
+using namespace std::chrono_literals;
+
 // Static const and functions will be optimized out if not used,
 // when LOG_NDEBUG and references in IF_LOG_COMMANDS() are optimized out.
-static const char *kReturnStrings[] = {
-    "BR_ERROR",
-    "BR_OK",
-    "BR_TRANSACTION",
-    "BR_REPLY",
-    "BR_ACQUIRE_RESULT",
-    "BR_DEAD_REPLY",
-    "BR_TRANSACTION_COMPLETE",
-    "BR_INCREFS",
-    "BR_ACQUIRE",
-    "BR_RELEASE",
-    "BR_DECREFS",
-    "BR_ATTEMPT_ACQUIRE",
-    "BR_NOOP",
-    "BR_SPAWN_LOOPER",
-    "BR_FINISHED",
-    "BR_DEAD_BINDER",
-    "BR_CLEAR_DEATH_NOTIFICATION_DONE",
-    "BR_FAILED_REPLY",
-    "BR_FROZEN_REPLY",
-    "BR_ONEWAY_SPAM_SUSPECT",
-    "BR_TRANSACTION_SEC_CTX",
+static const char* kReturnStrings[] = {
+        "BR_ERROR",
+        "BR_OK",
+        "BR_TRANSACTION/BR_TRANSACTION_SEC_CTX",
+        "BR_REPLY",
+        "BR_ACQUIRE_RESULT",
+        "BR_DEAD_REPLY",
+        "BR_TRANSACTION_COMPLETE",
+        "BR_INCREFS",
+        "BR_ACQUIRE",
+        "BR_RELEASE",
+        "BR_DECREFS",
+        "BR_ATTEMPT_ACQUIRE",
+        "BR_NOOP",
+        "BR_SPAWN_LOOPER",
+        "BR_FINISHED",
+        "BR_DEAD_BINDER",
+        "BR_CLEAR_DEATH_NOTIFICATION_DONE",
+        "BR_FAILED_REPLY",
+        "BR_FROZEN_REPLY",
+        "BR_ONEWAY_SPAM_SUSPECT",
+        "BR_TRANSACTION_PENDING_FROZEN",
+        "BR_FROZEN_BINDER",
+        "BR_CLEAR_FREEZE_NOTIFICATION_DONE",
 };
 
-static const char *kCommandStrings[] = {
-    "BC_TRANSACTION",
-    "BC_REPLY",
-    "BC_ACQUIRE_RESULT",
-    "BC_FREE_BUFFER",
-    "BC_INCREFS",
-    "BC_ACQUIRE",
-    "BC_RELEASE",
-    "BC_DECREFS",
-    "BC_INCREFS_DONE",
-    "BC_ACQUIRE_DONE",
-    "BC_ATTEMPT_ACQUIRE",
-    "BC_REGISTER_LOOPER",
-    "BC_ENTER_LOOPER",
-    "BC_EXIT_LOOPER",
-    "BC_REQUEST_DEATH_NOTIFICATION",
-    "BC_CLEAR_DEATH_NOTIFICATION",
-    "BC_DEAD_BINDER_DONE"
+static const char* kCommandStrings[] = {
+        "BC_TRANSACTION",
+        "BC_REPLY",
+        "BC_ACQUIRE_RESULT",
+        "BC_FREE_BUFFER",
+        "BC_INCREFS",
+        "BC_ACQUIRE",
+        "BC_RELEASE",
+        "BC_DECREFS",
+        "BC_INCREFS_DONE",
+        "BC_ACQUIRE_DONE",
+        "BC_ATTEMPT_ACQUIRE",
+        "BC_REGISTER_LOOPER",
+        "BC_ENTER_LOOPER",
+        "BC_EXIT_LOOPER",
+        "BC_REQUEST_DEATH_NOTIFICATION",
+        "BC_CLEAR_DEATH_NOTIFICATION",
+        "BC_DEAD_BINDER_DONE",
+        "BC_TRANSACTION_SG",
+        "BC_REPLY_SG",
+        "BC_REQUEST_FREEZE_NOTIFICATION",
+        "BC_CLEAR_FREEZE_NOTIFICATION",
+        "BC_FREEZE_NOTIFICATION_DONE",
 };
 
 static const int64_t kWorkSourcePropagatedBitIndex = 32;
@@ -144,12 +149,12 @@ static const char* getReturnString(uint32_t cmd)
         return "unknown";
 }
 
-static const void* printBinderTransactionData(TextOutput& out, const void* data)
-{
+static const void* printBinderTransactionData(std::ostream& out, const void* data) {
     const binder_transaction_data* btd =
         (const binder_transaction_data*)data;
     if (btd->target.binder_handle < 1024) {
         /* want to print descriptors in decimal; guess based on value */
+<<<<<<< HEAD
         out << "target.desc=" << btd->target.binder_handle;
     } else {
         out << "target.ptr=" << btd->target.binder_target_ptr;
@@ -160,31 +165,55 @@ static const void* printBinderTransactionData(TextOutput& out, const void* data)
         << " bytes)" << endl
         << "offsets=" << btd->data.ptr.offsets << " (" << (void*)btd->offsets_size
         << " bytes)";
+=======
+        out << "\ttarget.desc=" << btd->target.handle;
+    } else {
+        out << "\ttarget.ptr=" << btd->target.ptr;
+    }
+    out << "\t (cookie " << btd->cookie << ")\n"
+        << "\tcode=" << TypeCode(btd->code) << ", flags=" << (void*)(uint64_t)btd->flags << "\n"
+        << "\tdata=" << btd->data.ptr.buffer << " (" << (void*)btd->data_size << " bytes)\n"
+        << "\toffsets=" << btd->data.ptr.offsets << " (" << (void*)btd->offsets_size << " bytes)\n";
+    return btd + 1;
+}
+
+static const void* printBinderTransactionDataSecCtx(std::ostream& out, const void* data) {
+    const binder_transaction_data_secctx* btd = (const binder_transaction_data_secctx*)data;
+
+    printBinderTransactionData(out, &btd->transaction_data);
+
+    char* secctx = (char*)btd->secctx;
+    out << "\tsecctx=" << secctx << "\n";
+
+>>>>>>> d3fb93fb73
     return btd+1;
 
 }
 
-static const void* printReturnCommand(TextOutput& out, const void* _cmd)
-{
+static const void* printReturnCommand(std::ostream& out, const void* _cmd) {
     static const size_t N = sizeof(kReturnStrings)/sizeof(kReturnStrings[0]);
     const int32_t* cmd = (const int32_t*)_cmd;
     uint32_t code = (uint32_t)*cmd++;
     size_t cmdIndex = code & 0xff;
     if (code == BR_ERROR) {
-        out << "BR_ERROR: " << (void*)(uint64_t)(*cmd++) << endl;
+        out << "\tBR_ERROR: " << (void*)(uint64_t)(*cmd++) << "\n";
         return cmd;
     } else if (cmdIndex >= N) {
-        out << "Unknown reply: " << code << endl;
+        out << "\tUnknown reply: " << code << "\n";
         return cmd;
     }
-    out << kReturnStrings[cmdIndex];
+    out << "\t" << kReturnStrings[cmdIndex];
 
     switch (code) {
+        case BR_TRANSACTION_SEC_CTX: {
+            out << ": ";
+            cmd = (const int32_t*)printBinderTransactionDataSecCtx(out, cmd);
+        } break;
+
         case BR_TRANSACTION:
         case BR_REPLY: {
-            out << ": " << indent;
-            cmd = (const int32_t *)printBinderTransactionData(out, cmd);
-            out << dedent;
+            out << ": ";
+            cmd = (const int32_t*)printBinderTransactionData(out, cmd);
         } break;
 
         case BR_ACQUIRE_RESULT: {
@@ -215,33 +244,57 @@ static const void* printReturnCommand(TextOutput& out, const void* _cmd)
             out << ": death cookie " << (void*)(uint64_t)c;
         } break;
 
+        case BR_FROZEN_BINDER: {
+            const int32_t c = *cmd++;
+            const int32_t h = *cmd++;
+            const int32_t isFrozen = *cmd++;
+            out << ": freeze cookie " << (void*)(uint64_t)c << " isFrozen: " << isFrozen;
+        } break;
+
+        case BR_CLEAR_FREEZE_NOTIFICATION_DONE: {
+            const int32_t c = *cmd++;
+            out << ": freeze cookie " << (void*)(uint64_t)c;
+        } break;
+
         default:
             // no details to show for: BR_OK, BR_DEAD_REPLY,
             // BR_TRANSACTION_COMPLETE, BR_FINISHED
             break;
     }
+<<<<<<< HEAD
     out << endl;
+=======
+
+    out << "\n";
+>>>>>>> d3fb93fb73
     return cmd;
 }
 
-static const void* printCommand(TextOutput& out, const void* _cmd)
-{
+static void printReturnCommandParcel(std::ostream& out, const Parcel& parcel) {
+    const void* cmds = parcel.data();
+    out << "\t" << HexDump(cmds, parcel.dataSize()) << "\n";
+    IF_LOG_COMMANDS() {
+        const void* end = parcel.data() + parcel.dataSize();
+        while (cmds < end) cmds = printReturnCommand(out, cmds);
+    }
+}
+
+static const void* printCommand(std::ostream& out, const void* _cmd) {
     static const size_t N = sizeof(kCommandStrings)/sizeof(kCommandStrings[0]);
     const int32_t* cmd = (const int32_t*)_cmd;
     uint32_t code = (uint32_t)*cmd++;
     size_t cmdIndex = code & 0xff;
 
     if (cmdIndex >= N) {
-        out << "Unknown command: " << code << endl;
+        out << "Unknown command: " << code << "\n";
         return cmd;
     }
     out << kCommandStrings[cmdIndex];
     switch (code) {
         case BC_TRANSACTION:
         case BC_REPLY: {
-            out << ": " << indent;
-            cmd = (const int32_t *)printBinderTransactionData(out, cmd);
-            out << dedent;
+            out << ": ";
+            cmd = (const int32_t*)printBinderTransactionData(out, cmd);
         } break;
 
         case BC_ACQUIRE_RESULT: {
@@ -282,9 +335,21 @@ static const void* printCommand(TextOutput& out, const void* _cmd)
             out << ": handle=" << h << " (death cookie " << (void*)(uint64_t)c << ")";
         } break;
 
+        case BC_REQUEST_FREEZE_NOTIFICATION:
+        case BC_CLEAR_FREEZE_NOTIFICATION: {
+            const int32_t h = *cmd++;
+            const int32_t c = *cmd++;
+            out << ": handle=" << h << " (freeze cookie " << (void*)(uint64_t)c << ")";
+        } break;
+
         case BC_DEAD_BINDER_DONE: {
             const int32_t c = *cmd++;
             out << ": death cookie " << (void*)(uint64_t)c;
+        } break;
+
+        case BC_FREEZE_NOTIFICATION_DONE: {
+            const int32_t c = *cmd++;
+            out << ": freeze cookie " << (void*)(uint64_t)c;
         } break;
 
         default:
@@ -292,11 +357,22 @@ static const void* printCommand(TextOutput& out, const void* _cmd)
             // BC_EXIT_LOOPER
             break;
     }
+<<<<<<< HEAD
     out << endl;
     return cmd;
 }
 
 static std::mutex gTLSMutex;
+=======
+
+    out << "\n";
+    return cmd;
+}
+
+LIBBINDER_IGNORE("-Wzero-as-null-pointer-constant")
+static pthread_mutex_t gTLSMutex = PTHREAD_MUTEX_INITIALIZER;
+LIBBINDER_IGNORE_END()
+>>>>>>> d3fb93fb73
 static std::atomic<bool> gHaveTLS(false);
 static std::atomic<bool> gShutdown = false;
 static std::atomic<bool> gDisableBackgroundScheduling = false;
@@ -441,7 +517,9 @@ void IPCThreadState::restoreGetCallingSpGuard(const SpGuard* guard) {
 }
 
 void IPCThreadState::checkContextIsBinderForUse(const char* use) const {
-    if (LIKELY(mServingStackPointerGuard == nullptr)) return;
+    if (mServingStackPointerGuard == nullptr) [[likely]] {
+        return;
+    }
 
     if (!mServingStackPointer || mServingStackPointerGuard->address < mServingStackPointer) {
         LOG_ALWAYS_FATAL("In context %s, %s does not make sense (binder sp: %p, guard: %p).",
@@ -454,12 +532,90 @@ void IPCThreadState::checkContextIsBinderForUse(const char* use) const {
     // context, so we don't abort
 }
 
+constexpr uint32_t encodeExplicitIdentity(bool hasExplicitIdentity, pid_t callingPid) {
+    uint32_t as_unsigned = static_cast<uint32_t>(callingPid);
+    if (hasExplicitIdentity) {
+        return as_unsigned | (1 << 30);
+    } else {
+        return as_unsigned & ~(1 << 30);
+    }
+}
+
+constexpr int64_t packCallingIdentity(bool hasExplicitIdentity, uid_t callingUid,
+                                      pid_t callingPid) {
+    // Calling PID is a 32-bit signed integer, but doesn't consume the entire 32 bit space.
+    // To future-proof this and because we have extra capacity, we decided to also support -1,
+    // since this constant is used to represent invalid UID in other places of the system.
+    // Thus, we pack hasExplicitIdentity into the 2nd bit from the left.  This allows us to
+    // preserve the (left-most) bit for the sign while also encoding the value of
+    // hasExplicitIdentity.
+    //               32b     |        1b         |         1b            |        30b
+    // token = [ calling uid | calling pid(sign) | has explicit identity | calling pid(rest) ]
+    uint64_t token = (static_cast<uint64_t>(callingUid) << 32) |
+            encodeExplicitIdentity(hasExplicitIdentity, callingPid);
+    return static_cast<int64_t>(token);
+}
+
+constexpr bool unpackHasExplicitIdentity(int64_t token) {
+    return static_cast<int32_t>(token) & (1 << 30);
+}
+
+constexpr uid_t unpackCallingUid(int64_t token) {
+    return static_cast<uid_t>(token >> 32);
+}
+
+constexpr pid_t unpackCallingPid(int64_t token) {
+    int32_t encodedPid = static_cast<int32_t>(token);
+    if (encodedPid & (1 << 31)) {
+        return encodedPid | (1 << 30);
+    } else {
+        return encodedPid & ~(1 << 30);
+    }
+}
+
+static_assert(unpackHasExplicitIdentity(packCallingIdentity(true, 1000, 9999)) == true,
+              "pack true hasExplicit");
+
+static_assert(unpackCallingUid(packCallingIdentity(true, 1000, 9999)) == 1000, "pack true uid");
+
+static_assert(unpackCallingPid(packCallingIdentity(true, 1000, 9999)) == 9999, "pack true pid");
+
+static_assert(unpackHasExplicitIdentity(packCallingIdentity(false, 1000, 9999)) == false,
+              "pack false hasExplicit");
+
+static_assert(unpackCallingUid(packCallingIdentity(false, 1000, 9999)) == 1000, "pack false uid");
+
+static_assert(unpackCallingPid(packCallingIdentity(false, 1000, 9999)) == 9999, "pack false pid");
+
+static_assert(unpackHasExplicitIdentity(packCallingIdentity(true, 1000, -1)) == true,
+              "pack true (negative) hasExplicit");
+
+static_assert(unpackCallingUid(packCallingIdentity(true, 1000, -1)) == 1000,
+              "pack true (negative) uid");
+
+static_assert(unpackCallingPid(packCallingIdentity(true, 1000, -1)) == -1,
+              "pack true (negative) pid");
+
+static_assert(unpackHasExplicitIdentity(packCallingIdentity(false, 1000, -1)) == false,
+              "pack false (negative) hasExplicit");
+
+static_assert(unpackCallingUid(packCallingIdentity(false, 1000, -1)) == 1000,
+              "pack false (negative) uid");
+
+static_assert(unpackCallingPid(packCallingIdentity(false, 1000, -1)) == -1,
+              "pack false (negative) pid");
+
 int64_t IPCThreadState::clearCallingIdentity()
 {
     // ignore mCallingSid for legacy reasons
-    int64_t token = ((int64_t)mCallingUid<<32) | mCallingPid;
+    int64_t token = packCallingIdentity(mHasExplicitIdentity, mCallingUid, mCallingPid);
     clearCaller();
+    mHasExplicitIdentity = true;
     return token;
+}
+
+bool IPCThreadState::hasExplicitIdentity() {
+    return mHasExplicitIdentity;
 }
 
 void IPCThreadState::setStrictModePolicy(int32_t policy)
@@ -534,9 +690,10 @@ ProcessState::CallRestriction IPCThreadState::getCallRestriction() const {
 
 void IPCThreadState::restoreCallingIdentity(int64_t token)
 {
-    mCallingUid = (int)(token>>32);
+    mCallingUid = unpackCallingUid(token);
     mCallingSid = nullptr;  // not enough data to restore
-    mCallingPid = (int)token;
+    mCallingPid = unpackCallingPid(token);
+    mHasExplicitIdentity = unpackHasExplicitIdentity(token);
 }
 
 void IPCThreadState::clearCaller()
@@ -579,6 +736,7 @@ bool IPCThreadState::flushIfNeeded()
 
 void IPCThreadState::blockUntilThreadAvailable()
 {
+<<<<<<< HEAD
     std::unique_lock<std::mutex> thread_mutex_lock(mProcess->mThreadCountLock);
     mProcess->mWaitingForThreads++;
     while (mProcess->mExecutingThreadsCount >= mProcess->mMaxThreads) {
@@ -588,6 +746,21 @@ void IPCThreadState::blockUntilThreadAvailable()
         mProcess->mThreadCountDecrement.wait(thread_mutex_lock);
     }
     mProcess->mWaitingForThreads--;
+=======
+    std::unique_lock lock_guard_(mProcess->mOnThreadAvailableLock);
+    mProcess->mOnThreadAvailableWaiting++;
+    mProcess->mOnThreadAvailableCondVar.wait(lock_guard_, [&] {
+        size_t max = mProcess->mMaxThreads;
+        size_t cur = mProcess->mExecutingThreadsCount;
+        if (cur < max) {
+            return true;
+        }
+        ALOGW("Waiting for thread to be free. mExecutingThreadsCount=%zu mMaxThreads=%zu\n", cur,
+              max);
+        return false;
+    });
+    mProcess->mOnThreadAvailableWaiting--;
+>>>>>>> d3fb93fb73
 }
 
 status_t IPCThreadState::getAndExecuteCommand()
@@ -602,6 +775,7 @@ status_t IPCThreadState::getAndExecuteCommand()
         if (IN_ < sizeof(int32_t)) return result;
         cmd = mIn.readInt32();
         IF_LOG_COMMANDS() {
+<<<<<<< HEAD
             alog.setSourceLocation(__FILE__, __LINE__);
             alog << "Processing top-level Command: "
                  << getReturnString(cmd) << endl;
@@ -625,14 +799,47 @@ status_t IPCThreadState::getAndExecuteCommand()
             if (starvationTimeMs > 100) {
                 ALOGE("binder thread pool (%zu threads) starved for %" PRId64 " ms",
                       mProcess->mMaxThreads, starvationTimeMs);
+=======
+            std::ostringstream logStream;
+            logStream << "Processing top-level Command: " << getReturnString(cmd) << "\n";
+            std::string message = logStream.str();
+            ALOGI("%s", message.c_str());
+        }
+
+        size_t newThreadsCount = mProcess->mExecutingThreadsCount.fetch_add(1) + 1;
+        if (newThreadsCount >= mProcess->mMaxThreads) {
+            auto expected = ProcessState::never();
+            mProcess->mStarvationStartTime
+                    .compare_exchange_strong(expected, std::chrono::steady_clock::now());
+        }
+
+        result = executeCommand(cmd);
+
+        size_t maxThreads = mProcess->mMaxThreads;
+        newThreadsCount = mProcess->mExecutingThreadsCount.fetch_sub(1) - 1;
+        if (newThreadsCount < maxThreads) {
+            auto starvationStartTime =
+                    mProcess->mStarvationStartTime.exchange(ProcessState::never());
+            if (starvationStartTime != ProcessState::never()) {
+                auto starvationTime = std::chrono::steady_clock::now() - starvationStartTime;
+                if (starvationTime > 100ms) {
+                    ALOGE("binder thread pool (%zu threads) starved for %" PRId64 " ms", maxThreads,
+                          to_ms(starvationTime));
+                }
+>>>>>>> d3fb93fb73
             }
-            mProcess->mStarvationStartTimeMs = 0;
         }
 
         // Cond broadcast can be expensive, so don't send it every time a binder
         // call is processed. b/168806193
+<<<<<<< HEAD
         if (mProcess->mWaitingForThreads > 0) {
             mProcess->mThreadCountDecrement.notify_all();
+=======
+        if (mProcess->mOnThreadAvailableWaiting > 0) {
+            std::lock_guard lock_guard_(mProcess->mOnThreadAvailableLock);
+            mProcess->mOnThreadAvailableCondVar.notify_all();
+>>>>>>> d3fb93fb73
         }
     }
 
@@ -756,6 +963,7 @@ void IPCThreadState::startThreadPoolImpl( bool a_is_main )
 
 void IPCThreadState::joinThreadPool(bool isMain)
 {
+<<<<<<< HEAD
 #ifdef _MSC_VER
     startThreadPoolImpl( isMain );
 #else
@@ -763,6 +971,12 @@ void IPCThreadState::joinThreadPool(bool isMain)
     std::unique_lock<std::mutex> lcker(mProcess->mThreadCountLock);
     mProcess->mCurrentThreads++;
     lcker.unlock();
+=======
+    LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)pthread_self(),
+                   getpid());
+    mProcess->checkExpectingThreadPoolStart();
+    mProcess->mCurrentThreads++;
+>>>>>>> d3fb93fb73
     mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
 
     mIsLooper = true;
@@ -790,6 +1004,7 @@ void IPCThreadState::joinThreadPool(bool isMain)
     mOut.writeInt32(BC_EXIT_LOOPER);
     mIsLooper = false;
     talkWithDriver(false);
+<<<<<<< HEAD
     lcker.lock();
     LOG_ALWAYS_FATAL_IF(mProcess->mCurrentThreads == 0,
                         "Threadpool thread count = 0. Thread cannot exist and exit in empty "
@@ -797,6 +1012,13 @@ void IPCThreadState::joinThreadPool(bool isMain)
                         "Misconfiguration. Increase threadpool max threads configuration\n");
     mProcess->mCurrentThreads--;
 #endif
+=======
+    size_t oldCount = mProcess->mCurrentThreads.fetch_sub(1);
+    LOG_ALWAYS_FATAL_IF(oldCount == 0,
+                        "Threadpool thread count underflowed. Thread cannot exist and exit in "
+                        "empty threadpool\n"
+                        "Misconfiguration. Increase threadpool max threads configuration\n");
+>>>>>>> d3fb93fb73
 }
 
 status_t IPCThreadState::setupPolling(int* fd)
@@ -812,9 +1034,13 @@ status_t IPCThreadState::setupPolling(int* fd)
     mOut.writeInt32(BC_ENTER_LOOPER);
     flushCommands();
     *fd = mProcess->mDriverFD;
+<<<<<<< HEAD
     std::unique_lock<std::mutex> lcker(mProcess->mThreadCountLock);
     mProcess->mCurrentThreads++;
 
+=======
+    mProcess->mCurrentThreads++;
+>>>>>>> d3fb93fb73
     return 0;
 }
 
@@ -852,11 +1078,19 @@ status_t IPCThreadState::transact(int32_t handle,
     flags |= TF_ACCEPT_FDS;
 
     IF_LOG_TRANSACTIONS() {
+<<<<<<< HEAD
         TextOutput::Bundle _b(alog);
         _b.setSourceLocation(__FILE__, __LINE__);
         alog << "BC_TRANSACTION thr " << gettid() << " / hand "
             << handle << " / code " << TypeCode(code) << ": "
             << indent << data << dedent << endl;
+=======
+        std::ostringstream logStream;
+        logStream << "BC_TRANSACTION thr " << (void*)pthread_self() << " / hand " << handle
+                  << " / code " << TypeCode(code) << ": \t" << data << "\n";
+        std::string message = logStream.str();
+        ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
     }
 
     LOG_ONEWAY(">>>> SEND from pid %d uid %d %s", getpid(), getuid(),
@@ -869,7 +1103,7 @@ status_t IPCThreadState::transact(int32_t handle,
     }
 
     if ((flags & TF_ONE_WAY) == 0) {
-        if (UNLIKELY(mCallRestriction != ProcessState::CallRestriction::NONE)) {
+        if (mCallRestriction != ProcessState::CallRestriction::NONE) [[unlikely]] {
             if (mCallRestriction == ProcessState::CallRestriction::ERROR_IF_NOT_ONEWAY) {
                 ALOGE("Process making non-oneway call (code: %u) but is restricted.", code);
                 CallStack::logStack("non-oneway call", CallStack::getCurrent(10).get(),
@@ -879,13 +1113,13 @@ status_t IPCThreadState::transact(int32_t handle,
             }
         }
 
-        #if 0
+#if 0
         if (code == 4) { // relayout
             ALOGI(">>>>>> CALLING transaction 4");
         } else {
             ALOGI(">>>>>> CALLING transaction %d", code);
         }
-        #endif
+#endif
         if (reply) {
             err = waitForResponse(reply);
         } else {
@@ -901,12 +1135,24 @@ status_t IPCThreadState::transact(int32_t handle,
         #endif
 
         IF_LOG_TRANSACTIONS() {
+<<<<<<< HEAD
             TextOutput::Bundle _b(alog);
             _b.setSourceLocation(__FILE__, __LINE__);
             alog << "BR_REPLY thr " << gettid() << " / hand "
                 << handle << ": ";
             if (reply) alog << indent << *reply << dedent << endl;
             else alog << "(none requested)" << endl;
+=======
+            std::ostringstream logStream;
+            logStream << "BR_REPLY thr " << (void*)pthread_self() << " / hand " << handle << ": ";
+            if (reply)
+                logStream << "\t" << *reply << "\n";
+            else
+                logStream << "(none requested)"
+                          << "\n";
+            std::string message = logStream.str();
+            ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
         }
     } else {
         ALOGI( "send binder message and wait for reply" );
@@ -980,28 +1226,10 @@ void IPCThreadState::decWeakHandle(int32_t handle)
     flushIfNeeded();
 }
 
-status_t IPCThreadState::attemptIncStrongHandle(int32_t handle)
-{
-#if HAS_BC_ATTEMPT_ACQUIRE
-    LOG_REMOTEREFS("IPCThreadState::attemptIncStrongHandle(%d)\n", handle);
-    mOut.writeInt32(BC_ATTEMPT_ACQUIRE);
-    mOut.writeInt32(0); // xxx was thread priority
-    mOut.writeInt32(handle);
-    status_t result = UNKNOWN_ERROR;
-
-    waitForResponse(NULL, &result);
-
-#if LOG_REFCOUNTS
-    ALOGV("IPCThreadState::attemptIncStrongHandle(%ld) = %s\n",
-        handle, result == NO_ERROR ? "SUCCESS" : "FAILURE");
-#endif
-
-    return result;
-#else
+status_t IPCThreadState::attemptIncStrongHandle(int32_t handle) {
     (void)handle;
     ALOGE("%s(%d): Not supported\n", __func__, handle);
     return INVALID_OPERATION;
-#endif
 }
 
 void IPCThreadState::expungeHandle(int32_t handle, IBinder* binder)
@@ -1046,6 +1274,33 @@ status_t IPCThreadState::clearDeathNotification(int32_t handle, BpBinder* proxy)
     return NO_ERROR;
 }
 
+status_t IPCThreadState::addFrozenStateChangeCallback(int32_t handle, BpBinder* proxy) {
+    static bool isSupported =
+            ProcessState::isDriverFeatureEnabled(ProcessState::DriverFeature::FREEZE_NOTIFICATION);
+    if (!isSupported) {
+        return INVALID_OPERATION;
+    }
+    proxy->getWeakRefs()->incWeak(proxy);
+    mOut.writeInt32(BC_REQUEST_FREEZE_NOTIFICATION);
+    mOut.writeInt32((int32_t)handle);
+    mOut.writePointer((uintptr_t)proxy);
+    flushCommands();
+    return NO_ERROR;
+}
+
+status_t IPCThreadState::removeFrozenStateChangeCallback(int32_t handle, BpBinder* proxy) {
+    static bool isSupported =
+            ProcessState::isDriverFeatureEnabled(ProcessState::DriverFeature::FREEZE_NOTIFICATION);
+    if (!isSupported) {
+        return INVALID_OPERATION;
+    }
+    mOut.writeInt32(BC_CLEAR_FREEZE_NOTIFICATION);
+    mOut.writeInt32((int32_t)handle);
+    mOut.writePointer((uintptr_t)proxy);
+    flushCommands();
+    return NO_ERROR;
+}
+
 IPCThreadState::IPCThreadState()
       : mProcess(ProcessState::self()),
         mServingStackPointer(nullptr),
@@ -1064,10 +1319,14 @@ IPCThreadState::IPCThreadState()
     gValid = true;
 #endif
     clearCaller();
+<<<<<<< HEAD
 #ifdef _MSC_VER
     mIn.setDataCapacity( 256 + INCREASED_TRANSACTION_DATA_SIZE );
     mOut.setDataCapacity( 256 + INCREASED_TRANSACTION_DATA_SIZE );
 #else
+=======
+    mHasExplicitIdentity = false;
+>>>>>>> d3fb93fb73
     mIn.setDataCapacity(256);
     mOut.setDataCapacity(256);
 #endif
@@ -1106,9 +1365,16 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
 
         cmd = (uint32_t)mIn.readInt32();
         IF_LOG_COMMANDS() {
+<<<<<<< HEAD
             alog.setSourceLocation(__FILE__, __LINE__);
             alog << "Processing waitForResponse Command: "
                 << getReturnString(cmd) << endl;
+=======
+            std::ostringstream logStream;
+            logStream << "Processing waitForResponse Command: " << getReturnString(cmd) << "\n";
+            std::string message = logStream.str();
+            ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
         }
 
         switch (cmd) {
@@ -1121,6 +1387,10 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
             if (!reply && !acquireResult) goto finish;
             break;
 
+        case BR_TRANSACTION_PENDING_FROZEN:
+            ALOGW("Sending oneway calls to frozen process.");
+            goto finish;
+
         case BR_DEAD_REPLY:
             err = DEAD_OBJECT;
             goto finish;
@@ -1130,6 +1400,7 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
             goto finish;
 
         case BR_FROZEN_REPLY:
+            ALOGW("Transaction failed because process frozen.");
             err = FAILED_TRANSACTION;
             goto finish;
 
@@ -1227,18 +1498,24 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     }
 
     IF_LOG_COMMANDS() {
+<<<<<<< HEAD
         TextOutput::Bundle _b(alog);
         _b.setSourceLocation(__FILE__, __LINE__);
+=======
+        std::ostringstream logStream;
+>>>>>>> d3fb93fb73
         if (outAvail != 0) {
-            alog << "Sending commands to driver: " << indent;
+            logStream << "Sending commands to driver: ";
             const void* cmds = (const void*)bwr.write_buffer;
-            const void* end = ((const uint8_t*)cmds)+bwr.write_size;
-            alog << HexDump(cmds, bwr.write_size) << endl;
-            while (cmds < end) cmds = printCommand(alog, cmds);
-            alog << dedent;
+            const void* end = ((const uint8_t*)cmds) + bwr.write_size;
+            logStream << "\t" << HexDump(cmds, bwr.write_size) << "\n";
+            while (cmds < end) cmds = printCommand(logStream, cmds);
         }
-        alog << "Size of receive buffer: " << bwr.read_size
-            << ", needRead: " << needRead << ", doReceive: " << doReceive << endl;
+        logStream << "Size of receive buffer: " << bwr.read_size << ", needRead: " << needRead
+                  << ", doReceive: " << doReceive << "\n";
+
+        std::string message = logStream.str();
+        ALOGI("%s", message.c_str());
     }
 
     // Return immediately if there is nothing to do.
@@ -1249,8 +1526,15 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     status_t err;
     do {
         IF_LOG_COMMANDS() {
+<<<<<<< HEAD
             alog.setSourceLocation(__FILE__, __LINE__);
             alog << "About to read/write, write size = " << mOut.dataSize() << endl;
+=======
+            std::ostringstream logStream;
+            logStream << "About to read/write, write size = " << mOut.dataSize() << "\n";
+            std::string message = logStream.str();
+            ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
         }
 #if defined(__ANDROID__)
         if (fcntl(mProcess->mDriverFD, BINDER_WRITE_READ, &bwr) >= 0)
@@ -1268,20 +1552,37 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
             err = -EBADF;
         }
         IF_LOG_COMMANDS() {
+<<<<<<< HEAD
             alog.setSourceLocation(__FILE__, __LINE__);
             alog << "Finished read/write, write size = " << mOut.dataSize() << endl;
+=======
+            std::ostringstream logStream;
+            logStream << "Finished read/write, write size = " << mOut.dataSize() << "\n";
+            std::string message = logStream.str();
+            ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
         }
     } while (err == -EINTR);
 
     IF_LOG_COMMANDS() {
+<<<<<<< HEAD
         alog.setSourceLocation(__FILE__, __LINE__);
         alog << "Our err: " << (void*)(intptr_t)err << ", write consumed: "
             << bwr.write_consumed << " (of " << mOut.dataSize()
                         << "), read consumed: " << bwr.read_consumed << endl;
+=======
+        std::ostringstream logStream;
+        logStream << "Our err: " << (void*)(intptr_t)err
+                  << ", write consumed: " << bwr.write_consumed << " (of " << mOut.dataSize()
+                  << "), read consumed: " << bwr.read_consumed << "\n";
+        std::string message = logStream.str();
+        ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
     }
 
     if (err >= NO_ERROR) {
         if (bwr.write_consumed > 0) {
+<<<<<<< HEAD
             if (bwr.write_consumed < mOut.dataSize())
             {
                 LOG_ALWAYS_FATAL("Driver did not consume write buffer. "
@@ -1291,6 +1592,17 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
                                  mOut.dataSize());
             }
             else {
+=======
+            if (bwr.write_consumed < mOut.dataSize()) {
+                std::ostringstream logStream;
+                printReturnCommandParcel(logStream, mIn);
+                LOG_ALWAYS_FATAL("Driver did not consume write buffer. "
+                                 "err: %s consumed: %zu of %zu.\n"
+                                 "Return command: %s",
+                                 statusToString(err).c_str(), (size_t)bwr.write_consumed,
+                                 mOut.dataSize(), logStream.str().c_str());
+            } else {
+>>>>>>> d3fb93fb73
                 mOut.setDataSize(0);
                 processPostWriteDerefs();
             }
@@ -1300,6 +1612,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
             mIn.setDataPosition(0);
         }
         IF_LOG_COMMANDS() {
+<<<<<<< HEAD
             TextOutput::Bundle _b(alog);
             _b.setSourceLocation(__FILE__, __LINE__);
             alog << "Remaining data size: " << mOut.dataSize() << endl;
@@ -1312,6 +1625,19 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
         }
         return NO_ERROR;
     }
+=======
+            std::ostringstream logStream;
+            printReturnCommandParcel(logStream, mIn);
+            ALOGI("%s", logStream.str().c_str());
+        }
+        return NO_ERROR;
+    }
+
+    ALOGE_IF(mProcess->mDriverFD >= 0,
+             "Driver returned error (%s). This is a bug in either libbinder or the driver. This "
+             "thread's connection to %s will no longer work.",
+             statusToString(err).c_str(), mProcess->mDriverName.c_str());
+>>>>>>> d3fb93fb73
     return err;
 }
 
@@ -1530,6 +1856,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             const pid_t origPid = mCallingPid;
             const char* origSid = mCallingSid;
             const uid_t origUid = mCallingUid;
+            const bool origHasExplicitIdentity = mHasExplicitIdentity;
             const int32_t origStrictModePolicy = mStrictModePolicy;
             const int32_t origTransactionBinderFlags = mLastTransactionBinderFlags;
             const int32_t origWorkSource = mWorkSource;
@@ -1543,6 +1870,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             mCallingPid = tr.sender_pid;
             mCallingSid = reinterpret_cast<const char*>(tr_secctx.secctx);
             mCallingUid = tr.sender_euid;
+            mHasExplicitIdentity = false;
             mLastTransactionBinderFlags = tr.flags;
 
             // ALOGI(">>>> TRANSACT from pid %d sid %s uid %d\n", mCallingPid,
@@ -1551,6 +1879,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             Parcel reply;
             status_t error;
             IF_LOG_TRANSACTIONS() {
+<<<<<<< HEAD
                 TextOutput::Bundle _b(alog);
                 _b.setSourceLocation(__FILE__, __LINE__);
                 alog << "BR_TRANSACTION thr " << (void*)gettid()
@@ -1561,6 +1890,17 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                     << reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer)
                     << ", offsets addr="
                     << reinterpret_cast<const size_t*>(tr.data.ptr.offsets) << endl;
+=======
+                std::ostringstream logStream;
+                logStream << "BR_TRANSACTION thr " << (void*)pthread_self() << " / obj "
+                          << tr.target.ptr << " / code " << TypeCode(tr.code) << ": \t" << buffer
+                          << "\n"
+                          << "Data addr = " << reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer)
+                          << ", offsets addr="
+                          << reinterpret_cast<const size_t*>(tr.data.ptr.offsets) << "\n";
+                std::string message = logStream.str();
+                ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
             }
             if (tr.target.binder_target_ptr) {
                 // We only have a weak reference on the target object, so we must first try to
@@ -1609,6 +1949,13 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                 LOG_ONEWAY("Sending reply to %d!", mCallingPid);
                 if (error < NO_ERROR) reply.setError(error);
 
+                // b/238777741: clear buffer before we send the reply.
+                // Otherwise, there is a race where the client may
+                // receive the reply and send another transaction
+                // here and the space used by this transaction won't
+                // be freed for the client.
+                buffer.setDataSize(0);
+
                 constexpr uint32_t kForwardReplyFlags = TF_CLEAR_BUF;
 #ifdef _MSC_VER
                 sendReply(reply, (tr.flags & kForwardReplyFlags), &tr);
@@ -1617,23 +1964,35 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 #endif
             } else {
                 if (error != OK) {
+<<<<<<< HEAD
                     alog.setSourceLocation(__FILE__, __LINE__);
                     alog << "oneway function results for code " << tr.code
                          << " on binder at "
                          << reinterpret_cast<void*>(tr.target.binder_target_ptr)
                          << " will be dropped but finished with status "
                          << statusToString(error);
+=======
+                    std::ostringstream logStream;
+                    logStream << "oneway function results for code " << tr.code << " on binder at "
+                              << reinterpret_cast<void*>(tr.target.ptr)
+                              << " will be dropped but finished with status "
+                              << statusToString(error);
+>>>>>>> d3fb93fb73
 
                     // ideally we could log this even when error == OK, but it
                     // causes too much logspam because some manually-written
                     // interfaces have clients that call methods which always
                     // write results, sometimes as oneway methods.
                     if (reply.dataSize() != 0) {
+<<<<<<< HEAD
                          alog.setSourceLocation(__FILE__, __LINE__);
                          alog << " and reply parcel size " << reply.dataSize();
+=======
+                        logStream << " and reply parcel size " << reply.dataSize();
+>>>>>>> d3fb93fb73
                     }
-
-                    alog << endl;
+                    std::string message = logStream.str();
+                    ALOGI("%s", message.c_str());
                 }
                 LOG_ONEWAY("NOT sending reply to %d!", mCallingPid);
             }
@@ -1642,16 +2001,25 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             mCallingPid = origPid;
             mCallingSid = origSid;
             mCallingUid = origUid;
+            mHasExplicitIdentity = origHasExplicitIdentity;
             mStrictModePolicy = origStrictModePolicy;
             mLastTransactionBinderFlags = origTransactionBinderFlags;
             mWorkSource = origWorkSource;
             mPropagateWorkSource = origPropagateWorkSet;
 
             IF_LOG_TRANSACTIONS() {
+<<<<<<< HEAD
                 TextOutput::Bundle _b(alog);
                 _b.setSourceLocation(__FILE__, __LINE__);
                 alog << "BC_REPLY thr " << (void*)gettid() << " / obj "
                     << tr.target.binder_target_ptr << ": " << indent << reply << dedent << endl;
+=======
+                std::ostringstream logStream;
+                logStream << "BC_REPLY thr " << (void*)pthread_self() << " / obj " << tr.target.ptr
+                          << ": \t" << reply << "\n";
+                std::string message = logStream.str();
+                ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
             }
 
         }
@@ -1668,6 +2036,26 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
     case BR_CLEAR_DEATH_NOTIFICATION_DONE:
         {
             BpBinder *proxy = (BpBinder*)mIn.readPointer();
+            proxy->getWeakRefs()->decWeak(proxy);
+        } break;
+
+        case BR_FROZEN_BINDER: {
+            const struct binder_frozen_state_info* data =
+                    reinterpret_cast<const struct binder_frozen_state_info*>(
+                            mIn.readInplace(sizeof(struct binder_frozen_state_info)));
+            if (data == nullptr) {
+                result = UNKNOWN_ERROR;
+                break;
+            }
+            BpBinder* proxy = (BpBinder*)data->cookie;
+            bool isFrozen = mIn.readInt32() > 0;
+            proxy->getPrivateAccessor().onFrozenStateChanged(data->is_frozen);
+            mOut.writeInt32(BC_FREEZE_NOTIFICATION_DONE);
+            mOut.writePointer(data->cookie);
+        } break;
+
+        case BR_CLEAR_FREEZE_NOTIFICATION_DONE: {
+            BpBinder* proxy = (BpBinder*)mIn.readPointer();
             proxy->getWeakRefs()->decWeak(proxy);
         } break;
 
@@ -1794,8 +2182,13 @@ void IPCThreadState::logExtendedError() {
     }
 #endif
 
+<<<<<<< HEAD
     ALOGE_IF(ee.command != 0, "Binder transaction failure: %d/%d/%d",
              ee.id, ee.command, ee.param);
+=======
+    ALOGE_IF(ee.command != BR_OK, "Binder transaction failure. id: %d, BR_*: %d, error: %d (%s)",
+             ee.id, ee.command, ee.param, strerror(-ee.param));
+>>>>>>> d3fb93fb73
 }
 
 void IPCThreadState::freeBuffer(const uint8_t* data, size_t /*dataSize*/,
@@ -1803,8 +2196,15 @@ void IPCThreadState::freeBuffer(const uint8_t* data, size_t /*dataSize*/,
     //ALOGI("Freeing parcel %p", &parcel);
 
     IF_LOG_COMMANDS() {
+<<<<<<< HEAD
         alog.setSourceLocation(__FILE__, __LINE__);
         alog << "Writing BC_FREE_BUFFER for " << data << endl;
+=======
+        std::ostringstream logStream;
+        logStream << "Writing BC_FREE_BUFFER for " << data << "\n";
+        std::string message = logStream.str();
+        ALOGI("%s", message.c_str());
+>>>>>>> d3fb93fb73
     }
     ALOG_ASSERT(data != NULL, "Called with NULL data");
     IPCThreadState* state = self();

@@ -14,83 +14,193 @@
  * limitations under the License.
  */
 
-#include "WindowInfosListenerInvoker.h"
+#include <android/gui/BnWindowInfosPublisher.h>
+#include <android/gui/IWindowInfosPublisher.h>
+#include <android/gui/WindowInfosListenerInfo.h>
+#include <common/trace.h>
 #include <gui/ISurfaceComposer.h>
-#include <unordered_set>
-#include "SurfaceFlinger.h"
+#include <gui/WindowInfosUpdate.h>
+#include <scheduler/Time.h>
+
+#include "BackgroundExecutor.h"
+#include "WindowInfosListenerInvoker.h"
+
+#undef ATRACE_TAG
+#define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
 namespace android {
 
+using gui::DisplayInfo;
 using gui::IWindowInfosListener;
 using gui::WindowInfo;
 
-struct WindowInfosReportedListener : gui::BnWindowInfosReportedListener {
-    explicit WindowInfosReportedListener(std::function<void()> listenerCb)
-          : mListenerCb(listenerCb) {}
+void WindowInfosListenerInvoker::addWindowInfosListener(sp<IWindowInfosListener> listener,
+                                                        gui::WindowInfosListenerInfo* outInfo) {
+    int64_t listenerId = mNextListenerId++;
+    outInfo->listenerId = listenerId;
+    outInfo->windowInfosPublisher = sp<gui::IWindowInfosPublisher>::fromExisting(this);
 
-    binder::Status onWindowInfosReported() override {
-        if (mListenerCb != nullptr) {
-            mListenerCb();
-        }
-        return binder::Status::ok();
-    }
-
-    std::function<void()> mListenerCb;
-};
-
-WindowInfosListenerInvoker::WindowInfosListenerInvoker(const sp<SurfaceFlinger>& sf) : mSf(sf) {
-    mWindowInfosReportedListener =
-            new WindowInfosReportedListener([&]() { windowInfosReported(); });
-}
-
-void WindowInfosListenerInvoker::addWindowInfosListener(
-        const sp<IWindowInfosListener>& windowInfosListener) {
-    sp<IBinder> asBinder = IInterface::asBinder(windowInfosListener);
-
-    asBinder->linkToDeath(this);
-    std::scoped_lock lock(mListenersMutex);
-    mWindowInfosListeners.emplace(asBinder, windowInfosListener);
+    BackgroundExecutor::getInstance().sendCallbacks(
+            {[this, listener = std::move(listener), listenerId]() {
+                SFTRACE_NAME("WindowInfosListenerInvoker::addWindowInfosListener");
+                sp<IBinder> asBinder = IInterface::asBinder(listener);
+                asBinder->linkToDeath(sp<DeathRecipient>::fromExisting(this));
+                mWindowInfosListeners.try_emplace(asBinder,
+                                                  std::make_pair(listenerId, std::move(listener)));
+            }});
 }
 
 void WindowInfosListenerInvoker::removeWindowInfosListener(
-        const sp<IWindowInfosListener>& windowInfosListener) {
-    sp<IBinder> asBinder = IInterface::asBinder(windowInfosListener);
-
-    std::scoped_lock lock(mListenersMutex);
-    asBinder->unlinkToDeath(this);
-    mWindowInfosListeners.erase(asBinder);
+        const sp<IWindowInfosListener>& listener) {
+    BackgroundExecutor::getInstance().sendCallbacks({[this, listener]() {
+        SFTRACE_NAME("WindowInfosListenerInvoker::removeWindowInfosListener");
+        sp<IBinder> asBinder = IInterface::asBinder(listener);
+        asBinder->unlinkToDeath(sp<DeathRecipient>::fromExisting(this));
+        eraseListenerAndAckMessages(asBinder);
+    }});
 }
 
 void WindowInfosListenerInvoker::binderDied(const wp<IBinder>& who) {
-    std::scoped_lock lock(mListenersMutex);
-    mWindowInfosListeners.erase(who);
+    BackgroundExecutor::getInstance().sendCallbacks({[this, who]() {
+        SFTRACE_NAME("WindowInfosListenerInvoker::binderDied");
+        eraseListenerAndAckMessages(who);
+    }});
 }
 
-void WindowInfosListenerInvoker::windowInfosChanged(const std::vector<WindowInfo>& windowInfos,
-                                                    bool shouldSync) {
-    std::unordered_set<sp<IWindowInfosListener>, ISurfaceComposer::SpHash<IWindowInfosListener>>
-            windowInfosListeners;
+void WindowInfosListenerInvoker::eraseListenerAndAckMessages(const wp<IBinder>& binder) {
+    auto it = mWindowInfosListeners.find(binder);
+    int64_t listenerId = it->second.first;
+    mWindowInfosListeners.erase(binder);
 
-    {
-        std::scoped_lock lock(mListenersMutex);
-        for (const auto& [_, listener] : mWindowInfosListeners) {
-            windowInfosListeners.insert(listener);
+    std::vector<int64_t> vsyncIds;
+    for (auto& [vsyncId, state] : mUnackedState) {
+        if (std::find(state.unackedListenerIds.begin(), state.unackedListenerIds.end(),
+                      listenerId) != state.unackedListenerIds.end()) {
+            vsyncIds.push_back(vsyncId);
         }
     }
 
-    mCallbacksPending = windowInfosListeners.size();
-
-    for (const auto& listener : windowInfosListeners) {
-        listener->onWindowInfosChanged(windowInfos,
-                                       shouldSync ? mWindowInfosReportedListener : nullptr);
+    for (int64_t vsyncId : vsyncIds) {
+        ackWindowInfosReceived(vsyncId, listenerId);
     }
 }
 
-void WindowInfosListenerInvoker::windowInfosReported() {
-    mCallbacksPending--;
-    if (mCallbacksPending == 0) {
-        mSf->windowInfosReported();
+void WindowInfosListenerInvoker::windowInfosChanged(
+        gui::WindowInfosUpdate update, WindowInfosReportedListenerSet reportedListeners,
+        bool forceImmediateCall) {
+    if (!mDelayInfo) {
+        mDelayInfo = DelayInfo{
+                .vsyncId = update.vsyncId,
+                .frameTime = update.timestamp,
+        };
     }
+
+    // If there are unacked messages and this isn't a forced call, then return immediately.
+    // If a forced window infos change doesn't happen first, the update will be sent after
+    // the WindowInfosReportedListeners are called. If a forced window infos change happens or
+    // if there are subsequent delayed messages before this update is sent, then this message
+    // will be dropped and the listeners will only be called with the latest info. This is done
+    // to reduce the amount of binder memory used.
+    if (!mUnackedState.empty() && !forceImmediateCall) {
+        mDelayedUpdate = std::move(update);
+        mReportedListeners.merge(reportedListeners);
+        return;
+    }
+
+    if (mDelayedUpdate) {
+        mDelayedUpdate.reset();
+    }
+
+    if (CC_UNLIKELY(mWindowInfosListeners.empty())) {
+        mReportedListeners.merge(reportedListeners);
+        mDelayInfo.reset();
+        return;
+    }
+
+    reportedListeners.merge(mReportedListeners);
+    mReportedListeners.clear();
+
+    // Update mUnackedState to include the message we're about to send
+    auto [it, _] = mUnackedState.try_emplace(update.vsyncId,
+                                             UnackedState{.reportedListeners =
+                                                                  std::move(reportedListeners)});
+    auto& unackedState = it->second;
+    for (auto& pair : mWindowInfosListeners) {
+        int64_t listenerId = pair.second.first;
+        unackedState.unackedListenerIds.push_back(listenerId);
+    }
+
+    mDelayInfo.reset();
+    updateMaxSendDelay();
+
+    // Call the listeners
+    for (auto& pair : mWindowInfosListeners) {
+        auto& [listenerId, listener] = pair.second;
+        auto status = listener->onWindowInfosChanged(update);
+        if (!status.isOk()) {
+            ackWindowInfosReceived(update.vsyncId, listenerId);
+        }
+    }
+}
+
+WindowInfosListenerInvoker::DebugInfo WindowInfosListenerInvoker::getDebugInfo() {
+    DebugInfo result;
+    BackgroundExecutor::getInstance().sendCallbacks({[&, this]() {
+        SFTRACE_NAME("WindowInfosListenerInvoker::getDebugInfo");
+        updateMaxSendDelay();
+        result = mDebugInfo;
+        result.pendingMessageCount = mUnackedState.size();
+    }});
+    BackgroundExecutor::getInstance().flushQueue();
+    return result;
+}
+
+void WindowInfosListenerInvoker::updateMaxSendDelay() {
+    if (!mDelayInfo) {
+        return;
+    }
+    nsecs_t delay = TimePoint::now().ns() - mDelayInfo->frameTime;
+    if (delay > mDebugInfo.maxSendDelayDuration) {
+        mDebugInfo.maxSendDelayDuration = delay;
+        mDebugInfo.maxSendDelayVsyncId = VsyncId{mDelayInfo->vsyncId};
+    }
+}
+
+binder::Status WindowInfosListenerInvoker::ackWindowInfosReceived(int64_t vsyncId,
+                                                                  int64_t listenerId) {
+    BackgroundExecutor::getInstance().sendCallbacks({[this, vsyncId, listenerId]() {
+        SFTRACE_NAME("WindowInfosListenerInvoker::ackWindowInfosReceived");
+        auto it = mUnackedState.find(vsyncId);
+        if (it == mUnackedState.end()) {
+            return;
+        }
+
+        auto& state = it->second;
+        state.unackedListenerIds.unstable_erase(std::find(state.unackedListenerIds.begin(),
+                                                          state.unackedListenerIds.end(),
+                                                          listenerId));
+        if (!state.unackedListenerIds.empty()) {
+            return;
+        }
+
+        WindowInfosReportedListenerSet reportedListeners{std::move(state.reportedListeners)};
+        mUnackedState.erase(vsyncId);
+
+        for (const auto& reportedListener : reportedListeners) {
+            sp<IBinder> asBinder = IInterface::asBinder(reportedListener);
+            if (asBinder->isBinderAlive()) {
+                reportedListener->onWindowInfosReported();
+            }
+        }
+
+        if (!mDelayedUpdate || !mUnackedState.empty()) {
+            return;
+        }
+        gui::WindowInfosUpdate update{std::move(*mDelayedUpdate)};
+        mDelayedUpdate.reset();
+        windowInfosChanged(std::move(update), {}, false);
+    }});
+    return binder::Status::ok();
 }
 
 } // namespace android

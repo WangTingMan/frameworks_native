@@ -94,30 +94,39 @@
 //! ```
 
 #[macro_use]
-mod proxy;
-
-#[macro_use]
 mod binder;
 mod binder_async;
 mod error;
 mod native;
 mod parcel;
+mod proxy;
+#[cfg(not(any(trusty, android_ndk)))]
+mod service;
+#[cfg(not(any(trusty, android_ndk)))]
 mod state;
+#[cfg(not(any(android_vendor, android_ndk, android_vndk, trusty)))]
+mod system_only;
 
 use binder_ndk_sys as sys;
 
 pub use crate::binder_async::{BinderAsyncPool, BoxFuture};
 pub use binder::{BinderFeatures, FromIBinder, IBinder, Interface, Strong, Weak};
-pub use error::{ExceptionCode, Status, StatusCode};
-pub use native::{
-    add_service, force_lazy_services_persist, is_handling_transaction, register_lazy_service,
-};
+pub use error::{ExceptionCode, IntoBinderResult, Status, StatusCode};
 pub use parcel::{ParcelFileDescriptor, Parcelable, ParcelableHolder};
-pub use proxy::{
-    get_declared_instances, get_interface, get_service, is_declared, wait_for_interface,
-    wait_for_service, DeathRecipient, SpIBinder, WpIBinder,
+pub use proxy::{DeathRecipient, SpIBinder, WpIBinder};
+#[cfg(not(any(trusty, android_ndk)))]
+pub use service::{
+    add_service, check_interface, check_service, force_lazy_services_persist,
+    get_declared_instances, is_declared, is_handling_transaction, register_lazy_service,
+    wait_for_interface, wait_for_service, LazyServiceGuard,
 };
+#[cfg(not(any(trusty, android_ndk)))]
+#[allow(deprecated)]
+pub use service::{get_interface, get_service};
+#[cfg(not(any(trusty, android_ndk)))]
 pub use state::{ProcessState, ThreadState};
+#[cfg(not(any(android_vendor, android_vndk, android_ndk, trusty)))]
+pub use system_only::{delegate_accessor, Accessor, AccessorProvider, ConnectionInfo};
 
 /// Binder result containing a [`Status`] on error.
 pub type Result<T> = std::result::Result<T, Status>;
@@ -126,17 +135,19 @@ pub type Result<T> = std::result::Result<T, Status>;
 /// without AIDL.
 pub mod binder_impl {
     pub use crate::binder::{
-        IBinderInternal, InterfaceClass, Remotable, Stability, ToAsyncInterface, ToSyncInterface,
-        TransactionCode, TransactionFlags, FIRST_CALL_TRANSACTION, FLAG_CLEAR_BUF, FLAG_ONEWAY,
-        FLAG_PRIVATE_LOCAL, LAST_CALL_TRANSACTION,
+        IBinderInternal, InterfaceClass, LocalStabilityType, Remotable, Stability, StabilityType,
+        ToAsyncInterface, ToSyncInterface, TransactionCode, TransactionFlags, VintfStabilityType,
+        FIRST_CALL_TRANSACTION, FLAG_ONEWAY, LAST_CALL_TRANSACTION,
     };
+    #[cfg(not(android_ndk))]
+    pub use crate::binder::{FLAG_CLEAR_BUF, FLAG_PRIVATE_LOCAL};
     pub use crate::binder_async::BinderAsyncRuntime;
     pub use crate::error::status_t;
     pub use crate::native::Binder;
     pub use crate::parcel::{
         BorrowedParcel, Deserialize, DeserializeArray, DeserializeOption, Parcel,
-        ParcelableMetadata, Serialize, SerializeArray, SerializeOption, NON_NULL_PARCELABLE_FLAG,
-        NULL_PARCELABLE_FLAG,
+        ParcelableMetadata, Serialize, SerializeArray, SerializeOption, UnstructuredParcelable,
+        NON_NULL_PARCELABLE_FLAG, NULL_PARCELABLE_FLAG,
     };
     pub use crate::proxy::{AssociateClass, Proxy};
 }
@@ -145,6 +156,8 @@ pub mod binder_impl {
 #[doc(hidden)]
 pub mod unstable_api {
     pub use crate::binder::AsNative;
+    pub use crate::error::status_result;
     pub use crate::proxy::unstable_api::new_spibinder;
     pub use crate::sys::AIBinder;
+    pub use crate::sys::AParcel;
 }

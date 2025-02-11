@@ -20,11 +20,14 @@
 
 #include <android/binder_auto_utils.h>
 
+#include "../../Utils.h"
+
 using ::android::sp;
 using ::android::wp;
 
 const char* IFoo::kSomeInstanceName = "libbinder_ndk-test-IFoo";
 const char* IFoo::kInstanceNameToDieFor = "libbinder_ndk-test-IFoo-to-die";
+const char* IFoo::kInstanceNameToDieFor2 = "libbinder_ndk-test-IFoo-to-die2";
 const char* IFoo::kIFooDescriptor = "my-special-IFoo-class";
 
 struct IFoo_Class_Data {
@@ -71,6 +74,11 @@ binder_status_t IFoo_Class_onTransact(AIBinder* binder, transaction_code_t code,
 
 AIBinder_Class* IFoo::kClass = AIBinder_Class_define(kIFooDescriptor, IFoo_Class_onCreate,
                                                      IFoo_Class_onDestroy, IFoo_Class_onTransact);
+
+// Defines the same class. Ordinarly, you would never want to do this, but it's done here
+// to simulate what would happen when multiple linker namespaces interact.
+AIBinder_Class* IFoo::kClassDupe = AIBinder_Class_define(
+        kIFooDescriptor, IFoo_Class_onCreate, IFoo_Class_onDestroy, IFoo_Class_onTransact);
 
 class BpFoo : public IFoo {
    public:
@@ -151,7 +159,9 @@ binder_status_t IFoo::addService(const char* instance) {
 }
 
 sp<IFoo> IFoo::getService(const char* instance, AIBinder** outBinder) {
+    LIBBINDER_IGNORE("-Wdeprecated-declarations")
     AIBinder* binder = AServiceManager_getService(instance);  // maybe nullptr
+    LIBBINDER_IGNORE_END()
     if (binder == nullptr) {
         return nullptr;
     }

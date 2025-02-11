@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <binder/Common.h>
 #include <utils/Errors.h>
 #include <utils/String8.h>
 
@@ -27,8 +28,12 @@
 // ---------------------------------------------------------------------------
 namespace android {
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT TextOutput
 {
+=======
+class LIBBINDER_EXPORTED TextOutput {
+>>>>>>> d3fb93fb73
 public:
                         TextOutput();
     virtual             ~TextOutput();
@@ -64,17 +69,29 @@ public:
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to the log (via utils/Log.h).
+<<<<<<< HEAD
 LIBBINDER_EXPORT extern TextOutput& alog;
+=======
+extern LIBBINDER_EXPORTED TextOutput& alog;
+>>>>>>> d3fb93fb73
 
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to stdout.
+<<<<<<< HEAD
 LIBBINDER_EXPORT extern TextOutput& aout;
+=======
+extern LIBBINDER_EXPORTED TextOutput& aout;
+>>>>>>> d3fb93fb73
 
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to stderr.
+<<<<<<< HEAD
 LIBBINDER_EXPORT extern TextOutput& aerr;
+=======
+extern LIBBINDER_EXPORTED TextOutput& aerr;
+>>>>>>> d3fb93fb73
 
 typedef TextOutput& (*TextOutputManipFunc)(TextOutput&);
 
@@ -92,10 +109,14 @@ TextOutput& operator<<(TextOutput& to, const T& val)
     return to;
 }
 
-TextOutput& operator<<(TextOutput& to, TextOutputManipFunc func);
+LIBBINDER_EXPORTED TextOutput& operator<<(TextOutput& to, TextOutputManipFunc func);
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT TypeCode
 {
+=======
+class LIBBINDER_EXPORTED TypeCode {
+>>>>>>> d3fb93fb73
 public:
     inline explicit TypeCode(uint32_t code);
     inline ~TypeCode();
@@ -106,10 +127,14 @@ private:
     uint32_t mCode;
 };
 
-TextOutput& operator<<(TextOutput& to, const TypeCode& val);
+LIBBINDER_EXPORTED std::ostream& operator<<(std::ostream& to, const TypeCode& val);
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT HexDump
 {
+=======
+class LIBBINDER_EXPORTED HexDump {
+>>>>>>> d3fb93fb73
 public:
     HexDump(const void *buf, size_t size, size_t bytesPerLine=16);
     inline ~HexDump();
@@ -135,7 +160,7 @@ private:
     bool mCArrayStyle;
 };
 
-TextOutput& operator<<(TextOutput& to, const HexDump& val);
+LIBBINDER_EXPORTED std::ostream& operator<<(std::ostream& to, const HexDump& val);
 inline TextOutput& operator<<(TextOutput& to,
                               decltype(std::endl<char,
                                        std::char_traits<char>>)
@@ -159,7 +184,7 @@ inline TextOutput& operator<<(TextOutput& to, const bool &val)
 
 inline TextOutput& operator<<(TextOutput& to, const String16& val)
 {
-    to << String8(val).string();
+    to << String8(val).c_str();
     return to;
 }
 

@@ -16,6 +16,7 @@ package {
     default_applicable_licenses: [
         "frameworks_native_libs_nativewindow_license",
     ],
+    default_team: "trendy_team_android_core_graphics_stack",
 }
 
 // Added automatically by a large-scale-change
@@ -47,7 +48,17 @@ cc_library_headers {
     // TODO(b/153609531): remove when no longer needed.
     native_bridge_supported: true,
     min_sdk_version: "29",
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+        "test_com.android.media.swcodec",
+    ],
     host_supported: true,
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 ndk_library {
@@ -65,6 +76,9 @@ cc_library {
         unversioned: true,
         override_export_include_dirs: [
             "include",
+        ],
+        export_llndk_headers: [
+            "libarect_headers",
         ],
     },
     export_include_dirs: [
@@ -91,25 +105,27 @@ cc_library {
         "liblog",
         "libutils",
         "libui",
+        "libbinder",
+        "libbinder_ndk",
         "android.hardware.graphics.common@1.1",
     ],
 
     static_libs: [
         "libarect",
         "libgrallocusage",
+        "libgui_aidl_static",
     ],
 
     header_libs: [
+        "libgui_headers",
+        "libarect_headers",
         "libnativebase_headers",
         "libnativewindow_headers",
     ],
 
     // headers we include in our public headers
-    export_static_lib_headers: [
-        "libarect",
-    ],
-
     export_header_lib_headers: [
+        "libarect_headers",
         "libnativebase_headers",
     ],
 

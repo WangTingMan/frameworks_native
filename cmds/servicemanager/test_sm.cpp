@@ -14,25 +14,31 @@
  * limitations under the License.
  */
 
+#include <android-base/properties.h>
+#include <android-base/strings.h>
 #include <android/os/BnServiceCallback.h>
 #include <binder/Binder.h>
-#include <binder/ProcessState.h>
 #include <binder/IServiceManager.h>
+#include <binder/ProcessState.h>
 #include <cutils/android_filesystem_config.h>
-#include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "Access.h"
 #include "ServiceManager.h"
 
-using android::sp;
 using android::Access;
 using android::BBinder;
 using android::IBinder;
 using android::ServiceManager;
+using android::sp;
+using android::base::EndsWith;
+using android::base::GetProperty;
+using android::base::StartsWith;
 using android::binder::Status;
 using android::os::BnServiceCallback;
 using android::os::IServiceManager;
+using android::os::Service;
 using testing::_;
 using testing::ElementsAre;
 using testing::NiceMock;
@@ -60,7 +66,7 @@ public:
 class MockServiceManager : public ServiceManager {
  public:
     MockServiceManager(std::unique_ptr<Access>&& access) : ServiceManager(std::move(access)) {}
-    MOCK_METHOD1(tryStartService, void(const std::string& name));
+    MOCK_METHOD2(tryStartService, void(const Access::CallingContext&, const std::string& name));
 };
 
 static sp<ServiceManager> getPermissiveServiceManager() {
@@ -75,10 +81,22 @@ static sp<ServiceManager> getPermissiveServiceManager() {
     return sm;
 }
 
+// Determines if test device is a cuttlefish phone device
+static bool isCuttlefishPhone() {
+    auto device = GetProperty("ro.product.vendor.device", "");
+    auto product = GetProperty("ro.product.vendor.name", "");
+    return StartsWith(device, "vsoc_") && EndsWith(product, "_phone");
+}
+
 TEST(AddService, HappyHappy) {
     auto sm = getPermissiveServiceManager();
     EXPECT_TRUE(sm->addService("foo", getBinder(), false /*allowIsolated*/,
         IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
+
+    EXPECT_TRUE(sm->addService("lazyfoo", getBinder(), false /*allowIsolated*/,
+                               IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT |
+                                       IServiceManager::FLAG_IS_LAZY_SERVICE)
+                        .isOk());
 }
 
 TEST(AddService, EmptyNameDisallowed) {
@@ -141,18 +159,24 @@ TEST(AddService, OverwriteExistingService) {
     EXPECT_TRUE(sm->addService("foo", serviceA, false /*allowIsolated*/,
         IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
 
-    sp<IBinder> outA;
-    EXPECT_TRUE(sm->getService("foo", &outA).isOk());
-    EXPECT_EQ(serviceA, outA);
+    Service outA;
+    EXPECT_TRUE(sm->getService2("foo", &outA).isOk());
+    EXPECT_EQ(serviceA, outA.get<Service::Tag::serviceWithMetadata>().service);
+    sp<IBinder> outBinderA;
+    EXPECT_TRUE(sm->getService("foo", &outBinderA).isOk());
+    EXPECT_EQ(serviceA, outBinderA);
 
     // serviceA should be overwritten by serviceB
     sp<IBinder> serviceB = getBinder();
     EXPECT_TRUE(sm->addService("foo", serviceB, false /*allowIsolated*/,
         IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
 
-    sp<IBinder> outB;
-    EXPECT_TRUE(sm->getService("foo", &outB).isOk());
-    EXPECT_EQ(serviceB, outB);
+    Service outB;
+    EXPECT_TRUE(sm->getService2("foo", &outB).isOk());
+    EXPECT_EQ(serviceB, outB.get<Service::Tag::serviceWithMetadata>().service);
+    sp<IBinder> outBinderB;
+    EXPECT_TRUE(sm->getService("foo", &outBinderB).isOk());
+    EXPECT_EQ(serviceB, outBinderB);
 }
 
 TEST(AddService, NoPermissions) {
@@ -174,17 +198,23 @@ TEST(GetService, HappyHappy) {
     EXPECT_TRUE(sm->addService("foo", service, false /*allowIsolated*/,
         IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
 
-    sp<IBinder> out;
-    EXPECT_TRUE(sm->getService("foo", &out).isOk());
-    EXPECT_EQ(service, out);
+    Service out;
+    EXPECT_TRUE(sm->getService2("foo", &out).isOk());
+    EXPECT_EQ(service, out.get<Service::Tag::serviceWithMetadata>().service);
+    sp<IBinder> outBinder;
+    EXPECT_TRUE(sm->getService("foo", &outBinder).isOk());
+    EXPECT_EQ(service, outBinder);
 }
 
 TEST(GetService, NonExistant) {
     auto sm = getPermissiveServiceManager();
 
-    sp<IBinder> out;
-    EXPECT_TRUE(sm->getService("foo", &out).isOk());
-    EXPECT_EQ(nullptr, out.get());
+    Service out;
+    EXPECT_TRUE(sm->getService2("foo", &out).isOk());
+    EXPECT_EQ(nullptr, out.get<Service::Tag::serviceWithMetadata>().service);
+    sp<IBinder> outBinder;
+    EXPECT_TRUE(sm->getService("foo", &outBinder).isOk());
+    EXPECT_EQ(nullptr, outBinder);
 }
 
 TEST(GetService, NoPermissionsForGettingService) {
@@ -192,31 +222,37 @@ TEST(GetService, NoPermissionsForGettingService) {
 
     EXPECT_CALL(*access, getCallingContext()).WillRepeatedly(Return(Access::CallingContext{}));
     EXPECT_CALL(*access, canAdd(_, _)).WillOnce(Return(true));
-    EXPECT_CALL(*access, canFind(_, _)).WillOnce(Return(false));
+    EXPECT_CALL(*access, canFind(_, _)).WillRepeatedly(Return(false));
 
     sp<ServiceManager> sm = sp<NiceMock<MockServiceManager>>::make(std::move(access));
 
     EXPECT_TRUE(sm->addService("foo", getBinder(), false /*allowIsolated*/,
         IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
 
-    sp<IBinder> out;
+    Service out;
     // returns nullptr but has OK status for legacy compatibility
-    EXPECT_TRUE(sm->getService("foo", &out).isOk());
-    EXPECT_EQ(nullptr, out.get());
+    EXPECT_TRUE(sm->getService2("foo", &out).isOk());
+    EXPECT_EQ(nullptr, out.get<Service::Tag::serviceWithMetadata>().service);
+    sp<IBinder> outBinder;
+    EXPECT_TRUE(sm->getService("foo", &outBinder).isOk());
+    EXPECT_EQ(nullptr, outBinder);
 }
 
 TEST(GetService, AllowedFromIsolated) {
     std::unique_ptr<MockAccess> access = std::make_unique<NiceMock<MockAccess>>();
 
     EXPECT_CALL(*access, getCallingContext())
-        // something adds it
-        .WillOnce(Return(Access::CallingContext{}))
-        // next call is from isolated app
-        .WillOnce(Return(Access::CallingContext{
-            .uid = AID_ISOLATED_START,
-        }));
+            // something adds it
+            .WillOnce(Return(Access::CallingContext{}))
+            // next calls is from isolated app
+            .WillOnce(Return(Access::CallingContext{
+                    .uid = AID_ISOLATED_START,
+            }))
+            .WillOnce(Return(Access::CallingContext{
+                    .uid = AID_ISOLATED_START,
+            }));
     EXPECT_CALL(*access, canAdd(_, _)).WillOnce(Return(true));
-    EXPECT_CALL(*access, canFind(_, _)).WillOnce(Return(true));
+    EXPECT_CALL(*access, canFind(_, _)).WillRepeatedly(Return(true));
 
     sp<ServiceManager> sm = sp<NiceMock<MockServiceManager>>::make(std::move(access));
 
@@ -224,21 +260,27 @@ TEST(GetService, AllowedFromIsolated) {
     EXPECT_TRUE(sm->addService("foo", service, true /*allowIsolated*/,
         IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
 
-    sp<IBinder> out;
-    EXPECT_TRUE(sm->getService("foo", &out).isOk());
-    EXPECT_EQ(service, out.get());
+    Service out;
+    EXPECT_TRUE(sm->getService2("foo", &out).isOk());
+    EXPECT_EQ(service, out.get<Service::Tag::serviceWithMetadata>().service);
+    sp<IBinder> outBinder;
+    EXPECT_TRUE(sm->getService("foo", &outBinder).isOk());
+    EXPECT_EQ(service, outBinder);
 }
 
 TEST(GetService, NotAllowedFromIsolated) {
     std::unique_ptr<MockAccess> access = std::make_unique<NiceMock<MockAccess>>();
 
     EXPECT_CALL(*access, getCallingContext())
-        // something adds it
-        .WillOnce(Return(Access::CallingContext{}))
-        // next call is from isolated app
-        .WillOnce(Return(Access::CallingContext{
-            .uid = AID_ISOLATED_START,
-        }));
+            // something adds it
+            .WillOnce(Return(Access::CallingContext{}))
+            // next calls is from isolated app
+            .WillOnce(Return(Access::CallingContext{
+                    .uid = AID_ISOLATED_START,
+            }))
+            .WillOnce(Return(Access::CallingContext{
+                    .uid = AID_ISOLATED_START,
+            }));
     EXPECT_CALL(*access, canAdd(_, _)).WillOnce(Return(true));
 
     // TODO(b/136023468): when security check is first, this should be called first
@@ -249,10 +291,13 @@ TEST(GetService, NotAllowedFromIsolated) {
     EXPECT_TRUE(sm->addService("foo", getBinder(), false /*allowIsolated*/,
         IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
 
-    sp<IBinder> out;
+    Service out;
     // returns nullptr but has OK status for legacy compatibility
-    EXPECT_TRUE(sm->getService("foo", &out).isOk());
-    EXPECT_EQ(nullptr, out.get());
+    EXPECT_TRUE(sm->getService2("foo", &out).isOk());
+    EXPECT_EQ(nullptr, out.get<Service::Tag::serviceWithMetadata>().service);
+    sp<IBinder> outBinder;
+    EXPECT_TRUE(sm->getService("foo", &outBinder).isOk());
+    EXPECT_EQ(nullptr, outBinder);
 }
 
 TEST(ListServices, NoPermissions) {
@@ -306,6 +351,67 @@ TEST(ListServices, CriticalServices) {
     EXPECT_THAT(out, ElementsAre("sa"));
 }
 
+TEST(Vintf, UpdatableViaApex) {
+    if (!isCuttlefishPhone()) GTEST_SKIP() << "Skipping non-Cuttlefish-phone devices";
+
+    auto sm = getPermissiveServiceManager();
+    std::optional<std::string> updatableViaApex;
+    EXPECT_TRUE(sm->updatableViaApex("android.hardware.camera.provider.ICameraProvider/internal/0",
+                                     &updatableViaApex)
+                        .isOk());
+    EXPECT_EQ(std::make_optional<std::string>("com.google.emulated.camera.provider.hal"),
+              updatableViaApex);
+}
+
+TEST(Vintf, UpdatableViaApex_InvalidNameReturnsNullOpt) {
+    if (!isCuttlefishPhone()) GTEST_SKIP() << "Skipping non-Cuttlefish-phone devices";
+
+    auto sm = getPermissiveServiceManager();
+    std::optional<std::string> updatableViaApex;
+    EXPECT_TRUE(sm->updatableViaApex("android.hardware.camera.provider.ICameraProvider",
+                                     &updatableViaApex)
+                        .isOk()); // missing instance name
+    EXPECT_EQ(std::nullopt, updatableViaApex);
+}
+
+TEST(Vintf, GetUpdatableNames) {
+    if (!isCuttlefishPhone()) GTEST_SKIP() << "Skipping non-Cuttlefish-phone devices";
+
+    auto sm = getPermissiveServiceManager();
+    std::vector<std::string> names;
+    EXPECT_TRUE(sm->getUpdatableNames("com.google.emulated.camera.provider.hal", &names).isOk());
+    EXPECT_EQ(std::vector<
+                      std::string>{"android.hardware.camera.provider.ICameraProvider/internal/0"},
+              names);
+}
+
+TEST(Vintf, GetUpdatableNames_InvalidApexNameReturnsEmpty) {
+    if (!isCuttlefishPhone()) GTEST_SKIP() << "Skipping non-Cuttlefish-phone devices";
+
+    auto sm = getPermissiveServiceManager();
+    std::vector<std::string> names;
+    EXPECT_TRUE(sm->getUpdatableNames("non.existing.apex.name", &names).isOk());
+    EXPECT_EQ(std::vector<std::string>{}, names);
+}
+
+TEST(Vintf, IsDeclared_native) {
+    if (!isCuttlefishPhone()) GTEST_SKIP() << "Skipping non-Cuttlefish-phone devices";
+
+    auto sm = getPermissiveServiceManager();
+    bool declared = false;
+    EXPECT_TRUE(sm->isDeclared("mapper/minigbm", &declared).isOk());
+    EXPECT_TRUE(declared);
+}
+
+TEST(Vintf, GetDeclaredInstances_native) {
+    if (!isCuttlefishPhone()) GTEST_SKIP() << "Skipping non-Cuttlefish-phone devices";
+
+    auto sm = getPermissiveServiceManager();
+    std::vector<std::string> instances;
+    EXPECT_TRUE(sm->getDeclaredInstances("mapper", &instances).isOk());
+    EXPECT_EQ(std::vector<std::string>{"minigbm"}, instances);
+}
+
 class CallbackHistorian : public BnServiceCallback {
     Status onRegistration(const std::string& name, const sp<IBinder>& binder) override {
         registrations.push_back(name);
@@ -328,6 +434,22 @@ TEST(ServiceNotifications, NoPermissionsRegister) {
 
     EXPECT_CALL(*access, getCallingContext()).WillOnce(Return(Access::CallingContext{}));
     EXPECT_CALL(*access, canFind(_,_)).WillOnce(Return(false));
+
+    sp<ServiceManager> sm = sp<ServiceManager>::make(std::move(access));
+
+    sp<CallbackHistorian> cb = sp<CallbackHistorian>::make();
+
+    EXPECT_EQ(sm->registerForNotifications("foofoo", cb).exceptionCode(), Status::EX_SECURITY);
+}
+
+TEST(GetService, IsolatedCantRegister) {
+    std::unique_ptr<MockAccess> access = std::make_unique<NiceMock<MockAccess>>();
+
+    EXPECT_CALL(*access, getCallingContext())
+            .WillOnce(Return(Access::CallingContext{
+                    .uid = AID_ISOLATED_START,
+            }));
+    EXPECT_CALL(*access, canFind(_, _)).WillOnce(Return(true));
 
     sp<ServiceManager> sm = sp<ServiceManager>::make(std::move(access));
 

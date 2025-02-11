@@ -152,12 +152,83 @@ LIBBINDER_NDK33 { # introduced=33
     AParcel_unmarshal;
 };
 
+LIBBINDER_NDK34 { # introduced=UpsideDownCake
+  global:
+    ABinderProcess_isThreadPoolStarted; # systemapi llndk
+    AServiceManager_getUpdatableApexName; # systemapi
+    AServiceManager_registerForServiceNotifications; # systemapi llndk
+    AServiceManager_NotificationRegistration_delete; # systemapi llndk
+    AServiceManager_addServiceWithFlags; # systemapi llndk
+};
+
+LIBBINDER_NDK35 { # introduced=VanillaIceCream
+  global:
+    APersistableBundle_readFromParcel;
+    APersistableBundle_writeToParcel;
+    APersistableBundle_new;
+    APersistableBundle_dup;
+    APersistableBundle_delete;
+    APersistableBundle_isEqual;
+    APersistableBundle_size;
+    APersistableBundle_erase;
+    APersistableBundle_putBoolean;
+    APersistableBundle_putInt;
+    APersistableBundle_putLong;
+    APersistableBundle_putDouble;
+    APersistableBundle_putString;
+    APersistableBundle_putBooleanVector;
+    APersistableBundle_putIntVector;
+    APersistableBundle_putLongVector;
+    APersistableBundle_putDoubleVector;
+    APersistableBundle_putStringVector;
+    APersistableBundle_putPersistableBundle;
+    APersistableBundle_getBoolean;
+    APersistableBundle_getInt;
+    APersistableBundle_getLong;
+    APersistableBundle_getDouble;
+    APersistableBundle_getString;
+    APersistableBundle_getBooleanVector;
+    APersistableBundle_getIntVector;
+    APersistableBundle_getLongVector;
+    APersistableBundle_getDoubleVector;
+    APersistableBundle_getStringVector;
+    APersistableBundle_getPersistableBundle;
+    APersistableBundle_getBooleanKeys;
+    APersistableBundle_getIntKeys;
+    APersistableBundle_getLongKeys;
+    APersistableBundle_getDoubleKeys;
+    APersistableBundle_getStringKeys;
+    APersistableBundle_getBooleanVectorKeys;
+    APersistableBundle_getIntVectorKeys;
+    APersistableBundle_getLongVectorKeys;
+    APersistableBundle_getDoubleVectorKeys;
+    APersistableBundle_getStringVectorKeys;
+    APersistableBundle_getPersistableBundleKeys;
+    AServiceManager_openDeclaredPassthroughHal; # systemapi llndk
+};
+
+LIBBINDER_NDK36 { # introduced=36
+  global:
+    AIBinder_Class_setTransactionCodeToFunctionNameMap;
+    AIBinder_Class_getFunctionName;
+    ABinderRpc_registerAccessorProvider; # systemapi
+    ABinderRpc_unregisterAccessorProvider; # systemapi
+    ABinderRpc_Accessor_new; # systemapi
+    ABinderRpc_Accessor_delegateAccessor; #systemapi
+    ABinderRpc_Accessor_delete; # systemapi
+    ABinderRpc_Accessor_asBinder; # systemapi
+    ABinderRpc_Accessor_fromBinder; # systemapi
+    ABinderRpc_ConnectionInfo_new; # systemapi
+    ABinderRpc_ConnectionInfo_delete; # systemapi
+};
+
 LIBBINDER_NDK_PLATFORM {
   global:
     AParcel_getAllowFds;
     extern "C++" {
         AIBinder_fromPlatformBinder*;
         AIBinder_toPlatformBinder*;
+        AParcel_viewPlatformParcel*;
     };
   local:
     *;

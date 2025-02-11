@@ -14,6 +14,7 @@
 
 package {
     default_applicable_licenses: ["frameworks_native_libs_arect_license"],
+    default_team: "trendy_team_android_core_graphics_stack",
 }
 
 // Added automatically by a large-scale-change
@@ -39,6 +40,7 @@ ndk_headers {
 
 cc_library_headers {
     name: "libarect_headers",
+    host_supported: true,
     vendor_available: true,
     min_sdk_version: "29",
     // TODO(b/153609531): remove when no longer needed.
@@ -49,6 +51,9 @@ cc_library_headers {
         "com.android.media",
         "com.android.media.swcodec",
     ],
+    llndk: {
+        llndk_headers: true,
+    },
 }
 
 cc_library_static {
@@ -64,4 +69,12 @@ cc_library_static {
         },
     },
     min_sdk_version: "29",
+    // static link, so it won't straddle a module boundary at runtime.
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media",
+        "com.android.media.swcodec",
+        "com.android.neuralnetworks",
+    ],
+
 }

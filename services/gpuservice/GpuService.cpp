@@ -16,23 +16,27 @@
 
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
-#include "GpuService.h"
+#include "gpuservice/GpuService.h"
 
 #include <android-base/stringprintf.h>
+#include <android-base/properties.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IResultReceiver.h>
 #include <binder/Parcel.h>
 #include <binder/PermissionCache.h>
 #include <cutils/properties.h>
 #include <gpumem/GpuMem.h>
+#include <gpuwork/GpuWork.h>
 #include <gpustats/GpuStats.h>
 #include <private/android_filesystem_config.h>
 #include <tracing/GpuMemTracer.h>
 #include <utils/String8.h>
 #include <utils/Trace.h>
 #include <vkjson.h>
+#include <vkprofiles.h>
 
 #include <thread>
+#include <memory>
 
 namespace android {
 
@@ -41,23 +45,39 @@ using base::StringAppendF;
 namespace {
 status_t cmdHelp(int out);
 status_t cmdVkjson(int out, int err);
+status_t cmdVkprofiles(int out, int err);
 void dumpGameDriverInfo(std::string* result);
 } // namespace
 
 const String16 sDump("android.permission.DUMP");
+const String16 sAccessGpuServicePermission("android.permission.ACCESS_GPU_SERVICE");
+const std::string sAngleGlesDriverSuffix = "angle";
 
 const char* const GpuService::SERVICE_NAME = "gpu";
 
 GpuService::GpuService()
       : mGpuMem(std::make_shared<GpuMem>()),
+        mGpuWork(std::make_shared<gpuwork::GpuWork>()),
         mGpuStats(std::make_unique<GpuStats>()),
         mGpuMemTracer(std::make_unique<GpuMemTracer>()) {
-    std::thread asyncInitThread([this]() {
+
+    mGpuMemAsyncInitThread = std::make_unique<std::thread>([this] (){
         mGpuMem->initialize();
         mGpuMemTracer->initialize(mGpuMem);
     });
-    asyncInitThread.detach();
+
+    mGpuWorkAsyncInitThread = std::make_unique<std::thread>([this]() {
+        mGpuWork->initialize();
+    });
 };
+
+GpuService::~GpuService() {
+    mGpuMem->stop();
+    mGpuWork->stop();
+
+    mGpuWorkAsyncInitThread->join();
+    mGpuMemAsyncInitThread->join();
+}
 
 void GpuService::setGpuStats(const std::string& driverPackageName,
                              const std::string& driverVersionName, uint64_t driverVersionCode,
@@ -73,6 +93,41 @@ void GpuService::setTargetStats(const std::string& appPackageName, const uint64_
                                 const GpuStatsInfo::Stats stats, const uint64_t value) {
     mGpuStats->insertTargetStats(appPackageName, driverVersionCode, stats, value);
 }
+
+void GpuService::setTargetStatsArray(const std::string& appPackageName,
+                                const uint64_t driverVersionCode, const GpuStatsInfo::Stats stats,
+                                const uint64_t* values, const uint32_t valueCount) {
+    mGpuStats->insertTargetStatsArray(appPackageName, driverVersionCode, stats, values, valueCount);
+}
+
+void GpuService::addVulkanEngineName(const std::string& appPackageName,
+                                     const uint64_t driverVersionCode,
+                                     const char* engineName) {
+    mGpuStats->addVulkanEngineName(appPackageName, driverVersionCode, engineName);
+}
+
+void GpuService::toggleAngleAsSystemDriver(bool enabled) {
+    IPCThreadState* ipc = IPCThreadState::self();
+    const int pid = ipc->getCallingPid();
+    const int uid = ipc->getCallingUid();
+
+    // only system_server with the ACCESS_GPU_SERVICE permission is allowed to set
+    // persist.graphics.egl
+    if (uid != AID_SYSTEM ||
+        !PermissionCache::checkPermission(sAccessGpuServicePermission, pid, uid)) {
+        ALOGE("Permission Denial: can't set persist.graphics.egl from setAngleAsSystemDriver() "
+                "pid=%d, uid=%d\n", pid, uid);
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(mLock);
+    if (enabled) {
+        android::base::SetProperty("persist.graphics.egl", sAngleGlesDriverSuffix);
+    } else {
+        android::base::SetProperty("persist.graphics.egl", "");
+    }
+}
+
 
 void GpuService::setUpdatableDriverPath(const std::string& driverPath) {
     IPCThreadState* ipc = IPCThreadState::self();
@@ -99,10 +154,11 @@ status_t GpuService::shellCommand(int /*in*/, int out, int err, std::vector<Stri
 
     ALOGV("shellCommand");
     for (size_t i = 0, n = args.size(); i < n; i++)
-        ALOGV("  arg[%zu]: '%s'", i, String8(args[i]).string());
+        ALOGV("  arg[%zu]: '%s'", i, String8(args[i]).c_str());
 
     if (args.size() >= 1) {
         if (args[0] == String16("vkjson")) return cmdVkjson(out, err);
+        if (args[0] == String16("vkprofiles")) return cmdVkprofiles(out, err);
         if (args[0] == String16("help")) return cmdHelp(out);
     }
     // no command, or unrecognized command
@@ -124,6 +180,7 @@ status_t GpuService::doDump(int fd, const Vector<String16>& args, bool /*asProto
         bool dumpDriverInfo = false;
         bool dumpMem = false;
         bool dumpStats = false;
+        bool dumpWork = false;
         size_t numArgs = args.size();
 
         if (numArgs) {
@@ -134,9 +191,11 @@ status_t GpuService::doDump(int fd, const Vector<String16>& args, bool /*asProto
                     dumpDriverInfo = true;
                 } else if (args[index] == String16("--gpumem")) {
                     dumpMem = true;
+                } else if (args[index] == String16("--gpuwork")) {
+                    dumpWork = true;
                 }
             }
-            dumpAll = !(dumpDriverInfo || dumpMem || dumpStats);
+            dumpAll = !(dumpDriverInfo || dumpMem || dumpStats || dumpWork);
         }
 
         if (dumpAll || dumpDriverInfo) {
@@ -151,6 +210,10 @@ status_t GpuService::doDump(int fd, const Vector<String16>& args, bool /*asProto
             mGpuStats->dump(args, &result);
             result.append("\n");
         }
+         if (dumpAll || dumpWork) {
+            mGpuWork->dump(args, &result);
+            result.append("\n");
+        }
     }
 
     write(fd, result.c_str(), result.size());
@@ -162,31 +225,24 @@ namespace {
 status_t cmdHelp(int out) {
     FILE* outs = fdopen(out, "w");
     if (!outs) {
-        ALOGE("vkjson: failed to create out stream: %s (%d)", strerror(errno), errno);
+        ALOGE("gpuservice: failed to create out stream: %s (%d)", strerror(errno), errno);
         return BAD_VALUE;
     }
     fprintf(outs,
             "GPU Service commands:\n"
-            "  vkjson   dump Vulkan properties as JSON\n");
+            "  vkjson      dump Vulkan properties as JSON\n"
+            "  vkprofiles  print support for select Vulkan profiles\n");
     fclose(outs);
     return NO_ERROR;
 }
 
-void vkjsonPrint(FILE* out) {
-    std::string json = VkJsonInstanceToJson(VkJsonGetInstance());
-    fwrite(json.data(), 1, json.size(), out);
-    fputc('\n', out);
+status_t cmdVkjson(int out, int /*err*/) {
+    dprintf(out, "%s\n", VkJsonInstanceToJson(VkJsonGetInstance()).c_str());
+    return NO_ERROR;
 }
 
-status_t cmdVkjson(int out, int /*err*/) {
-    FILE* outs = fdopen(out, "w");
-    if (!outs) {
-        int errnum = errno;
-        ALOGE("vkjson: failed to create output stream: %s", strerror(errnum));
-        return -errnum;
-    }
-    vkjsonPrint(outs);
-    fclose(outs);
+status_t cmdVkprofiles(int out, int /*err*/) {
+    dprintf(out, "%s\n", android::vkprofiles::vkProfiles().c_str());
     return NO_ERROR;
 }
 

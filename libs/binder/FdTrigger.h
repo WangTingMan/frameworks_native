@@ -17,14 +17,15 @@
 
 #include <memory>
 
-#include <android-base/result.h>
-#include <android-base/unique_fd.h>
 #include <utils/Errors.h>
+
+#include <binder/RpcTransport.h>
+#include <binder/unique_fd.h>
 
 namespace android {
 
 /** This is not a pipe. */
-class FdTrigger {
+class LIBBINDER_INTERNAL_EXPORTED FdTrigger {
 public:
     /** Returns nullptr for error case */
     static std::unique_ptr<FdTrigger> make();
@@ -53,17 +54,23 @@ public:
      *   true - time to read!
      *   false - trigger happened
      */
-    [[nodiscard]] status_t triggerablePoll(base::borrowed_fd fd, int16_t event);
+    [[nodiscard]] status_t triggerablePoll(const android::RpcTransportFd& transportFd,
+                                           int16_t event);
 
 private:
 #ifdef BINDER_RPC_SINGLE_THREADED
     bool mTriggered = false;
 #else
+<<<<<<< HEAD
 
 #ifdef _MSC_VER
 #else
     base::unique_fd mWrite;
     base::unique_fd mRead;
+=======
+    binder::unique_fd mWrite;
+    binder::unique_fd mRead;
+>>>>>>> d3fb93fb73
 #endif
 
 #endif

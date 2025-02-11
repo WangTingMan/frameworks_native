@@ -25,6 +25,7 @@
 #include "Access.h"
 #include "ServiceManager.h"
 
+<<<<<<< HEAD
 #ifdef _MSC_VER
 #include <windows.h>
 #include "linux/MessageLooper.h"
@@ -46,6 +47,27 @@
 #ifdef _MSC_VER
 extern void load_hw_service_manager();
 #endif
+=======
+#if !defined(VENDORSERVICEMANAGER) && !defined(__ANDROID_RECOVERY__)
+
+#include <perfetto/public/producer.h>
+#include <perfetto/public/te_category_macros.h>
+#include <perfetto/public/te_macros.h>
+#include <perfetto/public/track_event.h>
+
+namespace android {
+
+static void register_perfetto_te_categories() {
+    struct PerfettoProducerInitArgs perfetto_args = PERFETTO_PRODUCER_INIT_ARGS_INIT();
+    perfetto_args.backends = PERFETTO_BACKEND_SYSTEM;
+    PerfettoProducerInit(perfetto_args);
+    PerfettoTeInit();
+    PERFETTO_TE_REGISTER_CATEGORIES(PERFETTO_SM_CATEGORIES);
+}
+} // namespace android
+
+#endif // !defined(VENDORSERVICEMANAGER) && !defined(__ANDROID_RECOVERY__)
+>>>>>>> d3fb93fb73
 
 using ::android::Access;
 using ::android::IPCThreadState;
@@ -64,15 +86,12 @@ class BinderCallback : public LooperCallback {
 public:
     static sp<BinderCallback> setupTo(const sp<Looper>& looper) {
         sp<BinderCallback> cb = sp<BinderCallback>::make();
+        cb->mLooper = looper;
 
-        int binder_fd = -1;
-        IPCThreadState::self()->setupPolling(&binder_fd);
-        LOG_ALWAYS_FATAL_IF(binder_fd < 0, "Failed to setupPolling: %d", binder_fd);
+        IPCThreadState::self()->setupPolling(&cb->mBinderFd);
+        LOG_ALWAYS_FATAL_IF(cb->mBinderFd < 0, "Failed to setupPolling: %d", cb->mBinderFd);
 
-        int ret = looper->addFd(binder_fd,
-                                Looper::POLL_CALLBACK,
-                                Looper::EVENT_INPUT,
-                                cb,
+        int ret = looper->addFd(cb->mBinderFd, Looper::POLL_CALLBACK, Looper::EVENT_INPUT, cb,
                                 nullptr /*data*/);
         LOG_ALWAYS_FATAL_IF(ret != 1, "Failed to add binder FD to Looper");
 
@@ -83,14 +102,27 @@ public:
         IPCThreadState::self()->handlePolledCommands();
         return 1;  // Continue receiving callbacks.
     }
+
+    void repoll() {
+        if (!mLooper->repoll(mBinderFd)) {
+            ALOGE("Failed to repoll binder FD.");
+        }
+    }
+
+private:
+    sp<Looper> mLooper;
+    int mBinderFd = -1;
 };
 
 // LooperCallback for IClientCallback
 #ifndef _MSC_VER
 class ClientCallbackCallback : public LooperCallback {
 public:
-    static sp<ClientCallbackCallback> setupTo(const sp<Looper>& looper, const sp<ServiceManager>& manager) {
+    static sp<ClientCallbackCallback> setupTo(const sp<Looper>& looper,
+                                              const sp<ServiceManager>& manager,
+                                              sp<BinderCallback> binderCallback) {
         sp<ClientCallbackCallback> cb = sp<ClientCallbackCallback>::make(manager);
+        cb->mBinderCallback = binderCallback;
 
         int fdTimer = 0;
         fdTimer = timerfd_create(CLOCK_MONOTONIC, 0 /*flags*/);
@@ -133,12 +165,15 @@ public:
         }
 
         mManager->handleClientCallbacks();
+        mBinderCallback->repoll(); // b/316829336
+
         return 1;  // Continue receiving callbacks.
     }
 private:
     friend sp<ClientCallbackCallback>;
     ClientCallbackCallback(const sp<ServiceManager>& manager) : mManager(manager) {}
     sp<ServiceManager> mManager;
+    sp<BinderCallback> mBinderCallback;
 };
 #else
 class ClientCallbackCallback : public virtual android::RefBase
@@ -169,9 +204,7 @@ BOOL WINAPI HandlerRoutineReceiver(DWORD dwCtrlType);
 #endif
 
 int main(int argc, char** argv) {
-#ifdef __ANDROID_RECOVERY__
     android::base::InitLogging(argv, android::base::KernelLogger);
-#endif
 
 #ifdef _MSC_VER
     SetConsoleCtrlHandler(&HandlerRoutineReceiver, TRUE);
@@ -186,11 +219,17 @@ int main(int argc, char** argv) {
 
     const char* driver = argc == 2 ? argv[1] : "/dev/binder";
 
+#if !defined(VENDORSERVICEMANAGER) && !defined(__ANDROID_RECOVERY__)
+    android::register_perfetto_te_categories();
+#endif // !defined(VENDORSERVICEMANAGER) && !defined(__ANDROID_RECOVERY__)
+
     LOG(INFO) << "Starting sm instance on " << driver;
 
     sp<ProcessState> ps = ProcessState::initWithDriver(driver);
     ps->setThreadPoolMaxThreadCount(0);
     ps->setCallRestriction(ProcessState::CallRestriction::FATAL_IF_NOT_ONEWAY);
+
+    IPCThreadState::self()->disableBackgroundScheduling(true);
 
     sp<ServiceManager> manager = sp<ServiceManager>::make(std::make_unique<Access>());
     if (!manager->addService("manager", manager, false /*allowIsolated*/, IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk()) {
@@ -198,7 +237,9 @@ int main(int argc, char** argv) {
     }
 
     IPCThreadState::self()->setTheContextObject(manager);
-    ps->becomeContextManager();
+    if (!ps->becomeContextManager()) {
+        LOG(FATAL) << "Could not become context manager";
+    }
 
 #ifdef _MSC_VER
     MessageLooper& looper = MessageLooper::GetDefault();
@@ -225,9 +266,14 @@ int main(int argc, char** argv) {
 #else
     sp<Looper> looper = Looper::prepare(false /*allowNonCallbacks*/);
 
+<<<<<<< HEAD
     BinderCallback::setupTo(looper);
     ClientCallbackCallback::setupTo(looper, manager);
 #endif
+=======
+    sp<BinderCallback> binderCallback = BinderCallback::setupTo(looper);
+    ClientCallbackCallback::setupTo(looper, manager, binderCallback);
+>>>>>>> d3fb93fb73
 
 #ifndef VENDORSERVICEMANAGER
     if (!SetProperty("servicemanager.ready", "true")) {

@@ -18,12 +18,15 @@
 
 #include <cstdint>
 
+#include <android/gui/CachingHint.h>
 #include <gui/HdrMetadata.h>
 #include <math/mat4.h>
 #include <ui/BlurRegion.h>
 #include <ui/FloatRect.h>
+#include <ui/LayerStack.h>
 #include <ui/Rect.h>
 #include <ui/Region.h>
+#include <ui/ShadowSettings.h>
 #include <ui/Transform.h>
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
@@ -32,11 +35,14 @@
 #pragma clang diagnostic ignored "-Wextra"
 
 #include <gui/BufferQueue.h>
+#include <ui/EdgeExtensionEffect.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicTypes.h>
 #include <ui/StretchEffect.h>
 
 #include "DisplayHardware/Hal.h"
+
+#include <aidl/android/hardware/graphics/composer3/Composition.h>
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic pop // ignored "-Wconversion -Wextra"
@@ -93,11 +99,9 @@ struct LayerFECompositionState {
     /*
      * Visibility state
      */
-    // the layer stack this layer belongs to
-    std::optional<uint32_t> layerStackId;
 
-    // If true, this layer should be only visible on the internal display
-    bool internalOnly{false};
+    // The filter that determines which outputs include this layer
+    ui::LayerFilter outputFilter;
 
     // If false, this layer should not be considered visible
     bool isVisible{true};
@@ -130,13 +134,16 @@ struct LayerFECompositionState {
     // The bounds of the layer in layer local coordinates
     FloatRect geomLayerBounds;
 
-    // length of the shadow in screen space
-    float shadowRadius{0.f};
+    // The crop to apply to the layer in layer local coordinates
+    FloatRect geomLayerCrop;
+
+    ShadowSettings shadowSettings;
 
     // List of regions that require blur
     std::vector<BlurRegion> blurRegions;
 
     StretchEffect stretchEffect;
+    EdgeExtensionEffect edgeExtensionEffect;
 
     /*
      * Geometry state
@@ -157,16 +164,19 @@ struct LayerFECompositionState {
      */
 
     // The type of composition for this layer
-    hal::Composition compositionType{hal::Composition::INVALID};
+    aidl::android::hardware::graphics::composer3::Composition compositionType{
+            aidl::android::hardware::graphics::composer3::Composition::INVALID};
 
     // The buffer and related state
     sp<GraphicBuffer> buffer;
-    int bufferSlot{BufferQueue::INVALID_BUFFER_SLOT};
-    sp<Fence> acquireFence;
+    sp<Fence> acquireFence = Fence::NO_FENCE;
     Region surfaceDamage;
+    uint64_t frameNumber = 0;
 
     // The handle to use for a sideband stream for this layer
     sp<NativeHandle> sidebandStream;
+    // If true, this sideband layer has a frame update
+    bool sidebandStreamHasFrame{false};
 
     // The color for this layer
     half4 color;
@@ -199,6 +209,16 @@ struct LayerFECompositionState {
     // The output-independent frame for the cursor
     Rect cursorFrame;
 
+    // framerate of the layer as measured by LayerHistory
+    float fps;
+
+    // The dimming flag
+    bool dimmingEnabled{true};
+
+    float currentHdrSdrRatio = 1.f;
+    float desiredHdrSdrRatio = 1.f;
+
+    gui::CachingHint cachingHint = gui::CachingHint::Enabled;
     virtual ~LayerFECompositionState();
 
     // Debugging

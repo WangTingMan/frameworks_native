@@ -16,18 +16,17 @@
 
 #pragma once
 
-#include <condition_variable>
 #include <deque>
-#include <mutex>
-#include <thread>
+#include <optional>
 #include <unordered_map>
-#include <unordered_set>
 
 #include <android-base/thread_annotations.h>
-
 #include <binder/IBinder.h>
+#include <ftl/future.h>
+#include <gui/BufferReleaseChannel.h>
 #include <gui/ITransactionCompletedListener.h>
 #include <ui/Fence.h>
+#include <ui/FenceResult.h>
 
 namespace android {
 
@@ -41,94 +40,58 @@ public:
     wp<IBinder> surfaceControl;
 
     bool releasePreviousBuffer = false;
+    std::string name;
     sp<Fence> previousReleaseFence;
-    nsecs_t acquireTime = -1;
+    std::vector<ftl::Future<FenceResult>> previousReleaseFences;
+    std::vector<ftl::SharedFuture<FenceResult>> previousSharedReleaseFences;
+    std::variant<nsecs_t, sp<Fence>> acquireTimeOrFence = -1;
     nsecs_t latchTime = -1;
-    uint32_t transformHint = 0;
+    std::optional<uint32_t> transformHint = std::nullopt;
     uint32_t currentMaxAcquiredBufferCount = 0;
     std::shared_ptr<FenceTime> gpuCompositionDoneFence{FenceTime::NO_FENCE};
     CompositorTiming compositorTiming;
     nsecs_t refreshStartTime = 0;
     nsecs_t dequeueReadyTime = 0;
     uint64_t frameNumber = 0;
+    uint64_t previousFrameNumber = 0;
     ReleaseCallbackId previousReleaseCallbackId = ReleaseCallbackId::INVALID_ID;
+    std::shared_ptr<gui::BufferReleaseChannel::ProducerEndpoint> bufferReleaseChannel;
 };
 
 class TransactionCallbackInvoker {
 public:
-    ~TransactionCallbackInvoker();
-
-    // Adds listener and callbackIds in case there are no SurfaceControls that are supposed
-    // to be included in the callback. This functions should be call before attempting to register
-    // any callback handles.
-    status_t startRegistration(const ListenerCallbacks& listenerCallbacks);
-    // Ends the registration. After this is called, no more CallbackHandles will be registered.
-    // It is safe to send a callback if the Transaction doesn't have any Pending callback handles.
-    status_t endRegistration(const ListenerCallbacks& listenerCallbacks);
-
-    // Informs the TransactionCallbackInvoker that there is a Transaction with a CallbackHandle
-    // that needs to be latched and presented this frame. This function should be called once the
-    // layer has received the CallbackHandle so the TransactionCallbackInvoker knows not to send
-    // a callback for that Listener/Transaction pair until that CallbackHandle has been latched and
-    // presented.
-    status_t registerPendingCallbackHandle(const sp<CallbackHandle>& handle);
-    // Notifies the TransactionCallbackInvoker that a pending CallbackHandle has been presented.
-    status_t finalizePendingCallbackHandles(const std::deque<sp<CallbackHandle>>& handles,
-                                            const std::vector<JankData>& jankData);
-    status_t finalizeOnCommitCallbackHandles(const std::deque<sp<CallbackHandle>>& handles,
+    status_t addCallbackHandles(const std::deque<sp<CallbackHandle>>& handles);
+    status_t addOnCommitCallbackHandles(const std::deque<sp<CallbackHandle>>& handles,
                                              std::deque<sp<CallbackHandle>>& outRemainingHandles);
 
-    // Adds the Transaction CallbackHandle from a layer that does not need to be relatched and
-    // presented this frame.
-    status_t registerUnpresentedCallbackHandle(const sp<CallbackHandle>& handle);
+    void addEmptyTransaction(const ListenerCallbacks& listenerCallbacks);
 
-    void addPresentFence(const sp<Fence>& presentFence);
+    void addPresentFence(sp<Fence>);
 
-    void sendCallbacks();
+    void sendCallbacks(bool onCommitOnly);
+    void clearCompletedTransactions() {
+        mCompletedTransactions.clear();
+    }
+
+    status_t addCallbackHandle(const sp<CallbackHandle>& handle);
 
 private:
-
-    bool isRegisteringTransaction(const sp<IBinder>& transactionListener,
-                                  const std::vector<CallbackId>& callbackIds) REQUIRES(mMutex);
-
-    status_t findTransactionStats(const sp<IBinder>& listener,
-                                  const std::vector<CallbackId>& callbackIds,
-                                  TransactionStats** outTransactionStats) REQUIRES(mMutex);
-
-    status_t addCallbackHandle(const sp<CallbackHandle>& handle,
-                               const std::vector<JankData>& jankData) REQUIRES(mMutex);
-
-    status_t finalizeCallbackHandle(const sp<CallbackHandle>& handle,
-                                    const std::vector<JankData>& jankData) REQUIRES(mMutex);
-
-    class CallbackDeathRecipient : public IBinder::DeathRecipient {
-    public:
-        // This function is a no-op. isBinderAlive needs a linked DeathRecipient to work.
-        // Death recipients needs a binderDied function.
-        //
-        // (isBinderAlive checks if BpBinder's mAlive is 0. mAlive is only set to 0 in sendObituary.
-        // sendObituary is only called if linkToDeath was called with a DeathRecipient.)
-        void binderDied(const wp<IBinder>& /*who*/) override {}
-    };
-    sp<CallbackDeathRecipient> mDeathRecipient =
-        new CallbackDeathRecipient();
-
-    std::mutex mMutex;
-    std::condition_variable_any mConditionVariable;
-
-    std::unordered_set<ListenerCallbacks, ListenerCallbacksHash> mRegisteringTransactions
-            GUARDED_BY(mMutex);
-
-    std::unordered_map<
-            sp<IBinder>,
-            std::unordered_map<std::vector<CallbackId>, uint32_t /*count*/, CallbackIdsHash>,
-            IListenerHash>
-            mPendingTransactions GUARDED_BY(mMutex);
+    status_t findOrCreateTransactionStats(const sp<IBinder>& listener,
+                                          const std::vector<CallbackId>& callbackIds,
+                                          TransactionStats** outTransactionStats);
 
     std::unordered_map<sp<IBinder>, std::deque<TransactionStats>, IListenerHash>
-            mCompletedTransactions GUARDED_BY(mMutex);
+        mCompletedTransactions;
 
-    sp<Fence> mPresentFence GUARDED_BY(mMutex);
+    struct BufferRelease {
+        std::shared_ptr<gui::BufferReleaseChannel::ProducerEndpoint> channel;
+        ReleaseCallbackId callbackId;
+        sp<Fence> fence;
+        uint32_t currentMaxAcquiredBufferCount;
+    };
+    std::vector<BufferRelease> mBufferReleases;
+
+    sp<Fence> mPresentFence;
 };
 
 } // namespace android

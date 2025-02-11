@@ -14,15 +14,16 @@
  * limitations under the License.
  */
 
+#define LOG_TAG "DisplayEventReceiver"
+
 #include <string.h>
 
 #include <utils/Errors.h>
 
 #include <gui/DisplayEventReceiver.h>
-#include <gui/IDisplayEventConnection.h>
-#include <gui/ISurfaceComposer.h>
+#include <gui/VsyncEventData.h>
 
-#include <private/gui/ComposerService.h>
+#include <private/gui/ComposerServiceAIDL.h>
 
 #include <private/gui/BitTube.h>
 
@@ -32,15 +33,29 @@ namespace android {
 
 // ---------------------------------------------------------------------------
 
-DisplayEventReceiver::DisplayEventReceiver(
-        ISurfaceComposer::VsyncSource vsyncSource,
-        ISurfaceComposer::EventRegistrationFlags eventRegistration) {
-    sp<ISurfaceComposer> sf(ComposerService::getComposerService());
+DisplayEventReceiver::DisplayEventReceiver(gui::ISurfaceComposer::VsyncSource vsyncSource,
+                                           EventRegistrationFlags eventRegistration,
+                                           const sp<IBinder>& layerHandle) {
+    sp<gui::ISurfaceComposer> sf(ComposerServiceAIDL::getComposerService());
     if (sf != nullptr) {
-        mEventConnection = sf->createDisplayEventConnection(vsyncSource, eventRegistration);
-        if (mEventConnection != nullptr) {
+        mEventConnection = nullptr;
+        binder::Status status =
+                sf->createDisplayEventConnection(vsyncSource,
+                                                 static_cast<
+                                                         gui::ISurfaceComposer::EventRegistration>(
+                                                         eventRegistration.get()),
+                                                 layerHandle, &mEventConnection);
+        if (status.isOk() && mEventConnection != nullptr) {
             mDataChannel = std::make_unique<gui::BitTube>();
-            mEventConnection->stealReceiveChannel(mDataChannel.get());
+            status = mEventConnection->stealReceiveChannel(mDataChannel.get());
+            if (!status.isOk()) {
+                ALOGE("stealReceiveChannel failed: %s", status.toString8().c_str());
+                mInitError = std::make_optional<status_t>(status.transactionError());
+                mDataChannel.reset();
+                mEventConnection.clear();
+            }
+        } else {
+            ALOGE("DisplayEventConnection creation failed: status=%s", status.toString8().c_str());
         }
     }
 }
@@ -51,12 +66,11 @@ DisplayEventReceiver::~DisplayEventReceiver() {
 status_t DisplayEventReceiver::initCheck() const {
     if (mDataChannel != nullptr)
         return NO_ERROR;
-    return NO_INIT;
+    return mInitError.has_value() ? mInitError.value() : NO_INIT;
 }
 
 int DisplayEventReceiver::getFd() const {
-    if (mDataChannel == nullptr)
-        return NO_INIT;
+    if (mDataChannel == nullptr) return mInitError.has_value() ? mInitError.value() : NO_INIT;
 
     return mDataChannel->getFd();
 }
@@ -69,12 +83,25 @@ status_t DisplayEventReceiver::setVsyncRate(uint32_t count) {
         mEventConnection->setVsyncRate(count);
         return NO_ERROR;
     }
-    return NO_INIT;
+    return mInitError.has_value() ? mInitError.value() : NO_INIT;
 }
 
 status_t DisplayEventReceiver::requestNextVsync() {
     if (mEventConnection != nullptr) {
         mEventConnection->requestNextVsync();
+        return NO_ERROR;
+    }
+    return mInitError.has_value() ? mInitError.value() : NO_INIT;
+}
+
+status_t DisplayEventReceiver::getLatestVsyncEventData(
+        ParcelableVsyncEventData* outVsyncEventData) const {
+    if (mEventConnection != nullptr) {
+        auto status = mEventConnection->getLatestVsyncEventData(outVsyncEventData);
+        if (!status.isOk()) {
+            ALOGE("Failed to get latest vsync event data: %s", status.toString8().c_str());
+            return status.transactionError();
+        }
         return NO_ERROR;
     }
     return NO_INIT;

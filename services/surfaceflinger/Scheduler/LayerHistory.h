@@ -20,33 +20,39 @@
 #include <utils/RefBase.h>
 #include <utils/Timers.h>
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "RefreshRateConfigs.h"
+#include "EventThread.h"
+
+#include "FrameRateCompatibility.h"
+#include "RefreshRateSelector.h"
 
 namespace android {
 
 class Layer;
-class TestableScheduler;
 
 namespace scheduler {
 
-class LayerHistoryTest;
 class LayerInfo;
+struct LayerProps;
 
 class LayerHistory {
 public:
-    using LayerVoteType = RefreshRateConfigs::LayerVoteType;
+    using FrameRateOverride = DisplayEventReceiver::Event::FrameRateOverride;
+    using LayerVoteType = RefreshRateSelector::LayerVoteType;
+    static constexpr std::chrono::nanoseconds kMaxPeriodForHistory = 1s;
 
     LayerHistory();
     ~LayerHistory();
 
     // Layers are unregistered when the weak reference expires.
-    void registerLayer(Layer*, LayerVoteType type);
+    void registerLayer(Layer*, bool contentDetectionEnabled,
+                       FrameRateCompatibility frameRateCompatibility);
 
     // Sets the display size. Client is responsible for synchronization.
     void setDisplayArea(uint32_t displayArea) { mDisplayArea = displayArea; }
@@ -62,46 +68,80 @@ public:
     };
 
     // Marks the layer as active, and records the given state to its history.
-    void record(Layer*, nsecs_t presentTime, nsecs_t now, LayerUpdateType updateType);
+    void record(int32_t id, const LayerProps& props, nsecs_t presentTime, nsecs_t now,
+                LayerUpdateType updateType);
 
-    using Summary = std::vector<RefreshRateConfigs::LayerRequirement>;
+    // Updates the default frame rate compatibility which takes effect when the app
+    // does not set a preference for refresh rate.
+    void setDefaultFrameRateCompatibility(int32_t id, FrameRateCompatibility frameRateCompatibility,
+                                          bool contentDetectionEnabled);
+    void setLayerProperties(int32_t id, const LayerProps&);
+    using Summary = std::vector<RefreshRateSelector::LayerRequirement>;
 
     // Rebuilds sets of active/inactive layers, and accumulates stats for active layers.
-    Summary summarize(const RefreshRateConfigs&, nsecs_t now);
+    Summary summarize(const RefreshRateSelector&, nsecs_t now);
 
     void clear();
 
     void deregisterLayer(Layer*);
     std::string dump() const;
 
+    // return the frames per second of the layer with the given sequence id.
+    float getLayerFramerate(nsecs_t now, int32_t id) const;
+
+    bool isSmallDirtyArea(uint32_t dirtyArea, float threshold) const;
+
+    // Updates the frame rate override set by game mode intervention
+    void updateGameModeFrameRateOverride(FrameRateOverride frameRateOverride) EXCLUDES(mLock);
+
+    // Updates the frame rate override set by game default frame rate
+    void updateGameDefaultFrameRateOverride(FrameRateOverride frameRateOverride) EXCLUDES(mLock);
+
+    std::pair<Fps, Fps> getGameFrameRateOverride(uid_t uid) const EXCLUDES(mLock);
+    std::pair<Fps, Fps> getGameFrameRateOverrideLocked(uid_t uid) const REQUIRES(mLock);
+
 private:
-    friend LayerHistoryTest;
-    friend TestableScheduler;
+    friend class LayerHistoryTest;
+    friend class LayerHistoryIntegrationTest;
+    friend class TestableScheduler;
 
     using LayerPair = std::pair<Layer*, std::unique_ptr<LayerInfo>>;
-    using LayerInfos = std::vector<LayerPair>;
+    // keyed by id as returned from Layer::getSequence()
+    using LayerInfos = std::unordered_map<int32_t, LayerPair>;
 
-    struct ActiveLayers {
-        LayerInfos& infos;
-        const size_t index;
+    std::string dumpGameFrameRateOverridesLocked() const REQUIRES(mLock);
 
-        auto begin() { return infos.begin(); }
-        auto end() { return begin() + static_cast<long>(index); }
+    // Iterates over layers maps moving all active layers to mActiveLayerInfos and all inactive
+    // layers to mInactiveLayerInfos. Layer's active state is determined by multiple factors
+    // such as update activity, visibility, and frame rate vote.
+    // worst case time complexity is O(2 * inactive + active)
+    // now: the current time (system time) when calling the method
+    // isVrrDevice: true if the device has DisplayMode with VrrConfig specified.
+    void partitionLayers(nsecs_t now, bool isVrrDevice) REQUIRES(mLock);
+
+    enum class LayerStatus {
+        NotFound,
+        LayerInActiveMap,
+        LayerInInactiveMap,
     };
 
-    ActiveLayers activeLayers() REQUIRES(mLock) { return {mLayerInfos, mActiveLayersEnd}; }
+    // looks up a layer by sequence id in both layerInfo maps.
+    // The first element indicates if and where the item was found
+    std::pair<LayerStatus, LayerPair*> findLayer(int32_t id) REQUIRES(mLock);
 
-    // Iterates over layers in a single pass, swapping pairs such that active layers precede
-    // inactive layers, and inactive layers precede expired layers. Removes expired layers by
-    // truncating after inactive layers.
-    void partitionLayers(nsecs_t now) REQUIRES(mLock);
+    std::pair<LayerStatus, const LayerPair*> findLayer(int32_t id) const REQUIRES(mLock) {
+        return const_cast<LayerHistory*>(this)->findLayer(id);
+    }
 
     mutable std::mutex mLock;
 
-    // Partitioned such that active layers precede inactive layers. For fast lookup, the few active
-    // layers are at the front, and weak pointers are stored in contiguous memory to hit the cache.
-    LayerInfos mLayerInfos GUARDED_BY(mLock);
-    size_t mActiveLayersEnd GUARDED_BY(mLock) = 0;
+    // Partitioned into two maps to facility two kinds of retrieval:
+    // 1. retrieval of a layer by id (attempt lookup in both maps)
+    // 2. retrieval of all active layers (iterate that map)
+    // The partitioning is allowed to become out of date but calling partitionLayers refreshes the
+    // validity of each map.
+    LayerInfos mActiveLayerInfos GUARDED_BY(mLock);
+    LayerInfos mInactiveLayerInfos GUARDED_BY(mLock);
 
     uint32_t mDisplayArea = 0;
 
@@ -113,6 +153,13 @@ private:
 
     // Whether a mode change is in progress or not
     std::atomic<bool> mModeChangePending = false;
+
+    // A list to look up the game frame rate overrides
+    // Each entry includes:
+    // 1. the uid of the app
+    // 2. a pair of game mode intervention frame frame and game default frame rate override
+    // set to 0.0 if there is no such override
+    std::map<uid_t, std::pair<Fps, Fps>> mGameFrameRateOverride GUARDED_BY(mLock);
 };
 
 } // namespace scheduler

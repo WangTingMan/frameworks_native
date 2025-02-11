@@ -16,10 +16,14 @@
 
 #pragma once
 
-#include <android-base/unique_fd.h>
+#include <binder/Common.h>
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
+<<<<<<< HEAD
 #include <binder/libbinder_export.h>
+=======
+#include <binder/unique_fd.h>
+>>>>>>> d3fb93fb73
 
 namespace android {
 namespace os {
@@ -27,22 +31,27 @@ namespace os {
 /*
  * C++ implementation of the Java class android.os.ParcelFileDescriptor
  */
+<<<<<<< HEAD
 class LIBBINDER_EXPORT ParcelFileDescriptor : public android::Parcelable {
+=======
+class LIBBINDER_EXPORTED ParcelFileDescriptor : public android::Parcelable {
+>>>>>>> d3fb93fb73
 public:
     ParcelFileDescriptor();
-    explicit ParcelFileDescriptor(android::base::unique_fd fd);
+    explicit ParcelFileDescriptor(binder::unique_fd fd);
     ParcelFileDescriptor(ParcelFileDescriptor&& other) noexcept : mFd(std::move(other.mFd)) { }
     ParcelFileDescriptor& operator=(ParcelFileDescriptor&& other) noexcept = default;
     ~ParcelFileDescriptor() override;
 
     int get() const { return mFd.get(); }
-    android::base::unique_fd release() { return std::move(mFd); }
-    void reset(android::base::unique_fd fd = android::base::unique_fd()) { mFd = std::move(fd); }
+    binder::unique_fd release() { return std::move(mFd); }
+    void reset(binder::unique_fd fd = binder::unique_fd()) { mFd = std::move(fd); }
 
     // android::Parcelable override:
     android::status_t writeToParcel(android::Parcel* parcel) const override;
     android::status_t readFromParcel(const android::Parcel* parcel) override;
 
+    inline std::string toString() const { return "ParcelFileDescriptor:" + std::to_string(get()); }
     inline bool operator!=(const ParcelFileDescriptor& rhs) const {
         return mFd.get() != rhs.mFd.get();
     }
@@ -62,7 +71,7 @@ public:
         return mFd.get() >= rhs.mFd.get();
     }
 private:
-    android::base::unique_fd mFd;
+    binder::unique_fd mFd;
 };
 
 } // namespace os

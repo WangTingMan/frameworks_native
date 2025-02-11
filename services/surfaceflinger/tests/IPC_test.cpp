@@ -136,7 +136,7 @@ public:
     }
 
     status_t initClient() override {
-        mClient = new SurfaceComposerClient;
+        mClient = sp<SurfaceComposerClient>::make();
         auto err = mClient->initCheck();
         return err;
     }
@@ -159,10 +159,9 @@ public:
                                                  {0, 0, static_cast<int32_t>(width),
                                                   static_cast<int32_t>(height)},
                                                  Color::RED);
-        transaction->setLayerStack(mSurfaceControl, 0)
+        transaction->setLayerStack(mSurfaceControl, ui::DEFAULT_LAYER_STACK)
                 .setLayer(mSurfaceControl, std::numeric_limits<int32_t>::max())
-                .setBuffer(mSurfaceControl, gb)
-                .setAcquireFence(mSurfaceControl, fence)
+                .setBuffer(mSurfaceControl, gb, fence)
                 .show(mSurfaceControl)
                 .addTransactionCompletedCallback(mCallbackHelper.function,
                                                  mCallbackHelper.getContext());
@@ -222,17 +221,19 @@ public:
         ProcessState::self()->startThreadPool();
     }
     void SetUp() {
-        mClient = new SurfaceComposerClient;
+        mClient = sp<SurfaceComposerClient>::make();
         ASSERT_EQ(NO_ERROR, mClient->initCheck());
 
-        mPrimaryDisplay = mClient->getInternalDisplayToken();
+        const auto ids = SurfaceComposerClient::getPhysicalDisplayIds();
+        ASSERT_FALSE(ids.empty());
+        mPrimaryDisplay = SurfaceComposerClient::getPhysicalDisplayToken(ids.front());
         ui::DisplayMode mode;
         mClient->getActiveDisplayMode(mPrimaryDisplay, &mode);
         mDisplayWidth = mode.resolution.getWidth();
         mDisplayHeight = mode.resolution.getHeight();
 
         Transaction setupTransaction;
-        setupTransaction.setDisplayLayerStack(mPrimaryDisplay, 0);
+        setupTransaction.setDisplayLayerStack(mPrimaryDisplay, ui::DEFAULT_LAYER_STACK);
         setupTransaction.apply();
     }
 
@@ -288,7 +289,7 @@ sp<IIPCTest> IPCTest::initRemoteService() {
             IPCThreadState::self()->joinThreadPool();
             [&]() { exit(0); }();
         }
-        sp<IBinder> binder = defaultServiceManager()->getService(serviceName);
+        sp<IBinder> binder = defaultServiceManager()->waitForService(serviceName);
         remote = interface_cast<IIPCTest>(binder);
         remote->setDeathToken(mDeathRecipient);
     }
@@ -310,10 +311,9 @@ TEST_F(IPCTest, MergeBasic) {
                                              Color::RED);
 
     Transaction transaction;
-    transaction.setLayerStack(sc, 0)
+    transaction.setLayerStack(sc, ui::DEFAULT_LAYER_STACK)
             .setLayer(sc, std::numeric_limits<int32_t>::max() - 1)
-            .setBuffer(sc, gb)
-            .setAcquireFence(sc, fence)
+            .setBuffer(sc, gb, fence)
             .show(sc)
             .addTransactionCompletedCallback(helper1.function, helper1.getContext());
 

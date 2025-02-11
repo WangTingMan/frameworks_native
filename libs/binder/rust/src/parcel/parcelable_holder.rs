@@ -15,6 +15,7 @@
  */
 
 use crate::binder::Stability;
+use crate::binder::StabilityType;
 use crate::error::StatusCode;
 use crate::parcel::{
     BorrowedParcel, Deserialize, Parcel, Parcelable, Serialize, NON_NULL_PARCELABLE_FLAG,
@@ -60,7 +61,7 @@ enum ParcelableHolderData {
 /// `Send` nor `Sync`), mainly because it internally contains
 /// a `Parcel` which in turn is not thread-safe.
 #[derive(Debug)]
-pub struct ParcelableHolder {
+pub struct ParcelableHolder<STABILITY: StabilityType> {
     // This is a `Mutex` because of `get_parcelable`
     // which takes `&self` for consistency with C++.
     // We could make `get_parcelable` take a `&mut self`
@@ -68,13 +69,17 @@ pub struct ParcelableHolder {
     // improvement, but then callers would require a mutable
     // `ParcelableHolder` even for that getter method.
     data: Mutex<ParcelableHolderData>,
-    stability: Stability,
+
+    _stability_phantom: std::marker::PhantomData<STABILITY>,
 }
 
-impl ParcelableHolder {
+impl<STABILITY: StabilityType> ParcelableHolder<STABILITY> {
     /// Construct a new `ParcelableHolder` with the given stability.
-    pub fn new(stability: Stability) -> Self {
-        Self { data: Mutex::new(ParcelableHolderData::Empty), stability }
+    pub fn new() -> Self {
+        Self {
+            data: Mutex::new(ParcelableHolderData::Empty),
+            _stability_phantom: Default::default(),
+        }
     }
 
     /// Reset the contents of this `ParcelableHolder`.
@@ -91,7 +96,7 @@ impl ParcelableHolder {
     where
         T: Any + Parcelable + ParcelableMetadata + std::fmt::Debug + Send + Sync,
     {
-        if self.stability > p.get_stability() {
+        if STABILITY::VALUE > p.get_stability() {
             return Err(StatusCode::BAD_VALUE);
         }
 
@@ -133,8 +138,8 @@ impl ParcelableHolder {
                 }
             }
             ParcelableHolderData::Parcel(ref mut parcel) => {
+                // Safety: 0 should always be a valid position.
                 unsafe {
-                    // Safety: 0 should always be a valid position.
                     parcel.set_data_position(0)?;
                 }
 
@@ -157,33 +162,56 @@ impl ParcelableHolder {
 
     /// Return the stability value of this object.
     pub fn get_stability(&self) -> Stability {
-        self.stability
+        STABILITY::VALUE
     }
 }
 
-impl Serialize for ParcelableHolder {
+impl<STABILITY: StabilityType> Default for ParcelableHolder<STABILITY> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<STABILITY: StabilityType> Clone for ParcelableHolder<STABILITY> {
+    fn clone(&self) -> Self {
+        ParcelableHolder {
+            data: Mutex::new(self.data.lock().unwrap().clone()),
+            _stability_phantom: Default::default(),
+        }
+    }
+}
+
+impl<STABILITY: StabilityType> Serialize for ParcelableHolder<STABILITY> {
     fn serialize(&self, parcel: &mut BorrowedParcel<'_>) -> Result<(), StatusCode> {
         parcel.write(&NON_NULL_PARCELABLE_FLAG)?;
         self.write_to_parcel(parcel)
     }
 }
 
-impl Deserialize for ParcelableHolder {
+impl<STABILITY: StabilityType> Deserialize for ParcelableHolder<STABILITY> {
+    type UninitType = Self;
+    fn uninit() -> Self::UninitType {
+        Self::new()
+    }
+    fn from_init(value: Self) -> Self::UninitType {
+        value
+    }
+
     fn deserialize(parcel: &BorrowedParcel<'_>) -> Result<Self, StatusCode> {
         let status: i32 = parcel.read()?;
         if status == NULL_PARCELABLE_FLAG {
             Err(StatusCode::UNEXPECTED_NULL)
         } else {
-            let mut parcelable = ParcelableHolder::new(Default::default());
+            let mut parcelable = Self::new();
             parcelable.read_from_parcel(parcel)?;
             Ok(parcelable)
         }
     }
 }
 
-impl Parcelable for ParcelableHolder {
+impl<STABILITY: StabilityType> Parcelable for ParcelableHolder<STABILITY> {
     fn write_to_parcel(&self, parcel: &mut BorrowedParcel<'_>) -> Result<(), StatusCode> {
-        parcel.write(&self.stability)?;
+        parcel.write(&STABILITY::VALUE)?;
 
         let mut data = self.data.lock().unwrap();
         match *data {
@@ -197,15 +225,15 @@ impl Parcelable for ParcelableHolder {
                 parcelable.write_to_parcel(parcel)?;
 
                 let end = parcel.get_data_position();
+                // Safety: we got the position from `get_data_position`.
                 unsafe {
-                    // Safety: we got the position from `get_data_position`.
                     parcel.set_data_position(length_start)?;
                 }
 
                 assert!(end >= data_start);
                 parcel.write(&(end - data_start))?;
+                // Safety: we got the position from `get_data_position`.
                 unsafe {
-                    // Safety: we got the position from `get_data_position`.
                     parcel.set_data_position(end)?;
                 }
 
@@ -219,7 +247,7 @@ impl Parcelable for ParcelableHolder {
     }
 
     fn read_from_parcel(&mut self, parcel: &BorrowedParcel<'_>) -> Result<(), StatusCode> {
-        if self.stability != parcel.read()? {
+        if self.get_stability() != parcel.read()? {
             return Err(StatusCode::BAD_VALUE);
         }
 
@@ -243,11 +271,11 @@ impl Parcelable for ParcelableHolder {
         new_parcel.append_from(parcel, data_start, data_size)?;
         *self.data.get_mut().unwrap() = ParcelableHolderData::Parcel(new_parcel);
 
+        // Safety: `append_from` checks if `data_size` overflows
+        // `parcel` and returns `BAD_VALUE` if that happens. We also
+        // explicitly check for negative and zero `data_size` above,
+        // so `data_end` is guaranteed to be greater than `data_start`.
         unsafe {
-            // Safety: `append_from` checks if `data_size` overflows
-            // `parcel` and returns `BAD_VALUE` if that happens. We also
-            // explicitly check for negative and zero `data_size` above,
-            // so `data_end` is guaranteed to be greater than `data_start`.
             parcel.set_data_position(data_end)?;
         }
 

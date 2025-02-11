@@ -26,6 +26,7 @@ using namespace std::chrono_literals;
 namespace android {
 
 using android::hardware::graphics::common::V1_1::BufferUsage;
+using SCHash = SurfaceComposerClient::SCHash;
 
 ::testing::Environment* const binderEnv =
         ::testing::AddGlobalTestEnvironment(new BinderEnvironment());
@@ -50,29 +51,38 @@ public:
         LayerTransactionTest::TearDown();
     }
 
-    virtual sp<SurfaceControl> createBufferStateLayer() {
+    virtual sp<SurfaceControl> createLayerWithBuffer() {
         return createLayer(mClient, "test", 0, 0, ISurfaceComposerClient::eFXSurfaceBufferState);
+    }
+
+    static int fillBuffer(Transaction& transaction, const sp<SurfaceControl>& layer,
+                          bool setBuffer = true, bool setBackgroundColor = false) {
+        sp<GraphicBuffer> buffer;
+        sp<Fence> fence;
+        if (setBuffer) {
+            int err = getBuffer(&buffer, &fence);
+            if (err != NO_ERROR) {
+                return err;
+            }
+
+            transaction.setBuffer(layer, buffer, fence);
+        }
+
+        if (setBackgroundColor) {
+            transaction.setBackgroundColor(layer, /*color*/ half3(1.0f, 0, 0), /*alpha*/ 1.0f,
+                                           ui::Dataspace::UNKNOWN);
+        }
+
+        return NO_ERROR;
     }
 
     static int fillTransaction(Transaction& transaction, CallbackHelper* callbackHelper,
                                const sp<SurfaceControl>& layer = nullptr, bool setBuffer = true,
                                bool setBackgroundColor = false) {
         if (layer) {
-            sp<GraphicBuffer> buffer;
-            sp<Fence> fence;
-            if (setBuffer) {
-                int err = getBuffer(&buffer, &fence);
-                if (err != NO_ERROR) {
-                    return err;
-                }
-
-                transaction.setBuffer(layer, buffer);
-                transaction.setAcquireFence(layer, fence);
-            }
-
-            if (setBackgroundColor) {
-                transaction.setBackgroundColor(layer, /*color*/ half3(1.0f, 0, 0), /*alpha*/ 1.0f,
-                                               ui::Dataspace::UNKNOWN);
+            int err = fillBuffer(transaction, layer, setBuffer, setBackgroundColor);
+            if (err != NO_ERROR) {
+                return err;
             }
         }
 
@@ -103,6 +113,24 @@ public:
         }
     }
 
+    static void waitForCommitCallback(
+            CallbackHelper& helper,
+            const std::unordered_set<sp<SurfaceControl>, SCHash>& committedSc) {
+        CallbackData callbackData;
+        ASSERT_NO_FATAL_FAILURE(helper.getCallbackData(&callbackData));
+
+        const auto& surfaceControlStats = callbackData.surfaceControlStats;
+
+        ASSERT_EQ(surfaceControlStats.size(), committedSc.size()) << "wrong number of surfaces";
+
+        for (const auto& stats : surfaceControlStats) {
+            ASSERT_NE(stats.surfaceControl, nullptr) << "returned null surface control";
+
+            const auto& expectedSc = committedSc.find(stats.surfaceControl);
+            ASSERT_NE(expectedSc, committedSc.end()) << "unexpected surface control";
+        }
+    }
+
     DisplayEventReceiver mDisplayEventReceiver;
     int mEpollFd;
 
@@ -123,11 +151,12 @@ public:
                 continue;
             }
 
-            vsync = {event.vsync.vsyncId, event.vsync.expectedVSyncTimestamp};
+            vsync = {event.vsync.vsyncData.preferredVsyncId(),
+                     event.vsync.vsyncData.preferredExpectedPresentationTime()};
         }
 
         EXPECT_GE(vsync.vsyncId, 1);
-        EXPECT_GT(event.vsync.expectedVSyncTimestamp, systemTime());
+        EXPECT_GT(vsync.expectedPresentTime, systemTime());
 
         return vsync;
     }
@@ -135,7 +164,7 @@ public:
 
 TEST_F(LayerCallbackTest, BufferColor) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -154,7 +183,7 @@ TEST_F(LayerCallbackTest, BufferColor) {
 
 TEST_F(LayerCallbackTest, NoBufferNoColor) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -177,7 +206,7 @@ TEST_F(LayerCallbackTest, NoBufferNoColor) {
 
 TEST_F(LayerCallbackTest, BufferNoColor) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -199,7 +228,7 @@ TEST_F(LayerCallbackTest, BufferNoColor) {
 
 TEST_F(LayerCallbackTest, NoBufferColor) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -237,7 +266,7 @@ TEST_F(LayerCallbackTest, NoStateChange) {
 
 TEST_F(LayerCallbackTest, OffScreen) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -259,8 +288,8 @@ TEST_F(LayerCallbackTest, OffScreen) {
 
 TEST_F(LayerCallbackTest, MergeBufferNoColor) {
     sp<SurfaceControl> layer1, layer2;
-    ASSERT_NO_FATAL_FAILURE(layer1 = createBufferStateLayer());
-    ASSERT_NO_FATAL_FAILURE(layer2 = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer1 = createLayerWithBuffer());
+    ASSERT_NO_FATAL_FAILURE(layer2 = createLayerWithBuffer());
 
     Transaction transaction1, transaction2;
     CallbackHelper callback1, callback2;
@@ -293,8 +322,8 @@ TEST_F(LayerCallbackTest, MergeBufferNoColor) {
 
 TEST_F(LayerCallbackTest, MergeNoBufferColor) {
     sp<SurfaceControl> layer1, layer2;
-    ASSERT_NO_FATAL_FAILURE(layer1 = createBufferStateLayer());
-    ASSERT_NO_FATAL_FAILURE(layer2 = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer1 = createLayerWithBuffer());
+    ASSERT_NO_FATAL_FAILURE(layer2 = createLayerWithBuffer());
 
     Transaction transaction1, transaction2;
     CallbackHelper callback1, callback2;
@@ -328,8 +357,8 @@ TEST_F(LayerCallbackTest, MergeNoBufferColor) {
 
 TEST_F(LayerCallbackTest, MergeOneBufferOneColor) {
     sp<SurfaceControl> layer1, layer2;
-    ASSERT_NO_FATAL_FAILURE(layer1 = createBufferStateLayer());
-    ASSERT_NO_FATAL_FAILURE(layer2 = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer1 = createLayerWithBuffer());
+    ASSERT_NO_FATAL_FAILURE(layer2 = createLayerWithBuffer());
 
     Transaction transaction1, transaction2;
     CallbackHelper callback1, callback2;
@@ -363,8 +392,8 @@ TEST_F(LayerCallbackTest, MergeOneBufferOneColor) {
 }
 TEST_F(LayerCallbackTest, Merge_SameCallback) {
     sp<SurfaceControl> layer1, layer2;
-    ASSERT_NO_FATAL_FAILURE(layer1 = createBufferStateLayer());
-    ASSERT_NO_FATAL_FAILURE(layer2 = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer1 = createLayerWithBuffer());
+    ASSERT_NO_FATAL_FAILURE(layer2 = createLayerWithBuffer());
 
     Transaction transaction1, transaction2;
     CallbackHelper callback;
@@ -389,7 +418,7 @@ TEST_F(LayerCallbackTest, Merge_SameCallback) {
 
 TEST_F(LayerCallbackTest, Merge_SameLayer) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction1, transaction2;
     CallbackHelper callback1, callback2;
@@ -413,8 +442,8 @@ TEST_F(LayerCallbackTest, Merge_SameLayer) {
 }
 
 TEST_F(LayerCallbackTest, Merge_DifferentClients) {
-    sp<SurfaceComposerClient> client1(new SurfaceComposerClient),
-            client2(new SurfaceComposerClient);
+    sp<SurfaceComposerClient> client1(sp<SurfaceComposerClient>::make()),
+            client2(sp<SurfaceComposerClient>::make());
 
     ASSERT_EQ(NO_ERROR, client1->initCheck()) << "failed to create SurfaceComposerClient";
     ASSERT_EQ(NO_ERROR, client2->initCheck()) << "failed to create SurfaceComposerClient";
@@ -456,7 +485,7 @@ TEST_F(LayerCallbackTest, Merge_DifferentClients) {
 
 TEST_F(LayerCallbackTest, MultipleTransactions) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -481,7 +510,7 @@ TEST_F(LayerCallbackTest, MultipleTransactions) {
 
 TEST_F(LayerCallbackTest, MultipleTransactions_NoStateChange) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -512,7 +541,7 @@ TEST_F(LayerCallbackTest, MultipleTransactions_NoStateChange) {
 
 TEST_F(LayerCallbackTest, MultipleTransactions_SameStateChange) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -550,8 +579,8 @@ TEST_F(LayerCallbackTest, MultipleTransactions_SameStateChange) {
 
 TEST_F(LayerCallbackTest, MultipleTransactions_Merge) {
     sp<SurfaceControl> layer1, layer2;
-    ASSERT_NO_FATAL_FAILURE(layer1 = createBufferStateLayer());
-    ASSERT_NO_FATAL_FAILURE(layer2 = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer1 = createLayerWithBuffer());
+    ASSERT_NO_FATAL_FAILURE(layer2 = createLayerWithBuffer());
 
     Transaction transaction1, transaction2;
     CallbackHelper callback1, callback2;
@@ -591,8 +620,8 @@ TEST_F(LayerCallbackTest, MultipleTransactions_Merge) {
 }
 
 TEST_F(LayerCallbackTest, MultipleTransactions_Merge_DifferentClients) {
-    sp<SurfaceComposerClient> client1(new SurfaceComposerClient),
-            client2(new SurfaceComposerClient);
+    sp<SurfaceComposerClient> client1(sp<SurfaceComposerClient>::make()),
+            client2(sp<SurfaceComposerClient>::make());
     ASSERT_EQ(NO_ERROR, client1->initCheck()) << "failed to create SurfaceComposerClient";
     ASSERT_EQ(NO_ERROR, client2->initCheck()) << "failed to create SurfaceComposerClient";
 
@@ -640,8 +669,8 @@ TEST_F(LayerCallbackTest, MultipleTransactions_Merge_DifferentClients) {
 }
 
 TEST_F(LayerCallbackTest, MultipleTransactions_Merge_DifferentClients_NoStateChange) {
-    sp<SurfaceComposerClient> client1(new SurfaceComposerClient),
-            client2(new SurfaceComposerClient);
+    sp<SurfaceComposerClient> client1(sp<SurfaceComposerClient>::make()),
+            client2(sp<SurfaceComposerClient>::make());
     ASSERT_EQ(NO_ERROR, client1->initCheck()) << "failed to create SurfaceComposerClient";
     ASSERT_EQ(NO_ERROR, client2->initCheck()) << "failed to create SurfaceComposerClient";
 
@@ -701,8 +730,8 @@ TEST_F(LayerCallbackTest, MultipleTransactions_Merge_DifferentClients_NoStateCha
 }
 
 TEST_F(LayerCallbackTest, MultipleTransactions_Merge_DifferentClients_SameStateChange) {
-    sp<SurfaceComposerClient> client1(new SurfaceComposerClient),
-            client2(new SurfaceComposerClient);
+    sp<SurfaceComposerClient> client1(sp<SurfaceComposerClient>::make()),
+            client2(sp<SurfaceComposerClient>::make());
 
     ASSERT_EQ(NO_ERROR, client1->initCheck()) << "failed to create SurfaceComposerClient";
     ASSERT_EQ(NO_ERROR, client2->initCheck()) << "failed to create SurfaceComposerClient";
@@ -770,7 +799,7 @@ TEST_F(LayerCallbackTest, MultipleTransactions_Merge_DifferentClients_SameStateC
 // TODO (b/183181768): Fix & re-enable
 TEST_F(LayerCallbackTest, DISABLED_MultipleTransactions_SingleFrame) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -794,7 +823,7 @@ TEST_F(LayerCallbackTest, DISABLED_MultipleTransactions_SingleFrame) {
 
 TEST_F(LayerCallbackTest, MultipleTransactions_SingleFrame_NoStateChange) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     // Normal call to set up test
     Transaction transaction;
@@ -829,7 +858,7 @@ TEST_F(LayerCallbackTest, MultipleTransactions_SingleFrame_NoStateChange) {
 
 TEST_F(LayerCallbackTest, MultipleTransactions_SingleFrame_SameStateChange) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     // Normal call to set up test
     Transaction transaction;
@@ -872,7 +901,7 @@ TEST_F(LayerCallbackTest, MultipleTransactions_SingleFrame_SameStateChange) {
 
 TEST_F(LayerCallbackTest, DesiredPresentTime) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -896,7 +925,7 @@ TEST_F(LayerCallbackTest, DesiredPresentTime) {
 
 TEST_F(LayerCallbackTest, DesiredPresentTime_Multiple) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback1;
@@ -942,7 +971,7 @@ TEST_F(LayerCallbackTest, DesiredPresentTime_Multiple) {
 // TODO (b/183181768): Fix & re-enable
 TEST_F(LayerCallbackTest, DISABLED_DesiredPresentTime_OutOfOrder) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback1;
@@ -986,7 +1015,7 @@ TEST_F(LayerCallbackTest, DISABLED_DesiredPresentTime_OutOfOrder) {
 
 TEST_F(LayerCallbackTest, DesiredPresentTime_Past) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -1010,7 +1039,7 @@ TEST_F(LayerCallbackTest, DesiredPresentTime_Past) {
 
 TEST_F(LayerCallbackTest, ExpectedPresentTime) {
     sp<SurfaceControl> layer;
-    ASSERT_NO_FATAL_FAILURE(layer = createBufferStateLayer());
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
 
     Transaction transaction;
     CallbackHelper callback;
@@ -1021,7 +1050,10 @@ TEST_F(LayerCallbackTest, ExpectedPresentTime) {
     }
 
     const Vsync vsync = waitForNextVsync();
-    transaction.setFrameTimelineInfo({vsync.vsyncId, 0});
+    FrameTimelineInfo ftInfo;
+    ftInfo.vsyncId = vsync.vsyncId;
+    ftInfo.inputEventId = 0;
+    transaction.setFrameTimelineInfo(ftInfo);
     transaction.apply();
 
     ExpectedResult expected;
@@ -1030,4 +1062,307 @@ TEST_F(LayerCallbackTest, ExpectedPresentTime) {
     EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
 }
 
+// b202394221
+TEST_F(LayerCallbackTest, EmptyBufferStateChanges) {
+    sp<SurfaceControl> bufferLayer, emptyBufferLayer;
+    ASSERT_NO_FATAL_FAILURE(bufferLayer = createLayerWithBuffer());
+    ASSERT_NO_FATAL_FAILURE(emptyBufferLayer = createLayerWithBuffer());
+
+    Transaction transaction;
+    CallbackHelper callback;
+    for (size_t i = 0; i < 10; i++) {
+        int err = fillTransaction(transaction, &callback, bufferLayer);
+        if (err) {
+            GTEST_SUCCEED() << "test not supported";
+            return;
+        }
+
+        ui::Size bufferSize = getBufferSize();
+
+        TransactionUtils::setFrame(transaction, bufferLayer,
+                                   Rect(0, 0, bufferSize.width, bufferSize.height),
+                                   Rect(0, 0, 32, 32));
+        transaction.setPosition(emptyBufferLayer, 1 + i, 2 + i);
+        transaction.apply();
+
+        ExpectedResult expected;
+        expected.addSurface(ExpectedResult::Transaction::PRESENTED, bufferLayer,
+                            ExpectedResult::Buffer::ACQUIRED,
+                            (i == 0) ? ExpectedResult::PreviousBuffer::NOT_RELEASED
+                                     : ExpectedResult::PreviousBuffer::RELEASED);
+        expected.addSurface(ExpectedResult::Transaction::PRESENTED, emptyBufferLayer,
+                            ExpectedResult::Buffer::NOT_ACQUIRED,
+                            ExpectedResult::PreviousBuffer::NOT_RELEASED);
+
+        EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected));
+    }
+    ASSERT_NO_FATAL_FAILURE(callback.verifyFinalState());
+}
+
+// b202394221
+TEST_F(LayerCallbackTest, DISABLED_NonBufferLayerStateChanges) {
+    sp<SurfaceControl> layer;
+    ASSERT_NO_FATAL_FAILURE(layer = createColorLayer("ColorLayer", Color::RED));
+
+    Transaction transaction;
+    CallbackHelper callback;
+    int err = fillTransaction(transaction, &callback);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    transaction.setPosition(layer, 1, 2);
+    transaction.apply();
+
+    ExpectedResult expected;
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+}
+
+TEST_F(LayerCallbackTest, CommitCallbackOffscreenLayer) {
+    sp<SurfaceControl> layer;
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
+    sp<SurfaceControl> offscreenLayer =
+            createSurface(mClient, "Offscreen Layer", 0, 0, PIXEL_FORMAT_RGBA_8888,
+                          ISurfaceComposerClient::eFXSurfaceBufferState, layer.get());
+
+    Transaction transaction;
+    CallbackHelper callback;
+    int err = fillTransaction(transaction, &callback, layer, true);
+    err |= fillBuffer(transaction, offscreenLayer);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+
+    transaction.reparent(offscreenLayer, nullptr)
+            .addTransactionCommittedCallback(callback.function, callback.getContext());
+    transaction.apply();
+
+    std::unordered_set<sp<SurfaceControl>, SCHash> committedSc;
+    committedSc.insert(layer);
+    committedSc.insert(offscreenLayer);
+    EXPECT_NO_FATAL_FAILURE(waitForCommitCallback(callback, committedSc));
+
+    ExpectedResult expected;
+    expected.addSurface(ExpectedResult::Transaction::PRESENTED, layer);
+    expected.addSurface(ExpectedResult::Transaction::PRESENTED, offscreenLayer);
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+}
+
+TEST_F(LayerCallbackTest, TransactionCommittedCallback_BSL) {
+    sp<SurfaceControl> layer;
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
+
+    Transaction transaction;
+    CallbackHelper callback;
+    int err = fillTransaction(transaction, &callback, layer, true);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    transaction.addTransactionCommittedCallback(callback.function, callback.getContext()).apply();
+    std::unordered_set<sp<SurfaceControl>, SCHash> committedSc;
+    committedSc.insert(layer);
+    EXPECT_NO_FATAL_FAILURE(waitForCommitCallback(callback, committedSc));
+    ExpectedResult expected;
+    expected.addSurface(ExpectedResult::Transaction::PRESENTED, layer);
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+}
+
+TEST_F(LayerCallbackTest, TransactionCommittedCallback_EffectLayer) {
+    sp<SurfaceControl> layer;
+    ASSERT_NO_FATAL_FAILURE(layer = createColorLayer("ColorLayer", Color::RED));
+
+    Transaction transaction;
+    CallbackHelper callback;
+    int err = fillTransaction(transaction, &callback);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    transaction.addTransactionCommittedCallback(callback.function, callback.getContext()).apply();
+    std::unordered_set<sp<SurfaceControl>, SCHash> committedSc;
+    EXPECT_NO_FATAL_FAILURE(waitForCommitCallback(callback, committedSc));
+
+    ExpectedResult expected;
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+}
+
+TEST_F(LayerCallbackTest, TransactionCommittedCallback_ContainerLayer) {
+    sp<SurfaceControl> layer;
+    ASSERT_NO_FATAL_FAILURE(layer = createLayer(mClient, "Container Layer", 0, 0,
+                                                ISurfaceComposerClient::eFXSurfaceContainer));
+
+    Transaction transaction;
+    CallbackHelper callback;
+    int err = fillTransaction(transaction, &callback);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    transaction.addTransactionCommittedCallback(callback.function, callback.getContext()).apply();
+    std::unordered_set<sp<SurfaceControl>, SCHash> committedSc;
+    EXPECT_NO_FATAL_FAILURE(waitForCommitCallback(callback, committedSc));
+
+    ExpectedResult expected;
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+}
+
+TEST_F(LayerCallbackTest, TransactionCommittedCallback_NoLayer) {
+    Transaction transaction;
+    CallbackHelper callback;
+    int err = fillTransaction(transaction, &callback);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    transaction.addTransactionCommittedCallback(callback.function, callback.getContext()).apply();
+    std::unordered_set<sp<SurfaceControl>, SCHash> committedSc;
+    EXPECT_NO_FATAL_FAILURE(waitForCommitCallback(callback, committedSc));
+
+    ExpectedResult expected;
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+}
+
+TEST_F(LayerCallbackTest, SetNullBuffer) {
+    sp<SurfaceControl> layer;
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
+
+    Transaction transaction;
+    CallbackHelper callback;
+    int err = fillTransaction(transaction, &callback, layer, /*setBuffer=*/true,
+                              /*setBackgroundColor=*/false);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    transaction.apply();
+
+    {
+        ExpectedResult expected;
+        expected.addSurface(ExpectedResult::Transaction::PRESENTED, layer,
+                            ExpectedResult::Buffer::ACQUIRED,
+                            ExpectedResult::PreviousBuffer::NOT_RELEASED);
+        EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+    }
+
+    transaction.setBuffer(layer, nullptr);
+    transaction.addTransactionCompletedCallback(callback.function, callback.getContext());
+    transaction.apply();
+
+    {
+        ExpectedResult expected;
+        expected.addSurface(ExpectedResult::Transaction::PRESENTED, layer,
+                            ExpectedResult::Buffer::ACQUIRED_NULL,
+                            ExpectedResult::PreviousBuffer::RELEASED);
+        EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+    }
+
+    err = fillTransaction(transaction, &callback, layer, /*setBuffer=*/true,
+                          /*setBackgroundColor=*/false);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+
+    transaction.apply();
+
+    {
+        ExpectedResult expected;
+        expected.addSurface(ExpectedResult::Transaction::PRESENTED, layer,
+                            ExpectedResult::Buffer::ACQUIRED,
+                            ExpectedResult::PreviousBuffer::NOT_RELEASED);
+        EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+    }
+}
+
+TEST_F(LayerCallbackTest, SetNullBufferOnLayerWithoutBuffer) {
+    sp<SurfaceControl> layer;
+    ASSERT_NO_FATAL_FAILURE(layer = createLayerWithBuffer());
+
+    Transaction transaction;
+    transaction.setBuffer(layer, nullptr);
+    CallbackHelper callback;
+    transaction.addTransactionCompletedCallback(callback.function, callback.getContext());
+    transaction.apply();
+
+    {
+        ExpectedResult expected;
+        expected.addSurface(ExpectedResult::Transaction::NOT_PRESENTED, layer,
+                            ExpectedResult::Buffer::NOT_ACQUIRED,
+                            ExpectedResult::PreviousBuffer::NOT_RELEASED);
+        EXPECT_NO_FATAL_FAILURE(waitForCallback(callback, expected, true));
+    }
+}
+
+TEST_F(LayerCallbackTest, OccludedLayerHasReleaseCallback) {
+    sp<SurfaceControl> layer1, layer2;
+    ASSERT_NO_FATAL_FAILURE(layer1 = createLayerWithBuffer());
+    ASSERT_NO_FATAL_FAILURE(layer2 = createLayerWithBuffer());
+
+    Transaction transaction1, transaction2;
+    CallbackHelper callback1a, callback1b, callback2a, callback2b;
+    int err = fillTransaction(transaction1, &callback1a, layer1);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    err = fillTransaction(transaction2, &callback2a, layer2);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+
+    ui::Size bufferSize = getBufferSize();
+
+    // Occlude layer1 with layer2
+    TransactionUtils::setFrame(transaction1, layer1,
+                               Rect(0, 0, bufferSize.width, bufferSize.height), Rect(0, 0, 32, 32));
+    TransactionUtils::setFrame(transaction2, layer2,
+                               Rect(0, 0, bufferSize.width, bufferSize.height), Rect(0, 0, 32, 32));
+    transaction1.apply();
+    transaction2.apply();
+
+    ExpectedResult expected1a, expected1b, expected2a, expected2b;
+    expected1a.addSurface(ExpectedResult::Transaction::PRESENTED, {layer1},
+                          ExpectedResult::Buffer::ACQUIRED,
+                          ExpectedResult::PreviousBuffer::NOT_RELEASED);
+
+    expected2a.addSurface(ExpectedResult::Transaction::PRESENTED, {layer2},
+                          ExpectedResult::Buffer::ACQUIRED,
+                          ExpectedResult::PreviousBuffer::NOT_RELEASED);
+
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback1a, expected1a, true));
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback2a, expected2a, true));
+
+    // Submit new buffers so previous buffers can be released
+    err = fillTransaction(transaction1, &callback1b, layer1);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+    err = fillTransaction(transaction2, &callback2b, layer2);
+    if (err) {
+        GTEST_SUCCEED() << "test not supported";
+        return;
+    }
+
+    TransactionUtils::setFrame(transaction1, layer1,
+                               Rect(0, 0, bufferSize.width, bufferSize.height), Rect(0, 0, 32, 32));
+    TransactionUtils::setFrame(transaction2, layer2,
+                               Rect(0, 0, bufferSize.width, bufferSize.height), Rect(0, 0, 32, 32));
+    transaction1.apply();
+    transaction2.apply();
+
+    expected1b.addSurface(ExpectedResult::Transaction::PRESENTED, {layer1},
+                          ExpectedResult::Buffer::ACQUIRED,
+                          ExpectedResult::PreviousBuffer::RELEASED);
+
+    expected2b.addSurface(ExpectedResult::Transaction::PRESENTED, {layer2},
+                          ExpectedResult::Buffer::ACQUIRED,
+                          ExpectedResult::PreviousBuffer::RELEASED);
+
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback1b, expected1b, true));
+    EXPECT_NO_FATAL_FAILURE(waitForCallback(callback2b, expected2b, true));
+}
 } // namespace android

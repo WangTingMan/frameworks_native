@@ -24,7 +24,7 @@
 
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
-#include <android-base/stringprintf.h>
+#include <common/trace.h>
 #include <compositionengine/CompositionEngine.h>
 #include <compositionengine/Display.h>
 #include <compositionengine/DisplayColorProfile.h>
@@ -36,11 +36,13 @@
 #include <compositionengine/RenderSurfaceCreationArgs.h>
 #include <compositionengine/impl/OutputCompositionState.h>
 #include <configstore/Utils.h>
+#include <ftl/concat.h>
 #include <log/log.h>
 #include <system/window.h>
-#include <ui/GraphicTypes.h>
 
 #include "DisplayDevice.h"
+#include "FrontEnd/DisplayInfo.h"
+#include "HdrSdrRatioOverlay.h"
 #include "Layer.h"
 #include "RefreshRateOverlay.h"
 #include "SurfaceFlinger.h"
@@ -48,10 +50,6 @@
 namespace android {
 
 namespace hal = hardware::graphics::composer::hal;
-
-using android::base::StringAppendF;
-
-ui::Transform::RotationFlags DisplayDevice::sPrimaryDisplayRotationFlags = ui::Transform::ROT_0;
 
 DisplayDeviceCreationArgs::DisplayDeviceCreationArgs(
         const sp<SurfaceFlinger>& flinger, HWComposer& hwComposer, const wp<IBinder>& displayToken,
@@ -66,15 +64,14 @@ DisplayDevice::DisplayDevice(DisplayDeviceCreationArgs& args)
         mHwComposer(args.hwComposer),
         mDisplayToken(args.displayToken),
         mSequenceId(args.sequenceId),
-        mConnectionType(args.connectionType),
         mCompositionDisplay{args.compositionDisplay},
-        mActiveModeFPSTrace("ActiveModeFPS -" + to_string(getId())),
-        mActiveModeFPSHwcTrace("ActiveModeFPS_HWC -" + to_string(getId())),
         mPhysicalOrientation(args.physicalOrientation),
-        mSupportedModes(std::move(args.supportedModes)),
+        mPowerMode(ftl::Concat("PowerMode ", getId().value).c_str(), args.initialPowerMode),
         mIsPrimary(args.isPrimary),
-        mRefreshRateConfigs(std::move(args.refreshRateConfigs)) {
+        mRequestedRefreshRate(args.requestedRefreshRate),
+        mRefreshRateSelector(std::move(args.refreshRateSelector)) {
     mCompositionDisplay->editState().isSecure = args.isSecure;
+    mCompositionDisplay->editState().isProtected = args.isProtected;
     mCompositionDisplay->createRenderSurface(
             compositionengine::RenderSurfaceCreationArgsBuilder()
                     .setDisplayWidth(ANativeWindow_getWidth(args.nativeWindow.get()))
@@ -91,11 +88,15 @@ DisplayDevice::DisplayDevice(DisplayDeviceCreationArgs& args)
                 static_cast<uint32_t>(SurfaceFlinger::maxFrameBufferAcquiredBuffers));
     }
 
+    mCompositionDisplay->setPredictCompositionStrategy(mFlinger->mPredictCompositionStrategy);
+    mCompositionDisplay->setTreat170mAsSrgb(mFlinger->mTreat170mAsSrgb);
     mCompositionDisplay->createDisplayColorProfile(
-            compositionengine::DisplayColorProfileCreationArgs{args.hasWideColorGamut,
-                                                               std::move(args.hdrCapabilities),
-                                                               args.supportedPerFrameMetadata,
-                                                               args.hwcColorModes});
+            compositionengine::DisplayColorProfileCreationArgsBuilder()
+                    .setHasWideColorGamut(args.hasWideColorGamut)
+                    .setHdrCapabilities(std::move(args.hdrCapabilities))
+                    .setSupportedPerFrameMetadata(args.supportedPerFrameMetadata)
+                    .setHwcColorModes(std::move(args.hwcColorModes))
+                    .Build());
 
     if (!mCompositionDisplay->isValid()) {
         ALOGE("Composition Display did not validate!");
@@ -116,11 +117,11 @@ void DisplayDevice::disconnect() {
 }
 
 int DisplayDevice::getWidth() const {
-    return mCompositionDisplay->getState().displaySpace.bounds.getWidth();
+    return mCompositionDisplay->getState().displaySpace.getBounds().width;
 }
 
 int DisplayDevice::getHeight() const {
-    return mCompositionDisplay->getState().displaySpace.bounds.getHeight();
+    return mCompositionDisplay->getState().displaySpace.getBounds().height;
 }
 
 void DisplayDevice::setDisplayName(const std::string& displayName) {
@@ -131,18 +132,61 @@ void DisplayDevice::setDisplayName(const std::string& displayName) {
     }
 }
 
-void DisplayDevice::setDeviceProductInfo(std::optional<DeviceProductInfo> info) {
-    mDeviceProductInfo = std::move(info);
+auto DisplayDevice::getFrontEndInfo() const -> frontend::DisplayInfo {
+    gui::DisplayInfo info;
+    info.displayId = ui::LogicalDisplayId{static_cast<int32_t>(getLayerStack().id)};
+
+    // The physical orientation is set when the orientation of the display panel is
+    // different than the default orientation of the device. Other services like
+    // InputFlinger do not know about this, so we do not need to expose the physical
+    // orientation of the panel outside of SurfaceFlinger.
+    const ui::Rotation inversePhysicalOrientation = ui::ROTATION_0 - mPhysicalOrientation;
+    auto width = getWidth();
+    auto height = getHeight();
+    if (inversePhysicalOrientation == ui::ROTATION_90 ||
+        inversePhysicalOrientation == ui::ROTATION_270) {
+        std::swap(width, height);
+    }
+    const ui::Transform undoPhysicalOrientation(ui::Transform::toRotationFlags(
+                                                        inversePhysicalOrientation),
+                                                width, height);
+    const auto& displayTransform = undoPhysicalOrientation * getTransform();
+    // Send the inverse display transform to input so it can convert display coordinates to
+    // logical display.
+    info.transform = displayTransform.inverse();
+
+    info.logicalWidth = getLayerStackSpaceRect().width();
+    info.logicalHeight = getLayerStackSpaceRect().height();
+
+    return {.info = info,
+            .transform = displayTransform,
+            .receivesInput = receivesInput(),
+            .isSecure = isSecure(),
+            .isPrimary = isPrimary(),
+            .isVirtual = isVirtual(),
+            .rotationFlags = ui::Transform::toRotationFlags(mOrientation),
+            .transformHint = getTransformHint()};
 }
 
-uint32_t DisplayDevice::getPageFlipCount() const {
-    return mCompositionDisplay->getRenderSurface()->getPageFlipCount();
-}
-
-// ----------------------------------------------------------------------------
 void DisplayDevice::setPowerMode(hal::PowerMode mode) {
+    // TODO(b/241285876): Skip this for virtual displays.
+    if (mode == hal::PowerMode::OFF || mode == hal::PowerMode::ON) {
+        if (mStagedBrightness && mBrightness != mStagedBrightness) {
+            getCompositionDisplay()->setNextBrightness(*mStagedBrightness);
+            mBrightness = *mStagedBrightness;
+        }
+        mStagedBrightness = std::nullopt;
+        getCompositionDisplay()->applyDisplayBrightness(true);
+    }
+
     mPowerMode = mode;
-    getCompositionDisplay()->setCompositionEnabled(mPowerMode != hal::PowerMode::OFF);
+
+    getCompositionDisplay()->setCompositionEnabled(isPoweredOn());
+}
+
+void DisplayDevice::tracePowerMode() {
+    // Assign the same value for tracing.
+    mPowerMode = mPowerMode.get();
 }
 
 void DisplayDevice::enableLayerCaching(bool enable) {
@@ -157,84 +201,17 @@ bool DisplayDevice::isPoweredOn() const {
     return mPowerMode != hal::PowerMode::OFF;
 }
 
-void DisplayDevice::setActiveMode(DisplayModeId id) {
-    const auto mode = getMode(id);
-    LOG_FATAL_IF(!mode, "Cannot set active mode which is not supported.");
-    ATRACE_INT(mActiveModeFPSTrace.c_str(), mode->getFps().getIntValue());
-    mActiveMode = mode;
-    if (mRefreshRateConfigs) {
-        mRefreshRateConfigs->setCurrentModeId(mActiveMode->getId());
-    }
-    if (mRefreshRateOverlay) {
-        mRefreshRateOverlay->changeRefreshRate(mActiveMode->getFps());
-    }
-}
-
-status_t DisplayDevice::initiateModeChange(const ActiveModeInfo& info,
-                                           const hal::VsyncPeriodChangeConstraints& constraints,
-                                           hal::VsyncPeriodChangeTimeline* outTimeline) {
-    if (!info.mode || info.mode->getPhysicalDisplayId() != getPhysicalId()) {
-        ALOGE("Trying to initiate a mode change to invalid mode %s on display %s",
-              info.mode ? std::to_string(info.mode->getId().value()).c_str() : "null",
-              to_string(getId()).c_str());
-        return BAD_VALUE;
-    }
-    mUpcomingActiveMode = info;
-    ATRACE_INT(mActiveModeFPSHwcTrace.c_str(), info.mode->getFps().getIntValue());
-    return mHwComposer.setActiveModeWithConstraints(getPhysicalId(), info.mode->getHwcId(),
-                                                    constraints, outTimeline);
-}
-
-const DisplayModePtr& DisplayDevice::getActiveMode() const {
-    return mActiveMode;
-}
-
-const DisplayModes& DisplayDevice::getSupportedModes() const {
-    return mSupportedModes;
-}
-
-DisplayModePtr DisplayDevice::getMode(DisplayModeId modeId) const {
-    const auto it = std::find_if(mSupportedModes.begin(), mSupportedModes.end(),
-                                 [&](DisplayModePtr mode) { return mode->getId() == modeId; });
-    if (it != mSupportedModes.end()) {
-        return *it;
-    }
-    return nullptr;
-}
-
-nsecs_t DisplayDevice::getVsyncPeriodFromHWC() const {
-    const auto physicalId = getPhysicalId();
-    if (!mHwComposer.isConnected(physicalId)) {
-        return 0;
-    }
-
-    nsecs_t vsyncPeriod;
-    const auto status = mHwComposer.getDisplayVsyncPeriod(physicalId, &vsyncPeriod);
-    if (status == NO_ERROR) {
-        return vsyncPeriod;
-    }
-
-    return getActiveMode()->getFps().getPeriodNsecs();
-}
-
-nsecs_t DisplayDevice::getRefreshTimestamp() const {
-    const nsecs_t now = systemTime(CLOCK_MONOTONIC);
-    const auto vsyncPeriodNanos = getVsyncPeriodFromHWC();
-    return now - ((now - mLastHwVsync) % vsyncPeriodNanos);
-}
-
-void DisplayDevice::onVsync(nsecs_t timestamp) {
-    mLastHwVsync = timestamp;
-}
-
 ui::Dataspace DisplayDevice::getCompositionDataSpace() const {
     return mCompositionDisplay->getState().dataspace;
 }
 
-void DisplayDevice::setLayerStack(ui::LayerStack stack) {
-    mCompositionDisplay->setLayerStackFilter(stack, isInternal());
+void DisplayDevice::setLayerFilter(ui::LayerFilter filter) {
+    mCompositionDisplay->setLayerFilter(filter);
     if (mRefreshRateOverlay) {
-        mRefreshRateOverlay->setLayerStack(stack);
+        mRefreshRateOverlay->setLayerStack(filter.layerStack);
+    }
+    if (mHdrSdrRatioOverlay) {
+        mHdrSdrRatioOverlay->setLayerStack(filter.layerStack);
     }
 }
 
@@ -249,78 +226,64 @@ void DisplayDevice::setDisplaySize(int width, int height) {
     if (mRefreshRateOverlay) {
         mRefreshRateOverlay->setViewport(size);
     }
+    if (mHdrSdrRatioOverlay) {
+        mHdrSdrRatioOverlay->setViewport(size);
+    }
 }
 
 void DisplayDevice::setProjection(ui::Rotation orientation, Rect layerStackSpaceRect,
                                   Rect orientedDisplaySpaceRect) {
+    mIsOrientationChanged = mOrientation != orientation;
     mOrientation = orientation;
-
-    if (isPrimary()) {
-        sPrimaryDisplayRotationFlags = ui::Transform::toRotationFlags(orientation);
-    }
-
-    if (!orientedDisplaySpaceRect.isValid()) {
-        // The destination frame can be invalid if it has never been set,
-        // in that case we assume the whole display size.
-        orientedDisplaySpaceRect = getCompositionDisplay()->getState().displaySpace.bounds;
-    }
-
-    if (layerStackSpaceRect.isEmpty()) {
-        // The layerStackSpaceRect can be invalid if it has never been set, in that case
-        // we assume the whole framebuffer size.
-        layerStackSpaceRect = getCompositionDisplay()->getState().framebufferSpace.bounds;
-        if (orientation == ui::ROTATION_90 || orientation == ui::ROTATION_270) {
-            std::swap(layerStackSpaceRect.right, layerStackSpaceRect.bottom);
-        }
-    }
 
     // We need to take care of display rotation for globalTransform for case if the panel is not
     // installed aligned with device orientation.
     const auto transformOrientation = orientation + mPhysicalOrientation;
+
+    const auto& state = getCompositionDisplay()->getState();
+
+    // If the layer stack and destination frames have never been set, then configure them to be the
+    // same as the physical device, taking into account the total transform.
+    if (!orientedDisplaySpaceRect.isValid()) {
+        ui::Size bounds = state.displaySpace.getBounds();
+        bounds.rotate(transformOrientation);
+        orientedDisplaySpaceRect = Rect(bounds);
+    }
+    if (layerStackSpaceRect.isEmpty()) {
+        ui::Size bounds = state.framebufferSpace.getBounds();
+        bounds.rotate(transformOrientation);
+        layerStackSpaceRect = Rect(bounds);
+    }
     getCompositionDisplay()->setProjection(transformOrientation, layerStackSpaceRect,
                                            orientedDisplaySpaceRect);
 }
 
-ui::Transform::RotationFlags DisplayDevice::getPrimaryDisplayRotationFlags() {
-    return sPrimaryDisplayRotationFlags;
+void DisplayDevice::stageBrightness(float brightness) {
+    mStagedBrightness = brightness;
 }
 
-std::string DisplayDevice::getDebugName() const {
-    const char* type = "virtual";
-    if (mConnectionType) {
-        type = isInternal() ? "internal" : "external";
+void DisplayDevice::persistBrightness(bool needsComposite) {
+    if (mStagedBrightness && mBrightness != mStagedBrightness) {
+        if (needsComposite) {
+            getCompositionDisplay()->setNextBrightness(*mStagedBrightness);
+        }
+        mBrightness = *mStagedBrightness;
     }
-
-    return base::StringPrintf("DisplayDevice{%s, %s%s, \"%s\"}", to_string(getId()).c_str(), type,
-                              isPrimary() ? ", primary" : "", mDisplayName.c_str());
+    mStagedBrightness = std::nullopt;
 }
 
-void DisplayDevice::dump(std::string& result) const {
-    StringAppendF(&result, "+ %s\n", getDebugName().c_str());
-    StringAppendF(&result, "   powerMode=%s (%d)\n", to_string(mPowerMode).c_str(),
-                  static_cast<int32_t>(mPowerMode));
-    const auto activeMode = getActiveMode();
-    StringAppendF(&result, "   activeMode=%s\n",
-                  activeMode ? to_string(*activeMode).c_str() : "none");
+std::optional<float> DisplayDevice::getStagedBrightness() const {
+    return mStagedBrightness;
+}
 
-    result.append("   supportedModes=\n");
+void DisplayDevice::dump(utils::Dumper& dumper) const {
+    using namespace std::string_view_literals;
 
-    for (const auto& mode : mSupportedModes) {
-        result.append("     ");
-        result.append(to_string(*mode));
-        result.append("\n");
-    }
-    StringAppendF(&result, "   deviceProductInfo=");
-    if (mDeviceProductInfo) {
-        mDeviceProductInfo->dump(result);
-    } else {
-        result.append("{}");
-    }
-    result.append("\n");
-    getCompositionDisplay()->dump(result);
+    dumper.dump("name"sv, '"' + mDisplayName + '"');
+    dumper.dump("powerMode"sv, mPowerMode);
 
-    if (mRefreshRateConfigs) {
-        mRefreshRateConfigs->dump(result);
+    if (mRefreshRateSelector) {
+        mRefreshRateSelector->dump(dumper);
     }
 }
 
@@ -336,20 +299,20 @@ bool DisplayDevice::isSecure() const {
     return mCompositionDisplay->isSecure();
 }
 
-const Rect& DisplayDevice::getBounds() const {
-    return mCompositionDisplay->getState().displaySpace.bounds;
+void DisplayDevice::setSecure(bool secure) {
+    mCompositionDisplay->setSecure(secure);
+}
+
+const Rect DisplayDevice::getBounds() const {
+    return mCompositionDisplay->getState().displaySpace.getBoundsAsRect();
 }
 
 const Region& DisplayDevice::getUndefinedRegion() const {
     return mCompositionDisplay->getState().undefinedRegion;
 }
 
-bool DisplayDevice::needsFiltering() const {
-    return mCompositionDisplay->getState().needsFiltering;
-}
-
 ui::LayerStack DisplayDevice::getLayerStack() const {
-    return mCompositionDisplay->getState().layerStackId;
+    return mCompositionDisplay->getState().layerFilter.layerStack;
 }
 
 ui::Transform::RotationFlags DisplayDevice::getTransformHint() const {
@@ -361,11 +324,11 @@ const ui::Transform& DisplayDevice::getTransform() const {
 }
 
 const Rect& DisplayDevice::getLayerStackSpaceRect() const {
-    return mCompositionDisplay->getState().layerStackSpace.content;
+    return mCompositionDisplay->getState().layerStackSpace.getContent();
 }
 
 const Rect& DisplayDevice::getOrientedDisplaySpaceRect() const {
-    return mCompositionDisplay->getState().orientedDisplaySpace.content;
+    return mCompositionDisplay->getState().orientedDisplaySpace.getContent();
 }
 
 bool DisplayDevice::hasWideColorGamut() const {
@@ -408,27 +371,83 @@ HdrCapabilities DisplayDevice::getHdrCapabilities() const {
                            capabilities.getDesiredMinLuminance());
 }
 
-void DisplayDevice::enableRefreshRateOverlay(bool enable, bool showSpinnner) {
+void DisplayDevice::enableHdrSdrRatioOverlay(bool enable) {
+    if (!enable) {
+        mHdrSdrRatioOverlay.reset();
+        return;
+    }
+
+    mHdrSdrRatioOverlay = HdrSdrRatioOverlay::create();
+    if (mHdrSdrRatioOverlay) {
+        mHdrSdrRatioOverlay->setLayerStack(getLayerStack());
+        mHdrSdrRatioOverlay->setViewport(getSize());
+        updateHdrSdrRatioOverlayRatio(mHdrSdrRatio);
+    }
+}
+
+void DisplayDevice::updateHdrSdrRatioOverlayRatio(float currentHdrSdrRatio) {
+    SFTRACE_CALL();
+    mHdrSdrRatio = currentHdrSdrRatio;
+    if (mHdrSdrRatioOverlay) {
+        mHdrSdrRatioOverlay->changeHdrSdrRatio(currentHdrSdrRatio);
+    }
+}
+
+void DisplayDevice::enableRefreshRateOverlay(bool enable, bool setByHwc, Fps refreshRate,
+                                             Fps renderFps, bool showSpinner, bool showRenderRate,
+                                             bool showInMiddle) {
     if (!enable) {
         mRefreshRateOverlay.reset();
         return;
     }
 
-    const auto [lowFps, highFps] = mRefreshRateConfigs->getSupportedRefreshRateRange();
-    mRefreshRateOverlay = std::make_unique<RefreshRateOverlay>(*mFlinger, lowFps.getIntValue(),
-                                                               highFps.getIntValue(), showSpinnner);
-    mRefreshRateOverlay->setLayerStack(getLayerStack());
-    mRefreshRateOverlay->setViewport(getSize());
-    mRefreshRateOverlay->changeRefreshRate(getActiveMode()->getFps());
+    ftl::Flags<RefreshRateOverlay::Features> features;
+    if (showSpinner) {
+        features |= RefreshRateOverlay::Features::Spinner;
+    }
+
+    if (showRenderRate) {
+        features |= RefreshRateOverlay::Features::RenderRate;
+    }
+
+    if (showInMiddle) {
+        features |= RefreshRateOverlay::Features::ShowInMiddle;
+    }
+
+    if (setByHwc) {
+        features |= RefreshRateOverlay::Features::SetByHwc;
+    }
+
+    const auto fpsRange = mRefreshRateSelector->getSupportedRefreshRateRange();
+    mRefreshRateOverlay = RefreshRateOverlay::create(fpsRange, features);
+    if (mRefreshRateOverlay) {
+        mRefreshRateOverlay->setLayerStack(getLayerStack());
+        mRefreshRateOverlay->setViewport(getSize());
+        updateRefreshRateOverlayRate(refreshRate, renderFps, setByHwc);
+    }
+}
+
+void DisplayDevice::updateRefreshRateOverlayRate(Fps refreshRate, Fps renderFps, bool setByHwc) {
+    SFTRACE_CALL();
+    if (mRefreshRateOverlay) {
+        if (!mRefreshRateOverlay->isSetByHwc() || setByHwc) {
+            if (mRefreshRateSelector->isVrrDevice() && !mRefreshRateOverlay->isSetByHwc()) {
+                refreshRate = renderFps;
+            }
+            mRefreshRateOverlay->changeRefreshRate(refreshRate, renderFps);
+        } else {
+            mRefreshRateOverlay->changeRenderRate(renderFps);
+        }
+    }
 }
 
 bool DisplayDevice::onKernelTimerChanged(std::optional<DisplayModeId> desiredModeId,
                                          bool timerExpired) {
-    if (mRefreshRateConfigs && mRefreshRateOverlay) {
-        const auto newRefreshRate =
-                mRefreshRateConfigs->onKernelTimerChanged(desiredModeId, timerExpired);
-        if (newRefreshRate) {
-            mRefreshRateOverlay->changeRefreshRate(*newRefreshRate);
+    if (mRefreshRateSelector && mRefreshRateOverlay) {
+        const auto newMode =
+                mRefreshRateSelector->onKernelTimerChanged(desiredModeId, timerExpired);
+        if (newMode) {
+            updateRefreshRateOverlayRate(newMode->modePtr->getVsyncRate(), newMode->fps);
             return true;
         }
     }
@@ -436,50 +455,51 @@ bool DisplayDevice::onKernelTimerChanged(std::optional<DisplayModeId> desiredMod
     return false;
 }
 
-void DisplayDevice::onInvalidate() {
+void DisplayDevice::onVrrIdle(bool idle) {
     if (mRefreshRateOverlay) {
-        mRefreshRateOverlay->onInvalidate();
+        mRefreshRateOverlay->onVrrIdle(idle);
     }
 }
 
-bool DisplayDevice::setDesiredActiveMode(const ActiveModeInfo& info) {
-    ATRACE_CALL();
-
-    LOG_ALWAYS_FATAL_IF(!info.mode, "desired mode not provided");
-    LOG_ALWAYS_FATAL_IF(getPhysicalId() != info.mode->getPhysicalDisplayId(), "DisplayId mismatch");
-
-    ALOGV("%s(%s)", __func__, to_string(*info.mode).c_str());
-
-    std::scoped_lock lock(mActiveModeLock);
-    if (mDesiredActiveModeChanged) {
-        // If a mode change is pending, just cache the latest request in mDesiredActiveMode
-        const Scheduler::ModeEvent prevConfig = mDesiredActiveMode.event;
-        mDesiredActiveMode = info;
-        mDesiredActiveMode.event = mDesiredActiveMode.event | prevConfig;
-        return false;
+void DisplayDevice::animateOverlay() {
+    if (mRefreshRateOverlay) {
+        mRefreshRateOverlay->animate();
     }
-
-    // Check if we are already at the desired mode
-    if (getActiveMode()->getId() == info.mode->getId()) {
-        return false;
+    if (mHdrSdrRatioOverlay) {
+        // hdr sdr ratio is designed to be on the top right of the screen,
+        // therefore, we need to re-calculate the display's width and height
+        if (mIsOrientationChanged) {
+            auto width = getWidth();
+            auto height = getHeight();
+            if (mOrientation == ui::ROTATION_90 || mOrientation == ui::ROTATION_270) {
+                std::swap(width, height);
+            }
+            mHdrSdrRatioOverlay->setViewport({width, height});
+        }
+        mHdrSdrRatioOverlay->animate();
     }
-
-    // Initiate a mode change.
-    mDesiredActiveModeChanged = true;
-    mDesiredActiveMode = info;
-    return true;
 }
 
-std::optional<DisplayDevice::ActiveModeInfo> DisplayDevice::getDesiredActiveMode() const {
-    std::scoped_lock lock(mActiveModeLock);
-    if (mDesiredActiveModeChanged) return mDesiredActiveMode;
-    return std::nullopt;
-}
+void DisplayDevice::adjustRefreshRate(Fps pacesetterDisplayRefreshRate) {
+    using fps_approx_ops::operator<=;
+    if (mRequestedRefreshRate <= 0_Hz) {
+        return;
+    }
 
-void DisplayDevice::clearDesiredActiveModeState() {
-    std::scoped_lock lock(mActiveModeLock);
-    mDesiredActiveMode.event = Scheduler::ModeEvent::None;
-    mDesiredActiveModeChanged = false;
+    using fps_approx_ops::operator>;
+    if (mRequestedRefreshRate > pacesetterDisplayRefreshRate) {
+        mAdjustedRefreshRate = pacesetterDisplayRefreshRate;
+        return;
+    }
+
+    unsigned divisor = static_cast<unsigned>(
+            std::floor(pacesetterDisplayRefreshRate.getValue() / mRequestedRefreshRate.getValue()));
+    if (divisor == 0) {
+        mAdjustedRefreshRate = 0_Hz;
+        return;
+    }
+
+    mAdjustedRefreshRate = pacesetterDisplayRefreshRate / divisor;
 }
 
 std::atomic<int32_t> DisplayDeviceState::sNextSequenceId(1);

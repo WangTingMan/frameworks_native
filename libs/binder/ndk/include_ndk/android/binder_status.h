@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -50,6 +51,11 @@
 #endif
 #else
 #define __END_DECLS
+#endif
+
+#if !defined(__BIONIC__) && defined(BINDER_ENABLE_LIBLOG_ASSERT)
+#include <log/log.h>
+#define __assert(file, line, message) LOG_ALWAYS_FATAL(file ":" #line ": " message)
 #endif
 
 __BEGIN_DECLS
@@ -142,9 +148,9 @@ enum {
 };
 
 /**
- * One of the EXCEPTION_* types.
+ * One of the EX_* enumerators.
  *
- * All unrecognized values are coerced into EXCEPTION_TRANSACTION_FAILED.
+ * All unrecognized values are coerced into EX_TRANSACTION_FAILED.
  *
  * These exceptions values are used by the SDK for parcelables. Also see Parcel.java.
  */

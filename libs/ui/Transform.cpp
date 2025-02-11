@@ -110,10 +110,12 @@ const vec3& Transform::operator [] (size_t i) const {
     return mMatrix[i];
 }
 
+// x translate
 float Transform::tx() const {
     return mMatrix[2][0];
 }
 
+// y translate
 float Transform::ty() const {
     return mMatrix[2][1];
 }
@@ -132,6 +134,10 @@ float Transform::dtdy() const {
 
 float Transform::dsdy() const {
     return mMatrix[1][1];
+}
+
+float Transform::det() const {
+    return mMatrix[0][0] * mMatrix[1][1] - mMatrix[0][1] * mMatrix[1][0];
 }
 
 float Transform::getScaleX() const {
@@ -163,11 +169,15 @@ void Transform::set(float tx, float ty) {
     }
 }
 
-void Transform::set(float a, float b, float c, float d) {
+// x and y are the coordinates in the destination (i.e. the screen)
+// s and t are the coordinates in the source (i.e. the texture)
+// d means derivative
+// dsdx means ds/dx derivative of s with respect to x, etc.
+void Transform::set(float dsdx, float dtdy, float dtdx, float dsdy) {
     mat33& M(mMatrix);
-    M[0][0] = a;    M[1][0] = b;
-    M[0][1] = c;    M[1][1] = d;
-    M[0][2] = 0;    M[1][2] = 0;
+    M[0][0] = dsdx;    M[1][0] = dtdy;
+    M[0][1] = dtdx;    M[1][1] = dsdy;
+    M[0][2] = 0;       M[1][2] = 0;
     mType = UNKNOWN_TYPE;
 }
 
@@ -390,12 +400,17 @@ Transform Transform::inverse() const {
         const float x = M[2][0];
         const float y = M[2][1];
 
-        const float idet = 1.0f / (a*d - b*c);
+        const float idet = 1.0f / det();
         result.mMatrix[0][0] =  d*idet;
         result.mMatrix[0][1] = -c*idet;
         result.mMatrix[1][0] = -b*idet;
         result.mMatrix[1][1] =  a*idet;
         result.mType = mType;
+        if (getOrientation() & ROT_90) {
+            // Recalculate the type if there is a 90-degree rotation component, since the inverse
+            // of ROT_90 is ROT_270 and vice versa.
+            result.mType |= UNKNOWN_TYPE;
+        }
 
         vec2 T(-x, -y);
         T = result.transform(T);

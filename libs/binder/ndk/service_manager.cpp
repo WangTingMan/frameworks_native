@@ -15,19 +15,19 @@
  */
 
 #include <android/binder_manager.h>
-
-#include "ibinder_internal.h"
-#include "status_internal.h"
-
-#include <android-base/logging.h>
 #include <binder/IServiceManager.h>
 #include <binder/LazyServiceRegistrar.h>
+
+#include "../Utils.h"
+#include "ibinder_internal.h"
+#include "status_internal.h"
 
 using ::android::defaultServiceManager;
 using ::android::IBinder;
 using ::android::IServiceManager;
 using ::android::sp;
 using ::android::status_t;
+using ::android::statusToString;
 using ::android::String16;
 using ::android::String8;
 
@@ -40,6 +40,38 @@ binder_exception_t AServiceManager_addService(AIBinder* binder, const char* inst
     status_t exception = sm->addService(String16(instance), binder->getBinder());
     return PruneException(exception);
 }
+
+binder_exception_t AServiceManager_addServiceWithFlags(AIBinder* binder, const char* instance,
+                                                       const AServiceManager_AddServiceFlag flags) {
+    if (binder == nullptr || instance == nullptr) {
+        return EX_ILLEGAL_ARGUMENT;
+    }
+
+    sp<IServiceManager> sm = defaultServiceManager();
+
+    bool allowIsolated = flags & AServiceManager_AddServiceFlag::ADD_SERVICE_ALLOW_ISOLATED;
+    int dumpFlags = 0;
+    if (flags & AServiceManager_AddServiceFlag::ADD_SERVICE_DUMP_FLAG_PRIORITY_CRITICAL) {
+        dumpFlags |= IServiceManager::DUMP_FLAG_PRIORITY_CRITICAL;
+    }
+    if (flags & AServiceManager_AddServiceFlag::ADD_SERVICE_DUMP_FLAG_PRIORITY_HIGH) {
+        dumpFlags |= IServiceManager::DUMP_FLAG_PRIORITY_HIGH;
+    }
+    if (flags & AServiceManager_AddServiceFlag::ADD_SERVICE_DUMP_FLAG_PRIORITY_NORMAL) {
+        dumpFlags |= IServiceManager::DUMP_FLAG_PRIORITY_NORMAL;
+    }
+    if (flags & AServiceManager_AddServiceFlag::ADD_SERVICE_DUMP_FLAG_PRIORITY_DEFAULT) {
+        dumpFlags |= IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT;
+    }
+    if (dumpFlags == 0) {
+        dumpFlags = IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT;
+    }
+    status_t exception =
+            sm->addService(String16(instance), binder->getBinder(), allowIsolated, dumpFlags);
+
+    return PruneException(exception);
+}
+
 AIBinder* AServiceManager_checkService(const char* instance) {
     if (instance == nullptr) {
         return nullptr;
@@ -58,7 +90,9 @@ AIBinder* AServiceManager_getService(const char* instance) {
     }
 
     sp<IServiceManager> sm = defaultServiceManager();
+    LIBBINDER_IGNORE("-Wdeprecated-declarations")
     sp<IBinder> binder = sm->getService(String16(instance));
+    LIBBINDER_IGNORE_END()
 
     sp<AIBinder> ret = ABpBinder::lookupOrCreateFromBinder(binder);
     AIBinder_incStrong(ret.get());
@@ -89,6 +123,68 @@ AIBinder* AServiceManager_waitForService(const char* instance) {
     AIBinder_incStrong(ret.get());
     return ret.get();
 }
+typedef void (*AServiceManager_onRegister)(const char* instance, AIBinder* registered,
+                                           void* cookie);
+
+struct AServiceManager_NotificationRegistration
+    : public IServiceManager::LocalRegistrationCallback {
+    std::mutex m;
+    const char* instance = nullptr;
+    void* cookie = nullptr;
+    AServiceManager_onRegister onRegister = nullptr;
+
+    virtual void onServiceRegistration(const String16& smInstance, const sp<IBinder>& binder) {
+        std::lock_guard<std::mutex> l(m);
+        if (onRegister == nullptr) return;
+
+        LOG_ALWAYS_FATAL_IF(String8(smInstance) != instance, "onServiceRegistration: %s != %s",
+                            String8(smInstance).c_str(), instance);
+
+        sp<AIBinder> ret = ABpBinder::lookupOrCreateFromBinder(binder);
+        AIBinder_incStrong(ret.get());
+
+        onRegister(instance, ret.get(), cookie);
+    }
+
+    void clear() {
+        std::lock_guard<std::mutex> l(m);
+        instance = nullptr;
+        cookie = nullptr;
+        onRegister = nullptr;
+    }
+};
+
+__attribute__((warn_unused_result)) AServiceManager_NotificationRegistration*
+AServiceManager_registerForServiceNotifications(const char* instance,
+                                                AServiceManager_onRegister onRegister,
+                                                void* cookie) {
+    LOG_ALWAYS_FATAL_IF(instance == nullptr, "instance == nullptr");
+    LOG_ALWAYS_FATAL_IF(onRegister == nullptr, "onRegister == nullptr for %s", instance);
+    // cookie can be nullptr
+
+    auto cb = sp<AServiceManager_NotificationRegistration>::make();
+    cb->instance = instance;
+    cb->onRegister = onRegister;
+    cb->cookie = cookie;
+
+    sp<IServiceManager> sm = defaultServiceManager();
+    if (status_t res = sm->registerForNotifications(String16(instance), cb); res != STATUS_OK) {
+        ALOGE("Failed to register for service notifications for %s: %s", instance,
+              statusToString(res).c_str());
+        return nullptr;
+    }
+
+    cb->incStrong(nullptr);
+    return cb.get();
+}
+
+void AServiceManager_NotificationRegistration_delete(
+        AServiceManager_NotificationRegistration* notification) {
+    LOG_ALWAYS_FATAL_IF(notification == nullptr, "notification == nullptr");
+    notification->clear();
+    notification->decStrong(nullptr);
+}
+
 bool AServiceManager_isDeclared(const char* instance) {
     if (instance == nullptr) {
         return false;
@@ -99,9 +195,9 @@ bool AServiceManager_isDeclared(const char* instance) {
 }
 void AServiceManager_forEachDeclaredInstance(const char* interface, void* context,
                                              void (*callback)(const char*, void*)) {
-    CHECK(interface != nullptr);
+    LOG_ALWAYS_FATAL_IF(interface == nullptr, "interface == nullptr");
     // context may be nullptr
-    CHECK(callback != nullptr);
+    LOG_ALWAYS_FATAL_IF(callback == nullptr, "callback == nullptr");
 
     sp<IServiceManager> sm = defaultServiceManager();
     for (const String16& instance : sm->getDeclaredInstances(String16(interface))) {
@@ -115,6 +211,25 @@ bool AServiceManager_isUpdatableViaApex(const char* instance) {
 
     sp<IServiceManager> sm = defaultServiceManager();
     return sm->updatableViaApex(String16(instance)) != std::nullopt;
+}
+void AServiceManager_getUpdatableApexName(const char* instance, void* context,
+                                          void (*callback)(const char*, void*)) {
+    LOG_ALWAYS_FATAL_IF(instance == nullptr, "instance == nullptr");
+    // context may be nullptr
+    LOG_ALWAYS_FATAL_IF(callback == nullptr, "callback == nullptr");
+
+    sp<IServiceManager> sm = defaultServiceManager();
+    std::optional<String16> updatableViaApex = sm->updatableViaApex(String16(instance));
+    if (updatableViaApex.has_value()) {
+        callback(String8(updatableViaApex.value()).c_str(), context);
+    }
+}
+void* AServiceManager_openDeclaredPassthroughHal(const char* interface, const char* instance,
+                                                 int flag) {
+    LOG_ALWAYS_FATAL_IF(interface == nullptr, "interface == nullptr");
+    LOG_ALWAYS_FATAL_IF(instance == nullptr, "instance == nullptr");
+
+    return openDeclaredPassthroughHal(String16(interface), String16(instance), flag);
 }
 void AServiceManager_forceLazyServicesPersist(bool persist) {
     auto serviceRegistrar = android::binder::LazyServiceRegistrar::getInstance();

@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#ifndef _UI_INPUT_INPUTDISPATCHER_CONNECTION_H
-#define _UI_INPUT_INPUTDISPATCHER_CONNECTION_H
+#pragma once
 
 #include "InputState.h"
 
 #include <input/InputTransport.h>
+#include <utils/RefBase.h>
 #include <deque>
 
 namespace android::inputdispatcher {
@@ -27,22 +27,21 @@ namespace android::inputdispatcher {
 struct DispatchEntry;
 
 /* Manages the dispatch state associated with a single input channel. */
-class Connection : public RefBase {
-protected:
-    virtual ~Connection();
-
+class Connection {
 public:
-    enum Status {
+    enum class Status {
         // Everything is peachy.
-        STATUS_NORMAL,
+        NORMAL,
         // An unrecoverable communication error has occurred.
-        STATUS_BROKEN,
+        BROKEN,
         // The input channel has been unregistered.
-        STATUS_ZOMBIE
+        ZOMBIE,
+
+        ftl_first = NORMAL,
+        ftl_last = ZOMBIE,
     };
 
     Status status;
-    std::shared_ptr<InputChannel> inputChannel; // never null
     bool monitor;
     InputPublisher inputPublisher;
     InputState inputState;
@@ -53,23 +52,20 @@ public:
     bool responsive = true;
 
     // Queue of events that need to be published to the connection.
-    std::deque<DispatchEntry*> outboundQueue;
+    std::deque<std::unique_ptr<DispatchEntry>> outboundQueue;
 
     // Queue of events that have been published to the connection but that have not
     // yet received a "finished" response from the application.
-    std::deque<DispatchEntry*> waitQueue;
+    std::deque<std::unique_ptr<DispatchEntry>> waitQueue;
 
-    Connection(const std::shared_ptr<InputChannel>& inputChannel, bool monitor,
+    Connection(std::unique_ptr<InputChannel> inputChannel, bool monitor,
                const IdGenerator& idGenerator);
 
-    inline const std::string getInputChannelName() const { return inputChannel->getName(); }
+    inline const std::string getInputChannelName() const {
+        return inputPublisher.getChannel().getName();
+    }
 
-    const std::string getWindowName() const;
-    const char* getStatusLabel() const;
-
-    std::deque<DispatchEntry*>::iterator findWaitQueueEntry(uint32_t seq);
+    sp<IBinder> getToken() const;
 };
 
 } // namespace android::inputdispatcher
-
-#endif // _UI_INPUT_INPUTDISPATCHER_CONNECTION_H

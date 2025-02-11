@@ -24,7 +24,7 @@ TEST(DisplayIdTest, createPhysicalIdFromEdid) {
     constexpr uint8_t port = 1;
     constexpr uint16_t manufacturerId = 13;
     constexpr uint32_t modelHash = 42;
-    PhysicalDisplayId id = PhysicalDisplayId::fromEdid(port, manufacturerId, modelHash);
+    const PhysicalDisplayId id = PhysicalDisplayId::fromEdid(port, manufacturerId, modelHash);
     EXPECT_EQ(port, id.getPort());
     EXPECT_EQ(manufacturerId, id.getManufacturerId());
     EXPECT_FALSE(VirtualDisplayId::tryCast(id));
@@ -32,35 +32,86 @@ TEST(DisplayIdTest, createPhysicalIdFromEdid) {
     EXPECT_FALSE(GpuVirtualDisplayId::tryCast(id));
     EXPECT_TRUE(PhysicalDisplayId::tryCast(id));
     EXPECT_TRUE(HalDisplayId::tryCast(id));
+
+    EXPECT_EQ(id, DisplayId::fromValue(id.value));
+    EXPECT_EQ(id, DisplayId::fromValue<PhysicalDisplayId>(id.value));
 }
 
 TEST(DisplayIdTest, createPhysicalIdFromPort) {
     constexpr uint8_t port = 3;
-    PhysicalDisplayId id = PhysicalDisplayId::fromPort(port);
+    const PhysicalDisplayId id = PhysicalDisplayId::fromPort(port);
     EXPECT_EQ(port, id.getPort());
     EXPECT_FALSE(VirtualDisplayId::tryCast(id));
     EXPECT_FALSE(HalVirtualDisplayId::tryCast(id));
     EXPECT_FALSE(GpuVirtualDisplayId::tryCast(id));
     EXPECT_TRUE(PhysicalDisplayId::tryCast(id));
     EXPECT_TRUE(HalDisplayId::tryCast(id));
+
+    EXPECT_EQ(id, DisplayId::fromValue(id.value));
+    EXPECT_EQ(id, DisplayId::fromValue<PhysicalDisplayId>(id.value));
 }
 
 TEST(DisplayIdTest, createGpuVirtualId) {
-    GpuVirtualDisplayId id(42);
+    const GpuVirtualDisplayId id(42);
     EXPECT_TRUE(VirtualDisplayId::tryCast(id));
     EXPECT_TRUE(GpuVirtualDisplayId::tryCast(id));
     EXPECT_FALSE(HalVirtualDisplayId::tryCast(id));
     EXPECT_FALSE(PhysicalDisplayId::tryCast(id));
     EXPECT_FALSE(HalDisplayId::tryCast(id));
+
+    EXPECT_EQ(id, DisplayId::fromValue(id.value));
+    EXPECT_EQ(id, DisplayId::fromValue<GpuVirtualDisplayId>(id.value));
+}
+
+TEST(DisplayIdTest, createVirtualIdFromGpuVirtualId) {
+    const VirtualDisplayId id(GpuVirtualDisplayId(42));
+    EXPECT_TRUE(VirtualDisplayId::tryCast(id));
+    EXPECT_TRUE(GpuVirtualDisplayId::tryCast(id));
+    EXPECT_FALSE(HalVirtualDisplayId::tryCast(id));
+    EXPECT_FALSE(PhysicalDisplayId::tryCast(id));
+    EXPECT_FALSE(HalDisplayId::tryCast(id));
+
+    const bool isGpuVirtualId = (id.value & VirtualDisplayId::FLAG_GPU);
+    EXPECT_EQ((id.isVirtual() && isGpuVirtualId), GpuVirtualDisplayId::tryCast(id).has_value());
+}
+
+TEST(DisplayIdTest, createGpuVirtualIdFromUniqueId) {
+    static const std::string kUniqueId("virtual:ui:DisplayId_test");
+    const auto idOpt = GpuVirtualDisplayId::fromUniqueId(kUniqueId);
+    ASSERT_TRUE(idOpt.has_value());
+    const GpuVirtualDisplayId id = idOpt.value();
+    EXPECT_TRUE(VirtualDisplayId::tryCast(id));
+    EXPECT_TRUE(GpuVirtualDisplayId::tryCast(id));
+    EXPECT_FALSE(HalVirtualDisplayId::tryCast(id));
+    EXPECT_FALSE(PhysicalDisplayId::tryCast(id));
+    EXPECT_FALSE(HalDisplayId::tryCast(id));
+
+    EXPECT_EQ(id, DisplayId::fromValue(id.value));
+    EXPECT_EQ(id, DisplayId::fromValue<GpuVirtualDisplayId>(id.value));
 }
 
 TEST(DisplayIdTest, createHalVirtualId) {
-    HalVirtualDisplayId id(42);
+    const HalVirtualDisplayId id(42);
     EXPECT_TRUE(VirtualDisplayId::tryCast(id));
     EXPECT_TRUE(HalVirtualDisplayId::tryCast(id));
     EXPECT_FALSE(GpuVirtualDisplayId::tryCast(id));
     EXPECT_FALSE(PhysicalDisplayId::tryCast(id));
     EXPECT_TRUE(HalDisplayId::tryCast(id));
+
+    EXPECT_EQ(id, DisplayId::fromValue(id.value));
+    EXPECT_EQ(id, DisplayId::fromValue<HalVirtualDisplayId>(id.value));
+}
+
+TEST(DisplayIdTest, createVirtualIdFromHalVirtualId) {
+    const VirtualDisplayId id(HalVirtualDisplayId(42));
+    EXPECT_TRUE(VirtualDisplayId::tryCast(id));
+    EXPECT_TRUE(HalVirtualDisplayId::tryCast(id));
+    EXPECT_FALSE(GpuVirtualDisplayId::tryCast(id));
+    EXPECT_FALSE(PhysicalDisplayId::tryCast(id));
+    EXPECT_TRUE(HalDisplayId::tryCast(id));
+
+    const bool isGpuVirtualId = (id.value & VirtualDisplayId::FLAG_GPU);
+    EXPECT_EQ((id.isVirtual() && !isGpuVirtualId), HalVirtualDisplayId::tryCast(id).has_value());
 }
 
 } // namespace android::ui

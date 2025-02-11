@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <binder/Common.h>
 #include <binder/IInterface.h>
 
 #include <binder/libbinder_export.h>
@@ -24,8 +25,12 @@ namespace android {
 
 // ----------------------------------------------------------------------
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT IResultReceiver : public IInterface
 {
+=======
+class LIBBINDER_EXPORTED IResultReceiver : public IInterface {
+>>>>>>> d3fb93fb73
 public:
     DECLARE_META_INTERFACE(ResultReceiver)
 
@@ -38,8 +43,12 @@ public:
 
 // ----------------------------------------------------------------------
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT BnResultReceiver : public BnInterface<IResultReceiver>
 {
+=======
+class LIBBINDER_EXPORTED BnResultReceiver : public BnInterface<IResultReceiver> {
+>>>>>>> d3fb93fb73
 public:
     // NOLINTNEXTLINE(google-default-arguments)
     virtual status_t    onTransact( uint32_t code,

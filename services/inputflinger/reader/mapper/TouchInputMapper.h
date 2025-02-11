@@ -14,69 +14,101 @@
  * limitations under the License.
  */
 
-#ifndef _UI_INPUTREADER_TOUCH_INPUT_MAPPER_H
-#define _UI_INPUTREADER_TOUCH_INPUT_MAPPER_H
+#pragma once
 
+#include <array>
+#include <climits>
+#include <limits>
+#include <list>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <input/DisplayViewport.h>
+#include <input/Input.h>
+#include <input/InputDevice.h>
+#include <input/VelocityControl.h>
+#include <input/VelocityTracker.h>
 #include <stdint.h>
+#include <ui/Rect.h>
+#include <ui/Rotation.h>
+#include <ui/Size.h>
+#include <ui/Transform.h>
+#include <utils/BitSet.h>
+#include <utils/Timers.h>
 
 #include "CursorButtonAccumulator.h"
 #include "CursorScrollAccumulator.h"
 #include "EventHub.h"
 #include "InputMapper.h"
 #include "InputReaderBase.h"
+#include "NotifyArgs.h"
+#include "StylusState.h"
 #include "TouchButtonAccumulator.h"
 
 namespace android {
 
+// Maximum amount of latency to add to touch events while waiting for data from an
+// external stylus.
+static constexpr nsecs_t EXTERNAL_STYLUS_DATA_TIMEOUT = ms2ns(72);
+
+// Maximum amount of time to wait on touch data before pushing out new pressure data.
+static constexpr nsecs_t TOUCH_DATA_TIMEOUT = ms2ns(20);
+
 /* Raw axis information from the driver. */
 struct RawPointerAxes {
-    RawAbsoluteAxisInfo x;
-    RawAbsoluteAxisInfo y;
-    RawAbsoluteAxisInfo pressure;
-    RawAbsoluteAxisInfo touchMajor;
-    RawAbsoluteAxisInfo touchMinor;
-    RawAbsoluteAxisInfo toolMajor;
-    RawAbsoluteAxisInfo toolMinor;
-    RawAbsoluteAxisInfo orientation;
-    RawAbsoluteAxisInfo distance;
-    RawAbsoluteAxisInfo tiltX;
-    RawAbsoluteAxisInfo tiltY;
-    RawAbsoluteAxisInfo trackingId;
-    RawAbsoluteAxisInfo slot;
+    RawAbsoluteAxisInfo x{};
+    RawAbsoluteAxisInfo y{};
+    std::optional<RawAbsoluteAxisInfo> pressure{};
+    std::optional<RawAbsoluteAxisInfo> touchMajor{};
+    std::optional<RawAbsoluteAxisInfo> touchMinor{};
+    std::optional<RawAbsoluteAxisInfo> toolMajor{};
+    std::optional<RawAbsoluteAxisInfo> toolMinor{};
+    std::optional<RawAbsoluteAxisInfo> orientation{};
+    std::optional<RawAbsoluteAxisInfo> distance{};
+    std::optional<RawAbsoluteAxisInfo> tiltX{};
+    std::optional<RawAbsoluteAxisInfo> tiltY{};
+    std::optional<RawAbsoluteAxisInfo> trackingId{};
+    std::optional<RawAbsoluteAxisInfo> slot{};
 
-    RawPointerAxes();
     inline int32_t getRawWidth() const { return x.maxValue - x.minValue + 1; }
     inline int32_t getRawHeight() const { return y.maxValue - y.minValue + 1; }
-    void clear();
+    inline void clear() { *this = RawPointerAxes(); }
 };
+
+using PropertiesArray = std::array<PointerProperties, MAX_POINTERS>;
+using CoordsArray = std::array<PointerCoords, MAX_POINTERS>;
+using IdToIndexArray = std::array<uint32_t, MAX_POINTER_ID + 1>;
 
 /* Raw data for a collection of pointers including a pointer id mapping table. */
 struct RawPointerData {
     struct Pointer {
-        uint32_t id;
-        int32_t x;
-        int32_t y;
-        int32_t pressure;
-        int32_t touchMajor;
-        int32_t touchMinor;
-        int32_t toolMajor;
-        int32_t toolMinor;
-        int32_t orientation;
-        int32_t distance;
-        int32_t tiltX;
-        int32_t tiltY;
-        int32_t toolType; // a fully decoded AMOTION_EVENT_TOOL_TYPE constant
-        bool isHovering;
+        uint32_t id{0xFFFFFFFF};
+        int32_t x{};
+        int32_t y{};
+        int32_t pressure{};
+        int32_t touchMajor{};
+        int32_t touchMinor{};
+        int32_t toolMajor{};
+        int32_t toolMinor{};
+        int32_t orientation{};
+        int32_t distance{};
+        int32_t tiltX{};
+        int32_t tiltY{};
+        // A fully decoded ToolType constant.
+        ToolType toolType{ToolType::UNKNOWN};
+        bool isHovering{false};
     };
 
-    uint32_t pointerCount;
-    Pointer pointers[MAX_POINTERS];
-    BitSet32 hoveringIdBits, touchingIdBits, canceledIdBits;
-    uint32_t idToIndex[MAX_POINTER_ID + 1];
+    uint32_t pointerCount{};
+    std::array<Pointer, MAX_POINTERS> pointers{};
+    BitSet32 hoveringIdBits{}, touchingIdBits{}, canceledIdBits{};
+    IdToIndexArray idToIndex{};
 
-    RawPointerData();
-    void clear();
-    void copyFrom(const RawPointerData& other);
+    inline void clear() { *this = RawPointerData(); }
+
     void getCentroidOfTouchingPointers(float* outX, float* outY) const;
 
     inline void markIdBit(uint32_t id, bool isHovering) {
@@ -100,15 +132,13 @@ struct RawPointerData {
 
 /* Cooked data for a collection of pointers including a pointer id mapping table. */
 struct CookedPointerData {
-    uint32_t pointerCount;
-    PointerProperties pointerProperties[MAX_POINTERS];
-    PointerCoords pointerCoords[MAX_POINTERS];
-    BitSet32 hoveringIdBits, touchingIdBits, canceledIdBits, validIdBits;
-    uint32_t idToIndex[MAX_POINTER_ID + 1];
+    uint32_t pointerCount{};
+    PropertiesArray pointerProperties{};
+    CoordsArray pointerCoords{};
+    BitSet32 hoveringIdBits{}, touchingIdBits{}, canceledIdBits{}, validIdBits{};
+    IdToIndexArray idToIndex{};
 
-    CookedPointerData();
-    void clear();
-    void copyFrom(const CookedPointerData& other);
+    inline void clear() { *this = CookedPointerData(); }
 
     inline const PointerCoords& pointerCoordsForId(uint32_t id) const {
         return pointerCoords[idToIndex[id]];
@@ -135,25 +165,27 @@ struct CookedPointerData {
 
 class TouchInputMapper : public InputMapper {
 public:
-    explicit TouchInputMapper(InputDeviceContext& deviceContext);
     ~TouchInputMapper() override;
 
-    uint32_t getSources() override;
-    void populateDeviceInfo(InputDeviceInfo* deviceInfo) override;
+    uint32_t getSources() const override;
+    void populateDeviceInfo(InputDeviceInfo& deviceInfo) override;
     void dump(std::string& dump) override;
-    void configure(nsecs_t when, const InputReaderConfiguration* config, uint32_t changes) override;
-    void reset(nsecs_t when) override;
-    void process(const RawEvent* rawEvent) override;
+    [[nodiscard]] std::list<NotifyArgs> reconfigure(nsecs_t when,
+                                                    const InputReaderConfiguration& config,
+                                                    ConfigurationChanges changes) override;
+    [[nodiscard]] std::list<NotifyArgs> reset(nsecs_t when) override;
+    [[nodiscard]] std::list<NotifyArgs> process(const RawEvent& rawEvent) override;
 
     int32_t getKeyCodeState(uint32_t sourceMask, int32_t keyCode) override;
     int32_t getScanCodeState(uint32_t sourceMask, int32_t scanCode) override;
-    bool markSupportedKeyCodes(uint32_t sourceMask, size_t numCodes, const int32_t* keyCodes,
+    bool markSupportedKeyCodes(uint32_t sourceMask, const std::vector<int32_t>& keyCodes,
                                uint8_t* outFlags) override;
 
-    void cancelTouch(nsecs_t when, nsecs_t readTime) override;
-    void timeoutExpired(nsecs_t when) override;
-    void updateExternalStylusState(const StylusState& state) override;
-    std::optional<int32_t> getAssociatedDisplayId() override;
+    [[nodiscard]] std::list<NotifyArgs> cancelTouch(nsecs_t when, nsecs_t readTime) override;
+    [[nodiscard]] std::list<NotifyArgs> timeoutExpired(nsecs_t when) override;
+    [[nodiscard]] std::list<NotifyArgs> updateExternalStylusState(
+            const StylusState& state) override;
+    std::optional<ui::LogicalDisplayId> getAssociatedDisplayId() override;
 
 protected:
     CursorButtonAccumulator mCursorButtonAccumulator;
@@ -177,16 +209,17 @@ protected:
     };
 
     // Input sources and device mode.
-    uint32_t mSource;
+    uint32_t mSource{0};
 
     enum class DeviceMode {
         DISABLED,   // input is disabled
         DIRECT,     // direct mapping (touchscreen)
-        UNSCALED,   // unscaled mapping (touchpad)
         NAVIGATION, // unscaled mapping with assist gesture (touch navigation)
-        POINTER,    // pointer mapping (pointer)
+        POINTER,    // pointer mapping (e.g. uncaptured touchpad, drawing tablet)
+
+        ftl_last = POINTER
     };
-    DeviceMode mDeviceMode;
+    DeviceMode mDeviceMode{DeviceMode::DISABLED};
 
     // The reader's configuration.
     InputReaderConfiguration mConfig;
@@ -195,9 +228,10 @@ protected:
     struct Parameters {
         enum class DeviceType {
             TOUCH_SCREEN,
-            TOUCH_PAD,
             TOUCH_NAVIGATION,
             POINTER,
+
+            ftl_last = POINTER
         };
 
         DeviceType deviceType;
@@ -205,13 +239,7 @@ protected:
         bool associatedDisplayIsExternal;
         bool orientationAware;
 
-        enum class Orientation : int32_t {
-            ORIENTATION_0 = DISPLAY_ORIENTATION_0,
-            ORIENTATION_90 = DISPLAY_ORIENTATION_90,
-            ORIENTATION_180 = DISPLAY_ORIENTATION_180,
-            ORIENTATION_270 = DISPLAY_ORIENTATION_270,
-        };
-        Orientation orientation;
+        ui::Rotation orientation;
 
         bool hasButtonUnderPad;
         std::string uniqueDisplayId;
@@ -219,10 +247,18 @@ protected:
         enum class GestureMode {
             SINGLE_TOUCH,
             MULTI_TOUCH,
+
+            ftl_last = MULTI_TOUCH
         };
         GestureMode gestureMode;
 
         bool wake;
+
+        // The Universal Stylus Initiative (USI) protocol version supported by this device.
+        std::optional<InputDeviceUsiVersion> usiVersion;
+
+        // Allows touches while the display is off.
+        bool enableForInactiveViewport;
     } mParameters;
 
     // Immutable calibration parameters in parsed form.
@@ -235,16 +271,14 @@ protected:
             DIAMETER,
             BOX,
             AREA,
+            ftl_last = AREA
         };
 
         SizeCalibration sizeCalibration;
 
-        bool haveSizeScale;
-        float sizeScale;
-        bool haveSizeBias;
-        float sizeBias;
-        bool haveSizeIsSummed;
-        bool sizeIsSummed;
+        std::optional<float> sizeScale;
+        std::optional<float> sizeBias;
+        std::optional<bool> sizeIsSummed;
 
         // Pressure
         enum class PressureCalibration {
@@ -255,8 +289,7 @@ protected:
         };
 
         PressureCalibration pressureCalibration;
-        bool havePressureScale;
-        float pressureScale;
+        std::optional<float> pressureScale;
 
         // Orientation
         enum class OrientationCalibration {
@@ -276,26 +309,17 @@ protected:
         };
 
         DistanceCalibration distanceCalibration;
-        bool haveDistanceScale;
-        float distanceScale;
+        std::optional<float> distanceScale;
 
-        enum class CoverageCalibration {
-            DEFAULT,
-            NONE,
-            BOX,
-        };
-
-        CoverageCalibration coverageCalibration;
-
-        inline void applySizeScaleAndBias(float* outSize) const {
-            if (haveSizeScale) {
-                *outSize *= sizeScale;
+        inline void applySizeScaleAndBias(float& outSize) const {
+            if (sizeScale) {
+                outSize *= *sizeScale;
             }
-            if (haveSizeBias) {
-                *outSize += sizeBias;
+            if (sizeBias) {
+                outSize += *sizeBias;
             }
-            if (*outSize < 0) {
-                *outSize = 0;
+            if (outSize < 0) {
+                outSize = 0;
             }
         }
     } mCalibration;
@@ -306,63 +330,33 @@ protected:
     RawPointerAxes mRawPointerAxes;
 
     struct RawState {
-        nsecs_t when;
-        nsecs_t readTime;
+        nsecs_t when{std::numeric_limits<nsecs_t>::min()};
+        nsecs_t readTime{};
 
         // Raw pointer sample data.
-        RawPointerData rawPointerData;
+        RawPointerData rawPointerData{};
 
-        int32_t buttonState;
+        int32_t buttonState{};
 
         // Scroll state.
-        int32_t rawVScroll;
-        int32_t rawHScroll;
+        float rawVScroll{};
+        float rawHScroll{};
 
-        void copyFrom(const RawState& other) {
-            when = other.when;
-            readTime = other.readTime;
-            rawPointerData.copyFrom(other.rawPointerData);
-            buttonState = other.buttonState;
-            rawVScroll = other.rawVScroll;
-            rawHScroll = other.rawHScroll;
-        }
-
-        void clear() {
-            when = 0;
-            readTime = 0;
-            rawPointerData.clear();
-            buttonState = 0;
-            rawVScroll = 0;
-            rawHScroll = 0;
-        }
+        inline void clear() { *this = RawState(); }
     };
 
     struct CookedState {
         // Cooked pointer sample data.
-        CookedPointerData cookedPointerData;
+        CookedPointerData cookedPointerData{};
 
         // Id bits used to differentiate fingers, stylus and mouse tools.
-        BitSet32 fingerIdBits;
-        BitSet32 stylusIdBits;
-        BitSet32 mouseIdBits;
+        BitSet32 fingerIdBits{};
+        BitSet32 stylusIdBits{};
+        BitSet32 mouseIdBits{};
 
-        int32_t buttonState;
+        int32_t buttonState{};
 
-        void copyFrom(const CookedState& other) {
-            cookedPointerData.copyFrom(other.cookedPointerData);
-            fingerIdBits = other.fingerIdBits;
-            stylusIdBits = other.stylusIdBits;
-            mouseIdBits = other.mouseIdBits;
-            buttonState = other.buttonState;
-        }
-
-        void clear() {
-            cookedPointerData.clear();
-            fingerIdBits.clear();
-            stylusIdBits.clear();
-            mouseIdBits.clear();
-            buttonState = 0;
-        }
+        inline void clear() { *this = CookedState(); }
     };
 
     std::vector<RawState> mRawStatesPending;
@@ -371,35 +365,51 @@ protected:
     RawState mLastRawState;
     CookedState mLastCookedState;
 
+    enum class ExternalStylusPresence {
+        // No external stylus connected.
+        NONE,
+        // An external stylus that can report touch/pressure that can be fused with the touchscreen.
+        TOUCH_FUSION,
+        // An external stylus that can only report buttons.
+        BUTTON_FUSION,
+        ftl_last = BUTTON_FUSION,
+    };
+    ExternalStylusPresence mExternalStylusPresence{ExternalStylusPresence::NONE};
     // State provided by an external stylus
     StylusState mExternalStylusState;
-    int64_t mExternalStylusId;
+    // If an external stylus is capable of reporting pointer-specific data like pressure, we will
+    // attempt to fuse the pointer data reported by the stylus to the first touch pointer. This is
+    // the id of the pointer to which the external stylus data is fused.
+    std::optional<uint32_t> mFusedStylusPointerId;
     nsecs_t mExternalStylusFusionTimeout;
     bool mExternalStylusDataPending;
+    // A subset of the buttons in mCurrentRawState that came from an external stylus.
+    int32_t mExternalStylusButtonsApplied{0};
+    // True if the current cooked pointer data was modified due to the state of an external stylus.
+    bool mCurrentStreamModifiedByExternalStylus{false};
 
     // True if we sent a HOVER_ENTER event.
-    bool mSentHoverEnter;
+    bool mSentHoverEnter{false};
 
     // Have we assigned pointer IDs for this stream
-    bool mHavePointerIds;
+    bool mHavePointerIds{false};
 
     // Is the current stream of direct touch events aborted
-    bool mCurrentMotionAborted;
+    bool mCurrentMotionAborted{false};
 
     // The time the primary pointer last went down.
-    nsecs_t mDownTime;
-
-    // The pointer controller, or null if the device is not a pointer.
-    std::shared_ptr<PointerControllerInterface> mPointerController;
+    nsecs_t mDownTime{0};
 
     std::vector<VirtualKey> mVirtualKeys;
 
-    virtual void configureParameters();
+    explicit TouchInputMapper(InputDeviceContext& deviceContext,
+                              const InputReaderConfiguration& readerConfig);
+
     virtual void dumpParameters(std::string& dump);
     virtual void configureRawPointerAxes();
     virtual void dumpRawPointerAxes(std::string& dump);
-    virtual void configureSurface(nsecs_t when, bool* outResetNeeded);
-    virtual void dumpSurface(std::string& dump);
+    virtual void configureInputDevice(nsecs_t when, bool* outResetNeeded);
+    virtual void dumpDisplay(std::string& dump);
     virtual void configureVirtualKeys();
     virtual void dumpVirtualKeys(std::string& dump);
     virtual void parseCalibration();
@@ -418,40 +428,31 @@ private:
     // The components of the viewport are specified in the display's rotated orientation.
     DisplayViewport mViewport;
 
-    // The surface orientation, width and height set by configureSurface().
-    // The width and height are derived from the viewport but are specified
-    // in the natural orientation.
-    // They could be used for calculating diagonal, scaling factors, and virtual keys.
-    int32_t mRawSurfaceWidth;
-    int32_t mRawSurfaceHeight;
+    // We refer to the display as being in the "natural orientation" when there is no rotation
+    // applied. The display size obtained from the viewport in the natural orientation.
+    // Always starts at (0, 0).
+    ui::Size mDisplayBounds{ui::kInvalidSize};
 
-    // The surface origin specifies how the surface coordinates should be translated
-    // to align with the logical display coordinate space.
-    int32_t mSurfaceLeft;
-    int32_t mSurfaceTop;
-    int32_t mSurfaceRight;
-    int32_t mSurfaceBottom;
+    // The physical frame is the rectangle in the rotated display's coordinate space that maps to
+    // the logical display frame.
+    Rect mPhysicalFrameInRotatedDisplay{Rect::INVALID_RECT};
 
-    // Similar to the surface coordinates, but in the raw display coordinate space rather than in
-    // the logical coordinate space.
-    int32_t mPhysicalWidth;
-    int32_t mPhysicalHeight;
-    int32_t mPhysicalLeft;
-    int32_t mPhysicalTop;
+    // The orientation of the input device relative to that of the display panel. It specifies
+    // the rotation of the input device coordinates required to produce the display panel
+    // orientation, so it will depend on whether the device is orientation aware.
+    ui::Rotation mInputDeviceOrientation{ui::ROTATION_0};
 
-    // The orientation may be different from the viewport orientation as it specifies
-    // the rotation of the surface coordinates required to produce the viewport's
-    // requested orientation, so it will depend on whether the device is orientation aware.
-    int32_t mSurfaceOrientation;
+    // The transform that maps the input device's raw coordinate space to the un-rotated display's
+    // coordinate space. InputReader generates events in the un-rotated display's coordinate space.
+    ui::Transform mRawToDisplay;
 
-    // Translation and scaling factors, orientation-independent.
-    float mXTranslate;
-    float mXScale;
-    float mXPrecision;
+    // The transform that maps the input device's raw coordinate space to the rotated display's
+    // coordinate space. This used to perform hit-testing of raw events with the physical frame in
+    // the rotated coordinate space. See mPhysicalFrameInRotatedDisplay.
+    ui::Transform mRawToRotatedDisplay;
 
-    float mYTranslate;
-    float mYScale;
-    float mYPrecision;
+    // The transform used for non-planar raw axes, such as orientation and tilt.
+    ui::Transform mRawRotation;
 
     float mGeometricScale;
 
@@ -469,43 +470,35 @@ private:
     float mTiltYCenter;
     float mTiltYScale;
 
-    bool mExternalStylusConnected;
-
     // Oriented motion ranges for input device info.
     struct OrientedRanges {
         InputDeviceInfo::MotionRange x;
         InputDeviceInfo::MotionRange y;
         InputDeviceInfo::MotionRange pressure;
 
-        bool haveSize;
-        InputDeviceInfo::MotionRange size;
+        std::optional<InputDeviceInfo::MotionRange> size;
 
-        bool haveTouchSize;
-        InputDeviceInfo::MotionRange touchMajor;
-        InputDeviceInfo::MotionRange touchMinor;
+        std::optional<InputDeviceInfo::MotionRange> touchMajor;
+        std::optional<InputDeviceInfo::MotionRange> touchMinor;
 
-        bool haveToolSize;
-        InputDeviceInfo::MotionRange toolMajor;
-        InputDeviceInfo::MotionRange toolMinor;
+        std::optional<InputDeviceInfo::MotionRange> toolMajor;
+        std::optional<InputDeviceInfo::MotionRange> toolMinor;
 
-        bool haveOrientation;
-        InputDeviceInfo::MotionRange orientation;
+        std::optional<InputDeviceInfo::MotionRange> orientation;
 
-        bool haveDistance;
-        InputDeviceInfo::MotionRange distance;
+        std::optional<InputDeviceInfo::MotionRange> distance;
 
-        bool haveTilt;
-        InputDeviceInfo::MotionRange tilt;
-
-        OrientedRanges() { clear(); }
+        std::optional<InputDeviceInfo::MotionRange> tilt;
 
         void clear() {
-            haveSize = false;
-            haveTouchSize = false;
-            haveToolSize = false;
-            haveOrientation = false;
-            haveDistance = false;
-            haveTilt = false;
+            size = std::nullopt;
+            touchMajor = std::nullopt;
+            touchMinor = std::nullopt;
+            toolMajor = std::nullopt;
+            toolMinor = std::nullopt;
+            orientation = std::nullopt;
+            distance = std::nullopt;
+            tilt = std::nullopt;
         }
     } mOrientedRanges;
 
@@ -529,13 +522,15 @@ private:
     float mPointerXZoomScale;
     float mPointerYZoomScale;
 
-    // The maximum swipe width.
+    // The maximum swipe width between pointers to detect a swipe gesture
+    // in the number of pixels.Touches that are wider than this are translated
+    // into freeform gestures.
     float mPointerGestureMaxSwipeWidth;
 
     struct PointerDistanceHeapElement {
-        uint32_t currentPointerIndex : 8;
-        uint32_t lastPointerIndex : 8;
-        uint64_t distance : 48; // squared distance
+        uint32_t currentPointerIndex : 8 {};
+        uint32_t lastPointerIndex : 8 {};
+        uint64_t distance : 48 {}; // squared distance
     };
 
     enum class PointerUsage {
@@ -544,7 +539,7 @@ private:
         STYLUS,
         MOUSE,
     };
-    PointerUsage mPointerUsage;
+    PointerUsage mPointerUsage{PointerUsage::NONE};
 
     struct PointerGesture {
         enum class Mode {
@@ -597,6 +592,8 @@ private:
 
             // Waiting for quiet time to end before starting the next gesture.
             QUIET,
+
+            ftl_last = QUIET,
         };
 
         // When a gesture is sent to an unfocused window, return true if it can bring that window
@@ -632,15 +629,15 @@ private:
         // Pointer coords and ids for the current and previous pointer gesture.
         Mode currentGestureMode;
         BitSet32 currentGestureIdBits;
-        uint32_t currentGestureIdToIndex[MAX_POINTER_ID + 1];
-        PointerProperties currentGestureProperties[MAX_POINTERS];
-        PointerCoords currentGestureCoords[MAX_POINTERS];
+        IdToIndexArray currentGestureIdToIndex{};
+        PropertiesArray currentGestureProperties{};
+        CoordsArray currentGestureCoords{};
 
         Mode lastGestureMode;
         BitSet32 lastGestureIdBits;
-        uint32_t lastGestureIdToIndex[MAX_POINTER_ID + 1];
-        PointerProperties lastGestureProperties[MAX_POINTERS];
-        PointerCoords lastGestureCoords[MAX_POINTERS];
+        IdToIndexArray lastGestureIdToIndex{};
+        PropertiesArray lastGestureProperties{};
+        CoordsArray lastGestureCoords{};
 
         // Time the pointer gesture last went down.
         nsecs_t downTime;
@@ -714,6 +711,12 @@ private:
         // Time the pointer last went down.
         nsecs_t downTime;
 
+        // Values reported for the last pointer event.
+        uint32_t source;
+        ui::LogicalDisplayId displayId{ui::LogicalDisplayId::INVALID};
+        float lastCursorX;
+        float lastCursorY;
+
         void reset() {
             currentCoords.clear();
             currentProperties.clear();
@@ -722,56 +725,105 @@ private:
             down = false;
             hovering = false;
             downTime = 0;
+            source = 0;
+            displayId = ui::LogicalDisplayId::INVALID;
+            lastCursorX = 0.f;
+            lastCursorY = 0.f;
         }
     } mPointerSimple;
 
     // The pointer and scroll velocity controls.
-    VelocityControl mPointerVelocityControl;
-    VelocityControl mWheelXVelocityControl;
-    VelocityControl mWheelYVelocityControl;
+    SimpleVelocityControl mPointerVelocityControl;
+    SimpleVelocityControl mWheelXVelocityControl;
+    SimpleVelocityControl mWheelYVelocityControl;
 
     std::optional<DisplayViewport> findViewport();
 
     void resetExternalStylus();
     void clearStylusDataPendingFlags();
 
-    void sync(nsecs_t when, nsecs_t readTime);
+    int32_t clampResolution(const char* axisName, int32_t resolution) const;
+    void initializeOrientedRanges();
+    void initializeSizeRanges();
 
-    bool consumeRawTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void processRawTouches(bool timeout);
-    void cookAndDispatch(nsecs_t when, nsecs_t readTime);
-    void dispatchVirtualKey(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
-                            int32_t keyEventAction, int32_t keyEventFlags);
+    [[nodiscard]] std::list<NotifyArgs> sync(nsecs_t when, nsecs_t readTime);
 
-    void dispatchTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchHoverExit(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchButtonRelease(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchButtonPress(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> consumeRawTouches(nsecs_t when, nsecs_t readTime,
+                                                          uint32_t policyFlags, bool& outConsumed);
+    [[nodiscard]] std::list<NotifyArgs> processRawTouches(bool timeout);
+    [[nodiscard]] std::list<NotifyArgs> cookAndDispatch(nsecs_t when, nsecs_t readTime);
+    [[nodiscard]] NotifyKeyArgs dispatchVirtualKey(nsecs_t when, nsecs_t readTime,
+                                                   uint32_t policyFlags, int32_t keyEventAction,
+                                                   int32_t keyEventFlags);
+
+    [[nodiscard]] std::list<NotifyArgs> dispatchTouches(nsecs_t when, nsecs_t readTime,
+                                                        uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> dispatchHoverExit(nsecs_t when, nsecs_t readTime,
+                                                          uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime,
+                                                                  uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> dispatchButtonRelease(nsecs_t when, nsecs_t readTime,
+                                                              uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> dispatchButtonPress(nsecs_t when, nsecs_t readTime,
+                                                            uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> dispatchGestureButtonPress(nsecs_t when,
+                                                                   uint32_t policyFlags,
+                                                                   BitSet32 idBits,
+                                                                   nsecs_t readTime);
+    [[nodiscard]] std::list<NotifyArgs> dispatchGestureButtonRelease(nsecs_t when,
+                                                                     uint32_t policyFlags,
+                                                                     BitSet32 idBits,
+                                                                     nsecs_t readTime);
     const BitSet32& findActiveIdBits(const CookedPointerData& cookedPointerData);
     void cookPointerData();
-    void abortTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> abortTouches(nsecs_t when, nsecs_t readTime,
+                                                     uint32_t policyFlags);
 
-    void dispatchPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
-                              PointerUsage pointerUsage);
-    void abortPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> dispatchPointerUsage(nsecs_t when, nsecs_t readTime,
+                                                             uint32_t policyFlags,
+                                                             PointerUsage pointerUsage);
+    [[nodiscard]] std::list<NotifyArgs> abortPointerUsage(nsecs_t when, nsecs_t readTime,
+                                                          uint32_t policyFlags);
 
-    void dispatchPointerGestures(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
-                                 bool isTimeout);
-    void abortPointerGestures(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> dispatchPointerGestures(nsecs_t when, nsecs_t readTime,
+                                                                uint32_t policyFlags,
+                                                                bool isTimeout);
+    [[nodiscard]] std::list<NotifyArgs> abortPointerGestures(nsecs_t when, nsecs_t readTime,
+                                                             uint32_t policyFlags);
     bool preparePointerGestures(nsecs_t when, bool* outCancelPreviousGesture,
                                 bool* outFinishPreviousGesture, bool isTimeout);
 
-    void dispatchPointerStylus(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void abortPointerStylus(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    // Returns true if we're in a period of "quiet time" when touchpad gestures should be ignored.
+    bool checkForTouchpadQuietTime(nsecs_t when);
 
-    void dispatchPointerMouse(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void abortPointerMouse(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    std::pair<int32_t, float> getFastestFinger();
 
-    void dispatchPointerSimple(nsecs_t when, nsecs_t readTime, uint32_t policyFlags, bool down,
-                               bool hovering);
-    void abortPointerSimple(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void prepareMultiFingerPointerGestures(nsecs_t when, bool* outCancelPreviousGesture,
+                                           bool* outFinishPreviousGesture);
 
+    // Moves the on-screen mouse pointer based on the movement of the pointer of the given ID
+    // between the last and current events. Uses a relative motion.
+    void moveMousePointerFromPointerDelta(nsecs_t when, uint32_t pointerId);
+
+    [[nodiscard]] std::list<NotifyArgs> dispatchPointerStylus(nsecs_t when, nsecs_t readTime,
+                                                              uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> abortPointerStylus(nsecs_t when, nsecs_t readTime,
+                                                           uint32_t policyFlags);
+
+    [[nodiscard]] std::list<NotifyArgs> dispatchPointerMouse(nsecs_t when, nsecs_t readTime,
+                                                             uint32_t policyFlags);
+    [[nodiscard]] std::list<NotifyArgs> abortPointerMouse(nsecs_t when, nsecs_t readTime,
+                                                          uint32_t policyFlags);
+
+    [[nodiscard]] std::list<NotifyArgs> dispatchPointerSimple(nsecs_t when, nsecs_t readTime,
+                                                              uint32_t policyFlags, bool down,
+                                                              bool hovering,
+                                                              ui::LogicalDisplayId displayId);
+    [[nodiscard]] std::list<NotifyArgs> abortPointerSimple(nsecs_t when, nsecs_t readTime,
+                                                           uint32_t policyFlags);
+
+    // Attempts to assign a pointer id to the external stylus. Returns true if the state should be
+    // withheld from further processing while waiting for data from the stylus.
     bool assignExternalStylusId(const RawState& state, bool timeout);
     void applyExternalStylusButtonState(nsecs_t when);
     void applyExternalStylusTouchState(nsecs_t when);
@@ -780,42 +832,25 @@ private:
     // If the changedId is >= 0 and the action is POINTER_DOWN or POINTER_UP, the
     // method will take care of setting the index and transmuting the action to DOWN or UP
     // it is the first / last pointer to go down / up.
-    void dispatchMotion(nsecs_t when, nsecs_t readTime, uint32_t policyFlags, uint32_t source,
-                        int32_t action, int32_t actionButton, int32_t flags, int32_t metaState,
-                        int32_t buttonState, int32_t edgeFlags, const PointerProperties* properties,
-                        const PointerCoords* coords, const uint32_t* idToIndex, BitSet32 idBits,
-                        int32_t changedId, float xPrecision, float yPrecision, nsecs_t downTime);
-
-    // Updates pointer coords and properties for pointers with specified ids that have moved.
-    // Returns true if any of them changed.
-    bool updateMovedPointers(const PointerProperties* inProperties, const PointerCoords* inCoords,
-                             const uint32_t* inIdToIndex, PointerProperties* outProperties,
-                             PointerCoords* outCoords, const uint32_t* outIdToIndex,
-                             BitSet32 idBits) const;
+    [[nodiscard]] NotifyMotionArgs dispatchMotion(
+            nsecs_t when, nsecs_t readTime, uint32_t policyFlags, uint32_t source, int32_t action,
+            int32_t actionButton, int32_t flags, int32_t metaState, int32_t buttonState,
+            int32_t edgeFlags, const PropertiesArray& properties, const CoordsArray& coords,
+            const IdToIndexArray& idToIndex, BitSet32 idBits, int32_t changedId, float xPrecision,
+            float yPrecision, nsecs_t downTime, MotionClassification classification);
 
     // Returns if this touch device is a touch screen with an associated display.
     bool isTouchScreen();
-    // Updates touch spots if they are enabled. Should only be used when this device is a
-    // touchscreen.
-    void updateTouchSpots();
 
-    bool isPointInsideSurface(int32_t x, int32_t y);
+    bool isPointInsidePhysicalFrame(int32_t x, int32_t y) const;
     const VirtualKey* findVirtualKeyHit(int32_t x, int32_t y);
 
     static void assignPointerIds(const RawState& last, RawState& current);
 
-    const char* modeToString(DeviceMode deviceMode);
-    void rotateAndScale(float& x, float& y);
-
-    // Wrapper methods for interfacing with PointerController. These are used to convert points
-    // between the coordinate spaces used by InputReader and PointerController, if they differ.
-    void moveMouseCursor(float dx, float dy) const;
-    std::pair<float, float> getMouseCursorPosition() const;
-    void setMouseCursorPosition(float x, float y) const;
-    void setTouchSpots(const PointerCoords* spotCoords, const uint32_t* spotIdToIndex,
-                       BitSet32 spotIdBits, int32_t displayId);
+    // Compute input transforms for DIRECT and POINTER modes.
+    void computeInputTransforms();
+    static Parameters::DeviceType computeDeviceType(const InputDeviceContext& deviceContext);
+    static Parameters computeParameters(const InputDeviceContext& deviceContext);
 };
 
 } // namespace android
-
-#endif // _UI_INPUTREADER_TOUCH_INPUT_MAPPER_H

@@ -18,27 +18,29 @@
 
 #include <gmock/gmock.h>
 
-#include "Scheduler/Scheduler.h"
+#include "Scheduler/ISchedulerCallback.h"
 
-namespace android::mock {
+namespace android::scheduler::mock {
 
 struct SchedulerCallback final : ISchedulerCallback {
-    MOCK_METHOD1(setVsyncEnabled, void(bool));
-    MOCK_METHOD2(changeRefreshRate,
-                 void(const scheduler::RefreshRateConfigs::RefreshRate&,
-                      scheduler::RefreshRateConfigEvent));
-    MOCK_METHOD0(repaintEverythingForHWC, void());
-    MOCK_METHOD1(kernelTimerChanged, void(bool));
-    MOCK_METHOD0(triggerOnFrameRateOverridesChanged, void());
+    MOCK_METHOD(void, requestHardwareVsync, (PhysicalDisplayId, bool), (override));
+    MOCK_METHOD(void, requestDisplayModes, (std::vector<display::DisplayModeRequest>), (override));
+    MOCK_METHOD(void, kernelTimerChanged, (bool), (override));
+    MOCK_METHOD(void, onChoreographerAttached, (), (override));
+    MOCK_METHOD(void, onExpectedPresentTimePosted, (TimePoint, ftl::NonNull<DisplayModePtr>, Fps),
+                (override));
+    MOCK_METHOD(void, onCommitNotComposited, (), (override));
+    MOCK_METHOD(void, vrrDisplayIdle, (bool), (override));
 };
 
 struct NoOpSchedulerCallback final : ISchedulerCallback {
-    void setVsyncEnabled(bool) override {}
-    void changeRefreshRate(const scheduler::RefreshRateConfigs::RefreshRate&,
-                           scheduler::RefreshRateConfigEvent) override {}
-    void repaintEverythingForHWC() override {}
+    void requestHardwareVsync(PhysicalDisplayId, bool) override {}
+    void requestDisplayModes(std::vector<display::DisplayModeRequest>) override {}
     void kernelTimerChanged(bool) override {}
-    void triggerOnFrameRateOverridesChanged() {}
+    void onChoreographerAttached() override {}
+    void onExpectedPresentTimePosted(TimePoint, ftl::NonNull<DisplayModePtr>, Fps) override {}
+    void onCommitNotComposited() override {}
+    void vrrDisplayIdle(bool) override {}
 };
 
-} // namespace android::mock
+} // namespace android::scheduler::mock

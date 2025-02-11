@@ -21,6 +21,7 @@
 
 #include <utils/RefBase.h>
 #include <utils/Errors.h>
+#include <binder/Common.h>
 #include <binder/IInterface.h>
 #include <binder/libbinder_export.h>
 
@@ -28,8 +29,7 @@ namespace android {
 
 // ----------------------------------------------------------------------------
 
-class IMemoryHeap : public IInterface
-{
+class LIBBINDER_EXPORTED IMemoryHeap : public IInterface {
 public:
     DECLARE_META_INTERFACE(MemoryHeap)
 
@@ -50,8 +50,12 @@ public:
     size_t  virtualSize() const { return getSize(); }
 };
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT BnMemoryHeap : public BnInterface<IMemoryHeap>
 {
+=======
+class LIBBINDER_EXPORTED BnMemoryHeap : public BnInterface<IMemoryHeap> {
+>>>>>>> d3fb93fb73
 public:
     // NOLINTNEXTLINE(google-default-arguments)
     virtual status_t onTransact(
@@ -67,8 +71,12 @@ protected:
 
 // ----------------------------------------------------------------------------
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT IMemory : public IInterface
 {
+=======
+class LIBBINDER_EXPORTED IMemory : public IInterface {
+>>>>>>> d3fb93fb73
 public:
     DECLARE_META_INTERFACE(Memory)
 
@@ -105,8 +113,12 @@ private:
     void* fastPointer(const sp<IBinder>& heap, ssize_t offset) const;
 };
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT BnMemory : public BnInterface<IMemory>
 {
+=======
+class LIBBINDER_EXPORTED BnMemory : public BnInterface<IMemory> {
+>>>>>>> d3fb93fb73
 public:
     // NOLINTNEXTLINE(google-default-arguments)
     virtual status_t onTransact(

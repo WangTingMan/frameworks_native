@@ -29,8 +29,12 @@
 // ---------------------------------------------------------------------------
 namespace android {
 
+<<<<<<< HEAD
 class LIBBINDER_EXPORT BufferedTextOutput : public TextOutput
 {
+=======
+class LIBBINDER_INTERNAL_EXPORTED BufferedTextOutput : public TextOutput {
+>>>>>>> d3fb93fb73
 public:
     //** Flags for constructor */
     enum {

@@ -23,12 +23,12 @@
 #include <binder/IResultReceiver.h>
 #include <binder/RpcSession.h>
 #include <binder/Stability.h>
-#include <cutils/compiler.h>
-#include <utils/Log.h>
+#include <binder/Trace.h>
 
 #include <stdio.h>
 
 #include "BuildFlags.h"
+#include "file.h"
 
 #include "binder/windows_porting.h"
 #include "binder_driver/ipc_connection_token.h"
@@ -38,27 +38,41 @@
 
 namespace android {
 
+using android::binder::unique_fd;
+
 // ---------------------------------------------------------------------------
 
-Mutex BpBinder::sTrackingLock;
+RpcMutex BpBinder::sTrackingLock;
 std::unordered_map<int32_t, uint32_t> BpBinder::sTrackingMap;
 std::unordered_map<int32_t, uint32_t> BpBinder::sLastLimitCallbackMap;
 int BpBinder::sNumTrackedUids = 0;
 std::atomic_bool BpBinder::sCountByUidEnabled(false);
 binder_proxy_limit_callback BpBinder::sLimitCallback;
+binder_proxy_warning_callback BpBinder::sWarningCallback;
 bool BpBinder::sBinderProxyThrottleCreate = false;
+
+static StaticString16 kDescriptorUninit(u"");
 
 // Arbitrarily high value that probably distinguishes a bad behaving app
 uint32_t BpBinder::sBinderProxyCountHighWatermark = 2500;
 // Another arbitrary value a binder count needs to drop below before another callback will be called
 uint32_t BpBinder::sBinderProxyCountLowWatermark = 2000;
+// Arbitrary value between low and high watermark on a bad behaving app to
+// trigger a warning callback.
+uint32_t BpBinder::sBinderProxyCountWarningWatermark = 2250;
+
+std::atomic<uint32_t> BpBinder::sBinderProxyCount(0);
+std::atomic<uint32_t> BpBinder::sBinderProxyCountWarned(0);
+
+static constexpr uint32_t kBinderProxyCountWarnInterval = 5000;
 
 // Log any transactions for which the data exceeds this size
 #define LOG_TRANSACTIONS_OVER_SIZE (300 * 1024)
 
 enum {
     LIMIT_REACHED_MASK = 0x80000000,        // A flag denoting that the limit has been reached
-    COUNTING_VALUE_MASK = 0x7FFFFFFF,       // A mask of the remaining bits for the count value
+    WARNING_REACHED_MASK = 0x40000000,      // A flag denoting that the warning has been reached
+    COUNTING_VALUE_MASK = 0x3FFFFFFF,       // A mask of the remaining bits for the count value
 };
 
 BpBinder::ObjectManager::ObjectManager()
@@ -103,6 +117,36 @@ void* BpBinder::ObjectManager::detach(const void* objectID) {
     return value;
 }
 
+namespace {
+struct Tag {
+    wp<IBinder> binder;
+};
+} // namespace
+
+static void cleanWeak(const void* /* id */, void* obj, void* /* cookie */) {
+    delete static_cast<Tag*>(obj);
+}
+
+sp<IBinder> BpBinder::ObjectManager::lookupOrCreateWeak(const void* objectID, object_make_func make,
+                                                        const void* makeArgs) {
+    entry_t& e = mObjects[objectID];
+    if (e.object != nullptr) {
+        if (auto attached = static_cast<Tag*>(e.object)->binder.promote()) {
+            return attached;
+        }
+    } else {
+        e.object = new Tag;
+        LOG_ALWAYS_FATAL_IF(!e.object, "no more memory");
+    }
+    sp<IBinder> newObj = make(makeArgs);
+
+    static_cast<Tag*>(e.object)->binder = newObj;
+    e.cleanupCookie = nullptr;
+    e.func = cleanWeak;
+
+    return newObj;
+}
+
 void BpBinder::ObjectManager::kill()
 {
     const size_t N = mObjects.size();
@@ -119,18 +163,19 @@ void BpBinder::ObjectManager::kill()
 
 // ---------------------------------------------------------------------------
 
-sp<BpBinder> BpBinder::create(int32_t handle) {
+sp<BpBinder> BpBinder::create(int32_t handle, std::function<void()>* postTask) {
     if constexpr (!kEnableKernelIpc) {
         LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0 );
         return nullptr;
     }
+    LOG_ALWAYS_FATAL_IF(postTask == nullptr, "BAD STATE");
 
     int32_t trackedUid = -1;
     if (sCountByUidEnabled) {
         trackedUid = IPCThreadState::self()->getCallingUid();
-        AutoMutex _l(sTrackingLock);
+        RpcMutexUniqueLock _l(sTrackingLock);
         uint32_t trackedValue = sTrackingMap[trackedUid];
-        if (CC_UNLIKELY(trackedValue & LIMIT_REACHED_MASK)) {
+        if (trackedValue & LIMIT_REACHED_MASK) [[unlikely]] {
             if (sBinderProxyThrottleCreate) {
                 return nullptr;
             }
@@ -142,15 +187,31 @@ sp<BpBinder> BpBinder::create(int32_t handle) {
                 ALOGE("Still too many binder proxy objects sent to uid %d from uid %d (%d proxies "
                       "held)",
                       getuid(), trackedUid, trackedValue);
-                if (sLimitCallback) sLimitCallback(trackedUid);
+
+                if (sLimitCallback) {
+                    *postTask = [=]() { sLimitCallback(trackedUid); };
+                }
+
                 sLastLimitCallbackMap[trackedUid] = trackedValue;
             }
         } else {
-            if ((trackedValue & COUNTING_VALUE_MASK) >= sBinderProxyCountHighWatermark) {
+            uint32_t currentValue = trackedValue & COUNTING_VALUE_MASK;
+            if (currentValue >= sBinderProxyCountWarningWatermark
+                    && currentValue < sBinderProxyCountHighWatermark
+                    && ((trackedValue & WARNING_REACHED_MASK) == 0)) [[unlikely]] {
+                sTrackingMap[trackedUid] |= WARNING_REACHED_MASK;
+                if (sWarningCallback) {
+                    *postTask = [=]() { sWarningCallback(trackedUid); };
+                }
+            } else if (currentValue >= sBinderProxyCountHighWatermark) {
                 ALOGE("Too many binder proxy objects sent to uid %d from uid %d (%d proxies held)",
                       getuid(), trackedUid, trackedValue);
                 sTrackingMap[trackedUid] |= LIMIT_REACHED_MASK;
-                if (sLimitCallback) sLimitCallback(trackedUid);
+
+                if (sLimitCallback) {
+                    *postTask = [=]() { sLimitCallback(trackedUid); };
+                }
+
                 sLastLimitCallbackMap[trackedUid] = trackedValue & COUNTING_VALUE_MASK;
                 if (sBinderProxyThrottleCreate) {
                     ALOGI("Throttling binder proxy creates from uid %d in uid %d until binder proxy"
@@ -161,6 +222,19 @@ sp<BpBinder> BpBinder::create(int32_t handle) {
             }
         }
         sTrackingMap[trackedUid]++;
+    }
+    uint32_t numProxies = sBinderProxyCount.fetch_add(1, std::memory_order_relaxed);
+    binder::os::trace_int(ATRACE_TAG_AIDL, "binder_proxies", numProxies);
+    uint32_t numLastWarned = sBinderProxyCountWarned.load(std::memory_order_relaxed);
+    uint32_t numNextWarn = numLastWarned + kBinderProxyCountWarnInterval;
+    if (numProxies >= numNextWarn) {
+        // Multiple threads can get here, make sure only one of them gets to
+        // update the warn counter.
+        if (sBinderProxyCountWarned.compare_exchange_strong(numLastWarned,
+                                                            numNextWarn,
+                                                            std::memory_order_relaxed)) {
+            ALOGW("Unexpectedly many live BinderProxies: %d\n", numProxies);
+        }
     }
     return sp<BpBinder>::make(BinderHandle{handle}, trackedUid);
 }
@@ -281,6 +355,7 @@ BpBinder::BpBinder(Handle&& handle)
         mAlive(true),
         mObitsSent(false),
         mObituaries(nullptr),
+        mDescriptorCache(kDescriptorUninit),
         mTrackedUid(-1) {
     extendObjectLifetime(OBJECT_LIFETIME_WEAK);
 }
@@ -326,13 +401,13 @@ std::optional<int32_t> BpBinder::getDebugBinderHandle() const {
 }
 
 bool BpBinder::isDescriptorCached() const {
-    Mutex::Autolock _l(mLock);
-    return mDescriptorCache.size() ? true : false;
+    RpcMutexUniqueLock _l(mLock);
+    return mDescriptorCache.c_str() != kDescriptorUninit.c_str();
 }
 
 const String16& BpBinder::getInterfaceDescriptor() const
 {
-    if (isDescriptorCached() == false) {
+    if (!isDescriptorCached()) {
         sp<BpBinder> thiz = sp<BpBinder>::fromExisting(const_cast<BpBinder*>(this));
 
         Parcel data;
@@ -342,11 +417,10 @@ const String16& BpBinder::getInterfaceDescriptor() const
         status_t err = thiz->transact(INTERFACE_TRANSACTION, data, &reply);
         if (err == NO_ERROR) {
             String16 res(reply.readString16());
-            Mutex::Autolock _l(mLock);
+            RpcMutexUniqueLock _l(mLock);
             // mDescriptorCache could have been assigned while the lock was
             // released.
-            if (mDescriptorCache.size() == 0)
-                mDescriptorCache = res;
+            if (mDescriptorCache.c_str() == kDescriptorUninit.c_str()) mDescriptorCache = res;
         }
     }
 
@@ -368,6 +442,18 @@ status_t BpBinder::pingBinder()
     data.markForBinder(sp<BpBinder>::fromExisting(this));
     Parcel reply;
     return transact(PING_TRANSACTION, data, &reply);
+}
+
+status_t BpBinder::startRecordingBinder(const unique_fd& fd) {
+    Parcel send, reply;
+    send.writeUniqueFileDescriptor(fd);
+    return transact(START_RECORDING_TRANSACTION, send, &reply);
+}
+
+status_t BpBinder::stopRecordingBinder() {
+    Parcel data, reply;
+    data.markForBinder(sp<BpBinder>::fromExisting(this));
+    return transact(STOP_RECORDING_TRANSACTION, data, &reply);
 }
 
 status_t BpBinder::dump(int fd, const Vector<String16>& args)
@@ -401,8 +487,13 @@ status_t BpBinder::transact(
             int16_t stability = Stability::getRepr(this);
             Stability::Level required = privateVendor ? Stability::VENDOR
                 : Stability::getLocalLevel();
+<<<<<<< HEAD
 #ifndef _MSC_VER
             if (CC_UNLIKELY(!Stability::check(stability, required))) {
+=======
+
+            if (!Stability::check(stability, required)) [[unlikely]] {
+>>>>>>> d3fb93fb73
                 ALOGE("Cannot do a user transaction on a %s binder (%s) in a %s context.",
                       Stability::levelString(stability).c_str(),
                       String8(getInterfaceDescriptor()).c_str(),
@@ -413,7 +504,7 @@ status_t BpBinder::transact(
         }
 
         status_t status;
-        if (CC_UNLIKELY(isRpcBinder())) {
+        if (isRpcBinder()) [[unlikely]] {
             status = rpcSession()->transact(sp<IBinder>::fromExisting(this), code, data, reply,
                                             flags);
         } else {
@@ -430,12 +521,9 @@ status_t BpBinder::transact(
             ALOGI( "transaction completed." );
         }
         if (data.dataSize() > LOG_TRANSACTIONS_OVER_SIZE) {
-            Mutex::Autolock _l(mLock);
+            RpcMutexUniqueLock _l(mLock);
             ALOGW("Large outgoing transaction of %zu bytes, interface descriptor %s, code %d",
-                  data.dataSize(),
-                  mDescriptorCache.size() ? String8(mDescriptorCache).c_str()
-                                          : "<uncached descriptor>",
-                  code);
+                  data.dataSize(), String8(mDescriptorCache).c_str(), code);
         }
 
         if (status == DEAD_OBJECT) mAlive = 0;
@@ -452,7 +540,12 @@ status_t BpBinder::linkToDeath(
 {
     if (isRpcBinder()) {
         if (rpcSession()->getMaxIncomingThreads() < 1) {
+<<<<<<< HEAD
             LOG_ALWAYS_FATAL("Cannot register a DeathRecipient without any incoming connections.", 0 );
+=======
+            ALOGE("Cannot register a DeathRecipient without any incoming threads. Need to set max "
+                  "incoming threads to a value greater than 0 before calling linkToDeath.");
+>>>>>>> d3fb93fb73
             return INVALID_OPERATION;
         }
     } else if constexpr (!kEnableKernelIpc) {
@@ -478,7 +571,7 @@ status_t BpBinder::linkToDeath(
                         "linkToDeath(): recipient must be non-NULL");
 
     {
-        AutoMutex _l(mLock);
+        RpcMutexUniqueLock _l(mLock);
 
         if (!mObitsSent) {
             if (!mObituaries) {
@@ -514,7 +607,7 @@ status_t BpBinder::unlinkToDeath(
         return INVALID_OPERATION;
     }
 
-    AutoMutex _l(mLock);
+    RpcMutexUniqueLock _l(mLock);
 
     if (mObitsSent) {
         return DEAD_OBJECT;
@@ -591,6 +684,123 @@ void BpBinder::sendObituary()
     }
 }
 
+status_t BpBinder::addFrozenStateChangeCallback(const wp<FrozenStateChangeCallback>& callback) {
+    LOG_ALWAYS_FATAL_IF(isRpcBinder(),
+                        "addFrozenStateChangeCallback() is not supported for RPC Binder.");
+    LOG_ALWAYS_FATAL_IF(!kEnableKernelIpc, "Binder kernel driver disabled at build time");
+    LOG_ALWAYS_FATAL_IF(ProcessState::self()->getThreadPoolMaxTotalThreadCount() == 0,
+                        "addFrozenStateChangeCallback on %s but there are no threads "
+                        "(yet?) listening to incoming transactions. See "
+                        "ProcessState::startThreadPool "
+                        "and ProcessState::setThreadPoolMaxThreadCount. Generally you should "
+                        "setup the binder threadpool before other initialization steps.",
+                        String8(getInterfaceDescriptor()).c_str());
+    LOG_ALWAYS_FATAL_IF(callback == nullptr,
+                        "addFrozenStateChangeCallback(): callback must be non-NULL");
+
+    const sp<FrozenStateChangeCallback> strongCallback = callback.promote();
+    if (strongCallback == nullptr) {
+        return BAD_VALUE;
+    }
+
+    {
+        RpcMutexUniqueLock _l(mLock);
+        if (!mFrozen) {
+            ALOGV("Requesting freeze notification: %p handle %d\n", this, binderHandle());
+            IPCThreadState* self = IPCThreadState::self();
+            status_t status = self->addFrozenStateChangeCallback(binderHandle(), this);
+            if (status != NO_ERROR) {
+                // Avoids logspam if kernel does not support freeze
+                // notification.
+                if (status != INVALID_OPERATION) {
+                    ALOGE("IPCThreadState.addFrozenStateChangeCallback "
+                          "failed with %s. %p handle %d\n",
+                          statusToString(status).c_str(), this, binderHandle());
+                }
+                return status;
+            }
+            mFrozen = std::make_unique<FrozenStateChange>();
+            if (!mFrozen) {
+                std::ignore =
+                        IPCThreadState::self()->removeFrozenStateChangeCallback(binderHandle(),
+                                                                                this);
+                return NO_MEMORY;
+            }
+        }
+        if (mFrozen->initialStateReceived) {
+            strongCallback->onStateChanged(wp<BpBinder>::fromExisting(this),
+                                           mFrozen->isFrozen
+                                                   ? FrozenStateChangeCallback::State::FROZEN
+                                                   : FrozenStateChangeCallback::State::UNFROZEN);
+        }
+        ssize_t res = mFrozen->callbacks.add(callback);
+        if (res < 0) {
+            return res;
+        }
+        return NO_ERROR;
+    }
+}
+
+status_t BpBinder::removeFrozenStateChangeCallback(const wp<FrozenStateChangeCallback>& callback) {
+    LOG_ALWAYS_FATAL_IF(isRpcBinder(),
+                        "removeFrozenStateChangeCallback() is not supported for RPC Binder.");
+    LOG_ALWAYS_FATAL_IF(!kEnableKernelIpc, "Binder kernel driver disabled at build time");
+
+    RpcMutexUniqueLock _l(mLock);
+
+    const size_t N = mFrozen ? mFrozen->callbacks.size() : 0;
+    for (size_t i = 0; i < N; i++) {
+        if (mFrozen->callbacks.itemAt(i) == callback) {
+            mFrozen->callbacks.removeAt(i);
+            if (mFrozen->callbacks.size() == 0) {
+                ALOGV("Clearing freeze notification: %p handle %d\n", this, binderHandle());
+                status_t status =
+                        IPCThreadState::self()->removeFrozenStateChangeCallback(binderHandle(),
+                                                                                this);
+                if (status != NO_ERROR) {
+                    ALOGE("Unexpected error from "
+                          "IPCThreadState.removeFrozenStateChangeCallback: %s. "
+                          "%p handle %d\n",
+                          statusToString(status).c_str(), this, binderHandle());
+                }
+                mFrozen.reset();
+            }
+            return NO_ERROR;
+        }
+    }
+
+    return NAME_NOT_FOUND;
+}
+
+void BpBinder::onFrozenStateChanged(bool isFrozen) {
+    LOG_ALWAYS_FATAL_IF(isRpcBinder(), "onFrozenStateChanged is not supported for RPC Binder.");
+    LOG_ALWAYS_FATAL_IF(!kEnableKernelIpc, "Binder kernel driver disabled at build time");
+
+    ALOGV("Sending frozen state change notification for proxy %p handle %d, isFrozen=%s\n", this,
+          binderHandle(), isFrozen ? "true" : "false");
+
+    RpcMutexUniqueLock _l(mLock);
+    if (!mFrozen) {
+        return;
+    }
+    bool stateChanged = !mFrozen->initialStateReceived || mFrozen->isFrozen != isFrozen;
+    if (stateChanged) {
+        mFrozen->isFrozen = isFrozen;
+        mFrozen->initialStateReceived = true;
+        for (size_t i = 0; i < mFrozen->callbacks.size();) {
+            sp<FrozenStateChangeCallback> callback = mFrozen->callbacks.itemAt(i).promote();
+            if (callback != nullptr) {
+                callback->onStateChanged(wp<BpBinder>::fromExisting(this),
+                                         isFrozen ? FrozenStateChangeCallback::State::FROZEN
+                                                  : FrozenStateChangeCallback::State::UNFROZEN);
+                i++;
+            } else {
+                mFrozen->callbacks.removeItemsAt(i);
+            }
+        }
+    }
+}
+
 void BpBinder::reportOneDeath(const Obituary& obit)
 {
     sp<DeathRecipient> recipient = obit.recipient.promote();
@@ -602,25 +812,31 @@ void BpBinder::reportOneDeath(const Obituary& obit)
 
 void* BpBinder::attachObject(const void* objectID, void* object, void* cleanupCookie,
                              object_cleanup_func func) {
-    AutoMutex _l(mLock);
+    RpcMutexUniqueLock _l(mLock);
     ALOGV("Attaching object %p to binder %p (manager=%p)", object, this, &mObjects);
     return mObjects.attach(objectID, object, cleanupCookie, func);
 }
 
 void* BpBinder::findObject(const void* objectID) const
 {
-    AutoMutex _l(mLock);
+    RpcMutexUniqueLock _l(mLock);
     return mObjects.find(objectID);
 }
 
 void* BpBinder::detachObject(const void* objectID) {
-    AutoMutex _l(mLock);
+    RpcMutexUniqueLock _l(mLock);
     return mObjects.detach(objectID);
 }
 
 void BpBinder::withLock(const std::function<void()>& doWithLock) {
-    AutoMutex _l(mLock);
+    RpcMutexUniqueLock _l(mLock);
     doWithLock();
+}
+
+sp<IBinder> BpBinder::lookupOrCreateWeak(const void* objectID, object_make_func make,
+                                         const void* makeArgs) {
+    RpcMutexUniqueLock _l(mLock);
+    return mObjects.lookupOrCreateWeak(objectID, make, makeArgs);
 }
 
 BpBinder* BpBinder::remoteBinder()
@@ -629,6 +845,7 @@ BpBinder* BpBinder::remoteBinder()
 }
 
 BpBinder::~BpBinder() {
+<<<<<<< HEAD
 #ifdef _MSC_VER
     if( 0 != mDiedCallbackId )
     {
@@ -638,6 +855,11 @@ BpBinder::~BpBinder() {
     }
 #endif
     if (CC_UNLIKELY(isRpcBinder())) return;
+=======
+    if (isRpcBinder()) [[unlikely]] {
+        return;
+    }
+>>>>>>> d3fb93fb73
 
     if constexpr (!kEnableKernelIpc) {
         LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
@@ -649,19 +871,18 @@ BpBinder::~BpBinder() {
     IPCThreadState* ipc = IPCThreadState::self();
 
     if (mTrackedUid >= 0) {
-        AutoMutex _l(sTrackingLock);
+        RpcMutexUniqueLock _l(sTrackingLock);
         uint32_t trackedValue = sTrackingMap[mTrackedUid];
-        if (CC_UNLIKELY((trackedValue & COUNTING_VALUE_MASK) == 0)) {
+        if ((trackedValue & COUNTING_VALUE_MASK) == 0) [[unlikely]] {
             ALOGE("Unexpected Binder Proxy tracking decrement in %p handle %d\n", this,
                   binderHandle());
         } else {
-            if (CC_UNLIKELY(
-                (trackedValue & LIMIT_REACHED_MASK) &&
-                ((trackedValue & COUNTING_VALUE_MASK) <= sBinderProxyCountLowWatermark)
-                )) {
+            auto countingValue = trackedValue & COUNTING_VALUE_MASK;
+            if ((trackedValue & (LIMIT_REACHED_MASK | WARNING_REACHED_MASK)) &&
+                (countingValue <= sBinderProxyCountLowWatermark)) [[unlikely]] {
                 ALOGI("Limit reached bit reset for uid %d (fewer than %d proxies from uid %d held)",
                       getuid(), sBinderProxyCountLowWatermark, mTrackedUid);
-                sTrackingMap[mTrackedUid] &= ~LIMIT_REACHED_MASK;
+                sTrackingMap[mTrackedUid] &= ~(LIMIT_REACHED_MASK | WARNING_REACHED_MASK);
                 sLastLimitCallbackMap.erase(mTrackedUid);
             }
             if (--sTrackingMap[mTrackedUid] == 0) {
@@ -669,7 +890,8 @@ BpBinder::~BpBinder() {
             }
         }
     }
-
+    uint32_t numProxies = --sBinderProxyCount;
+    binder::os::trace_int(ATRACE_TAG_AIDL, "binder_proxies", numProxies);
     if (ipc) {
         ipc->expungeHandle(binderHandle(), this);
         ipc->decWeakHandle(binderHandle());
@@ -677,7 +899,9 @@ BpBinder::~BpBinder() {
 }
 
 void BpBinder::onFirstRef() {
-    if (CC_UNLIKELY(isRpcBinder())) return;
+    if (isRpcBinder()) [[unlikely]] {
+        return;
+    }
 
     if constexpr (!kEnableKernelIpc) {
         LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time",0);
@@ -693,7 +917,7 @@ void BpBinder::onFirstRef() {
 }
 
 void BpBinder::onLastStrongRef(const void* /*id*/) {
-    if (CC_UNLIKELY(isRpcBinder())) {
+    if (isRpcBinder()) [[unlikely]] {
         (void)rpcSession()->sendDecStrong(this);
         return;
     }
@@ -715,11 +939,15 @@ void BpBinder::onLastStrongRef(const void* /*id*/) {
     if(obits != nullptr) {
         if (!obits->isEmpty()) {
             ALOGI("onLastStrongRef automatically unlinking death recipients: %s",
-                  mDescriptorCache.size() ? String8(mDescriptorCache).c_str() : "<uncached descriptor>");
+                  String8(mDescriptorCache).c_str());
         }
 
         if (ipc) ipc->clearDeathNotification(binderHandle(), this);
         mObituaries = nullptr;
+    }
+    if (mFrozen != nullptr) {
+        std::ignore = IPCThreadState::self()->removeFrozenStateChangeCallback(binderHandle(), this);
+        mFrozen.reset();
     }
     mLock.unlock();
 
@@ -734,7 +962,9 @@ void BpBinder::onLastStrongRef(const void* /*id*/) {
 bool BpBinder::onIncStrongAttempted(uint32_t /*flags*/, const void* /*id*/)
 {
     // RPC binder doesn't currently support inc from weak binders
-    if (CC_UNLIKELY(isRpcBinder())) return false;
+    if (isRpcBinder()) [[unlikely]] {
+        return false;
+    }
 
     if constexpr (!kEnableKernelIpc) {
         LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
@@ -748,7 +978,7 @@ bool BpBinder::onIncStrongAttempted(uint32_t /*flags*/, const void* /*id*/)
 
 uint32_t BpBinder::getBinderProxyCount(uint32_t uid)
 {
-    AutoMutex _l(sTrackingLock);
+    RpcMutexUniqueLock _l(sTrackingLock);
     auto it = sTrackingMap.find(uid);
     if (it != sTrackingMap.end()) {
         return it->second & COUNTING_VALUE_MASK;
@@ -756,9 +986,14 @@ uint32_t BpBinder::getBinderProxyCount(uint32_t uid)
     return 0;
 }
 
+uint32_t BpBinder::getBinderProxyCount()
+{
+    return sBinderProxyCount.load();
+}
+
 void BpBinder::getCountByUid(Vector<uint32_t>& uids, Vector<uint32_t>& counts)
 {
-    AutoMutex _l(sTrackingLock);
+    RpcMutexUniqueLock _l(sTrackingLock);
     uids.setCapacity(sTrackingMap.size());
     counts.setCapacity(sTrackingMap.size());
     for (const auto& it : sTrackingMap) {
@@ -771,15 +1006,18 @@ void BpBinder::enableCountByUid() { sCountByUidEnabled.store(true); }
 void BpBinder::disableCountByUid() { sCountByUidEnabled.store(false); }
 void BpBinder::setCountByUidEnabled(bool enable) { sCountByUidEnabled.store(enable); }
 
-void BpBinder::setLimitCallback(binder_proxy_limit_callback cb) {
-    AutoMutex _l(sTrackingLock);
-    sLimitCallback = cb;
+void BpBinder::setBinderProxyCountEventCallback(binder_proxy_limit_callback cbl,
+                                                binder_proxy_warning_callback cbw) {
+    RpcMutexUniqueLock _l(sTrackingLock);
+    sLimitCallback = std::move(cbl);
+    sWarningCallback = std::move(cbw);
 }
 
-void BpBinder::setBinderProxyCountWatermarks(int high, int low) {
-    AutoMutex _l(sTrackingLock);
+void BpBinder::setBinderProxyCountWatermarks(int high, int low, int warning) {
+    RpcMutexUniqueLock _l(sTrackingLock);
     sBinderProxyCountHighWatermark = high;
     sBinderProxyCountLowWatermark = low;
+    sBinderProxyCountWarningWatermark = warning;
 }
 
 // ---------------------------------------------------------------------------

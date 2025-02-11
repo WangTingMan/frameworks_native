@@ -24,6 +24,8 @@
 
 #include "Clock.h"
 #include "FrameTimeline/FrameTimeline.h"
+#include "FrontEnd/LayerHierarchy.h"
+#include "WpHash.h"
 
 namespace android {
 
@@ -32,13 +34,13 @@ class SurfaceFlinger;
 
 class FpsReporter : public IBinder::DeathRecipient {
 public:
-    FpsReporter(frametimeline::FrameTimeline& frameTimeline, SurfaceFlinger& flinger,
+    FpsReporter(frametimeline::FrameTimeline& frameTimeline,
                 std::unique_ptr<Clock> clock = std::make_unique<SteadyClock>());
 
     // Dispatches updated layer fps values for the registered listeners
     // This method promotes Layer weak pointers and performs layer stack traversals, so mStateLock
     // must be held when calling this method.
-    void dispatchLayerFps() EXCLUDES(mMutex);
+    void dispatchLayerFps(const frontend::LayerHierarchy&) EXCLUDES(mMutex);
 
     // Override for IBinder::DeathRecipient
     void binderDied(const wp<IBinder>&) override;
@@ -50,11 +52,6 @@ public:
 
 private:
     mutable std::mutex mMutex;
-    struct WpHash {
-        size_t operator()(const wp<IBinder>& p) const {
-            return std::hash<IBinder*>()(p.unsafe_get());
-        }
-    };
 
     struct TrackedListener {
         sp<gui::IFpsListener> listener;
@@ -62,7 +59,6 @@ private:
     };
 
     frametimeline::FrameTimeline& mFrameTimeline;
-    SurfaceFlinger& mFlinger;
     static const constexpr std::chrono::steady_clock::duration kMinDispatchDuration =
             std::chrono::milliseconds(500);
     std::unique_ptr<Clock> mClock;

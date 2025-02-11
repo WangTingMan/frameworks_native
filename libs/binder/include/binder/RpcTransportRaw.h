@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include <binder/Common.h>
 #include <binder/RpcTransport.h>
 #include <binder/libbinder_export.h>
 
@@ -29,11 +30,11 @@ namespace android {
 // RpcTransportCtxFactory with TLS disabled.
 class LIBBINDER_EXPORT RpcTransportCtxFactoryRaw : public RpcTransportCtxFactory {
 public:
-    static std::unique_ptr<RpcTransportCtxFactory> make();
+    LIBBINDER_EXPORTED static std::unique_ptr<RpcTransportCtxFactory> make();
 
-    std::unique_ptr<RpcTransportCtx> newServerCtx() const override;
-    std::unique_ptr<RpcTransportCtx> newClientCtx() const override;
-    const char* toCString() const override;
+    LIBBINDER_EXPORTED std::unique_ptr<RpcTransportCtx> newServerCtx() const override;
+    LIBBINDER_EXPORTED std::unique_ptr<RpcTransportCtx> newClientCtx() const override;
+    LIBBINDER_EXPORTED const char* toCString() const override;
 
 private:
     RpcTransportCtxFactoryRaw() = default;

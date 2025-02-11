@@ -17,62 +17,31 @@
 #include <ui/GraphicTypes.h>
 #include <ui/Transform.h>
 
-#include "ContainerLayer.h"
 #include "DisplayDevice.h"
+#include "FrontEnd/LayerCreationArgs.h"
 #include "Layer.h"
 #include "LayerRenderArea.h"
 #include "SurfaceFlinger.h"
 
 namespace android {
-namespace {
 
-struct ReparentForDrawing {
-    const sp<Layer>& oldParent;
-
-    ReparentForDrawing(const sp<Layer>& oldParent, const sp<Layer>& newParent,
-                       const Rect& drawingBounds)
-          : oldParent(oldParent) {
-        // Compute and cache the bounds for the new parent layer.
-        newParent->computeBounds(drawingBounds.toFloatRect(), ui::Transform(),
-                                 0.f /* shadowRadius */);
-        oldParent->setChildrenDrawingParent(newParent);
-    }
-    ~ReparentForDrawing() { oldParent->setChildrenDrawingParent(oldParent); }
-};
-
-} // namespace
-
-LayerRenderArea::LayerRenderArea(SurfaceFlinger& flinger, sp<Layer> layer, const Rect& crop,
-                                 ui::Size reqSize, ui::Dataspace reqDataSpace, bool childrenOnly,
-                                 const Rect& layerStackRect, bool allowSecureLayers)
-      : RenderArea(reqSize, CaptureFill::CLEAR, reqDataSpace, layerStackRect, allowSecureLayers),
+LayerRenderArea::LayerRenderArea(sp<Layer> layer, frontend::LayerSnapshot layerSnapshot,
+                                 const Rect& crop, ui::Size reqSize, ui::Dataspace reqDataSpace,
+                                 const ui::Transform& layerTransform, const Rect& layerBufferSize,
+                                 ftl::Flags<RenderArea::Options> options)
+      : RenderArea(reqSize, CaptureFill::CLEAR, reqDataSpace, options),
         mLayer(std::move(layer)),
+        mLayerSnapshot(std::move(layerSnapshot)),
+        mLayerBufferSize(layerBufferSize),
         mCrop(crop),
-        mFlinger(flinger),
-        mChildrenOnly(childrenOnly) {}
+        mTransform(layerTransform) {}
 
 const ui::Transform& LayerRenderArea::getTransform() const {
     return mTransform;
 }
 
-Rect LayerRenderArea::getBounds() const {
-    return mLayer->getBufferSize(mLayer->getDrawingState());
-}
-
-int LayerRenderArea::getHeight() const {
-    return mLayer->getBufferSize(mLayer->getDrawingState()).getHeight();
-}
-
-int LayerRenderArea::getWidth() const {
-    return mLayer->getBufferSize(mLayer->getDrawingState()).getWidth();
-}
-
 bool LayerRenderArea::isSecure() const {
-    return mAllowSecureLayers;
-}
-
-bool LayerRenderArea::needsFiltering() const {
-    return mNeedsFiltering;
+    return mOptions.test(Options::CAPTURE_SECURE_LAYERS);
 }
 
 sp<const DisplayDevice> LayerRenderArea::getDisplayDevice() const {
@@ -81,46 +50,10 @@ sp<const DisplayDevice> LayerRenderArea::getDisplayDevice() const {
 
 Rect LayerRenderArea::getSourceCrop() const {
     if (mCrop.isEmpty()) {
-        return getBounds();
+        // TODO this should probably be mBounds instead of just buffer bounds
+        return mLayerBufferSize;
     } else {
         return mCrop;
-    }
-}
-
-void LayerRenderArea::render(std::function<void()> drawLayers) {
-    using namespace std::string_literals;
-
-    const Rect sourceCrop = getSourceCrop();
-    // no need to check rotation because there is none
-    mNeedsFiltering = sourceCrop.width() != getReqWidth() || sourceCrop.height() != getReqHeight();
-
-    // If layer is offscreen, update mirroring info if it exists
-    if (mLayer->isRemovedFromCurrentState()) {
-        mLayer->traverse(LayerVector::StateSet::Drawing,
-                         [&](Layer* layer) { layer->updateMirrorInfo(); });
-        mLayer->traverse(LayerVector::StateSet::Drawing,
-                         [&](Layer* layer) { layer->updateCloneBufferInfo(); });
-    }
-
-    if (!mChildrenOnly) {
-        mTransform = mLayer->getTransform().inverse();
-        // If the layer is offscreen, compute bounds since we don't compute bounds for offscreen
-        // layers in a regular cycles.
-        if (mLayer->isRemovedFromCurrentState()) {
-            FloatRect maxBounds = mFlinger.getMaxDisplayBounds();
-            mLayer->computeBounds(maxBounds, ui::Transform(), 0.f /* shadowRadius */);
-        }
-        drawLayers();
-    } else {
-        uint32_t w = static_cast<uint32_t>(getWidth());
-        uint32_t h = static_cast<uint32_t>(getHeight());
-        // In the "childrenOnly" case we reparent the children to a screenshot
-        // layer which has no properties set and which does not draw.
-        sp<ContainerLayer> screenshotParentLayer = mFlinger.getFactory().createContainerLayer(
-                {&mFlinger, nullptr, "Screenshot Parent"s, w, h, 0, LayerMetadata()});
-
-        ReparentForDrawing reparent(mLayer, screenshotParentLayer, sourceCrop);
-        drawLayers();
     }
 }
 

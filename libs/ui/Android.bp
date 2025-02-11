@@ -14,6 +14,7 @@
 
 package {
     default_applicable_licenses: ["frameworks_native_libs_ui_license"],
+    default_team: "trendy_team_android_core_graphics_stack",
 }
 
 // Added automatically by a large-scale-change
@@ -27,6 +28,11 @@ license {
     license_text: [
         "NOTICE",
     ],
+}
+
+cc_library_headers {
+    name: "libui_fuzzableDataspaces_headers",
+    export_include_dirs: ["include/ui/fuzzer/"],
 }
 
 cc_defaults {
@@ -43,7 +49,6 @@ cc_defaults {
         integer_overflow: true,
         misc_undefined: ["bounds"],
     },
-
 }
 
 cc_library_static {
@@ -85,6 +90,7 @@ cc_library_static {
 
     export_include_dirs: [
         "include",
+        "include_mock",
         "include_private",
         "include_types",
     ],
@@ -99,9 +105,6 @@ cc_library_static {
 cc_library_shared {
     name: "libui",
     vendor_available: true,
-    vndk: {
-        enabled: true,
-    },
     double_loadable: true,
 
     cflags: [
@@ -120,7 +123,7 @@ cc_library_shared {
     srcs: [
         "DebugUtils.cpp",
         "DeviceProductInfo.cpp",
-        "DisplayMode.cpp",
+        "DisplayIdentification.cpp",
         "DynamicDisplayInfo.cpp",
         "Fence.cpp",
         "FenceTime.cpp",
@@ -129,14 +132,13 @@ cc_library_shared {
         "Gralloc2.cpp",
         "Gralloc3.cpp",
         "Gralloc4.cpp",
+        "Gralloc5.cpp",
         "GraphicBuffer.cpp",
         "GraphicBufferAllocator.cpp",
         "GraphicBufferMapper.cpp",
-        "HdrCapabilities.cpp",
         "PixelFormat.cpp",
         "PublicFormat.cpp",
-        "Size.cpp",
-        "StaticDisplayInfo.cpp",
+        "StaticAsserts.cpp",
     ],
 
     include_dirs: [
@@ -148,6 +150,8 @@ cc_library_shared {
     ],
 
     defaults: [
+        "android.hardware.graphics.allocator-ndk_shared",
+        "android.hardware.graphics.common-ndk_shared",
         "libui-defaults",
         // Uncomment the following line to enable VALIDATE_REGIONS traces
         //defaults: ["libui-validate-regions-defaults"],
@@ -157,29 +161,30 @@ cc_library_shared {
         "android.hardware.graphics.allocator@2.0",
         "android.hardware.graphics.allocator@3.0",
         "android.hardware.graphics.allocator@4.0",
-        "android.hardware.graphics.common-V2-ndk",
         "android.hardware.graphics.common@1.2",
         "android.hardware.graphics.mapper@2.0",
         "android.hardware.graphics.mapper@2.1",
         "android.hardware.graphics.mapper@3.0",
         "android.hardware.graphics.mapper@4.0",
         "libbase",
+        "libbinder_ndk",
         "libcutils",
         "libgralloctypes",
         "libhidlbase",
         "libsync",
         "libutils",
         "liblog",
+        "libvndksupport",
     ],
 
     export_shared_lib_headers: [
         "android.hardware.graphics.common@1.2",
-        "android.hardware.graphics.common-V2-ndk",
         "android.hardware.graphics.mapper@4.0",
         "libgralloctypes",
     ],
 
     static_libs: [
+        "libaidlcommonsupport",
         "libarect",
         "libgrallocusage",
         "libmath",
@@ -208,6 +213,8 @@ cc_library_shared {
         "libnativewindow_headers",
         "libhardware_headers",
         "libui_headers",
+        "libimapper_stablec",
+        "libimapper_providerutils",
     ],
 
     export_static_lib_headers: [
@@ -223,6 +230,12 @@ cc_library_shared {
         "libui_headers",
     ],
     min_sdk_version: "29",
+    // TODO(b/214400477) to remove use of GraphicBuffer
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+        "test_com.android.media.swcodec",
+    ],
 
     afdo: true,
 }
@@ -246,6 +259,11 @@ cc_library_headers {
         "libmath_headers",
     ],
     min_sdk_version: "29",
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+        "test_com.android.media.swcodec",
+    ],
 }
 
 // defaults to enable VALIDATE_REGIONS traces
@@ -259,13 +277,3 @@ subdirs = [
     "tests",
     "tools",
 ]
-
-filegroup {
-    name: "libui_host_common",
-    srcs: [
-        "Rect.cpp",
-        "Region.cpp",
-        "PixelFormat.cpp",
-        "Transform.cpp",
-    ],
-}

@@ -18,15 +18,41 @@
 #include <stddef.h>
 #include <cstdint>
 
+<<<<<<< HEAD
 #include <android-base/result.h>
 #include <android-base/unique_fd.h>
 
+=======
+#include <binder/RpcTransport.h>
+#include <binder/unique_fd.h>
+>>>>>>> d3fb93fb73
 #include <utils/Errors.h>
 
-namespace android {
+namespace android::binder::os {
 
-android::base::Result<void> setNonBlocking(android::base::borrowed_fd fd);
+LIBBINDER_EXPORTED void trace_begin(uint64_t tag, const char* name);
+LIBBINDER_EXPORTED void trace_end(uint64_t tag);
+LIBBINDER_EXPORTED void trace_int(uint64_t tag, const char* name, int32_t value);
+LIBBINDER_EXPORTED uint64_t get_trace_enabled_tags();
+
+status_t setNonBlocking(borrowed_fd fd);
 
 status_t getRandomBytes(uint8_t* data, size_t size);
 
-} // namespace android
+status_t dupFileDescriptor(int oldFd, int* newFd);
+
+std::unique_ptr<RpcTransportCtxFactory> makeDefaultRpcTransportCtxFactory();
+
+LIBBINDER_INTERNAL_EXPORTED ssize_t
+sendMessageOnSocket(const RpcTransportFd& socket, iovec* iovs, int niovs,
+                    const std::vector<std::variant<unique_fd, borrowed_fd>>* ancillaryFds);
+
+LIBBINDER_INTERNAL_EXPORTED ssize_t
+receiveMessageFromSocket(const RpcTransportFd& socket, iovec* iovs, int niovs,
+                         std::vector<std::variant<unique_fd, borrowed_fd>>* ancillaryFds);
+
+uint64_t GetThreadId();
+
+bool report_sysprop_change();
+
+} // namespace android::binder::os
