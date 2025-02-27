@@ -31,14 +31,11 @@
 #include <stddef.h>
 #ifndef _MSC_VER
 #include <sys/cdefs.h>
-<<<<<<< HEAD
 #endif
 
 #include <android/binder_status.h>
 #include <android/libbinder_ndk_export.h>
-=======
 #include <uchar.h>
->>>>>>> d3fb93fb73
 
 struct AIBinder;
 typedef struct AIBinder AIBinder;

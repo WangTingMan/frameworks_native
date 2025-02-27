@@ -15,12 +15,9 @@
  */
 #pragma once
 
-<<<<<<< HEAD
 #include <android-base/unique_fd.h>
 #ifndef _MSC_VER
-=======
 #include <binder/unique_fd.h>
->>>>>>> d3fb93fb73
 #include <poll.h>
 #endif
 
@@ -29,14 +26,15 @@
 
 namespace android {
 
-#ifndef _MSC_VER
 template <typename SendOrReceive>
 status_t interruptableReadOrWrite(
         const android::RpcTransportFd& socket, FdTrigger* fdTrigger, iovec* iovs, int niovs,
         SendOrReceive sendOrReceiveFun, const char* funName, int16_t event,
         const std::optional<binder::impl::SmallFunction<status_t()>>& altPoll) {
     MAYBE_WAIT_IN_FLAKE_MODE;
-
+#ifdef _MSC_VER
+    return OK;
+#else
     if (niovs < 0) {
         return BAD_VALUE;
     }
@@ -111,7 +109,7 @@ status_t interruptableReadOrWrite(
             if (!havePolled) havePolled = true;
         }
     }
-}
 #endif
+}
 
 } // namespace android

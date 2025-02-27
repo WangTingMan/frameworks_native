@@ -331,7 +331,7 @@ void BpBinder::handle_remote_died
 
     bool is_same = false;
     {
-        Mutex::Autolock _l( mLock );
+        RpcMutexLockGuard _l( mLock );
         is_same = descriptor_str == mDescriptorCache;
     }
 
@@ -401,7 +401,7 @@ std::optional<int32_t> BpBinder::getDebugBinderHandle() const {
 }
 
 bool BpBinder::isDescriptorCached() const {
-    RpcMutexUniqueLock _l(mLock);
+    RpcMutexUniqueLock _l( mLock );
     return mDescriptorCache.c_str() != kDescriptorUninit.c_str();
 }
 
@@ -487,13 +487,9 @@ status_t BpBinder::transact(
             int16_t stability = Stability::getRepr(this);
             Stability::Level required = privateVendor ? Stability::VENDOR
                 : Stability::getLocalLevel();
-<<<<<<< HEAD
-#ifndef _MSC_VER
-            if (CC_UNLIKELY(!Stability::check(stability, required))) {
-=======
 
+#ifndef _MSC_VER
             if (!Stability::check(stability, required)) [[unlikely]] {
->>>>>>> d3fb93fb73
                 ALOGE("Cannot do a user transaction on a %s binder (%s) in a %s context.",
                       Stability::levelString(stability).c_str(),
                       String8(getInterfaceDescriptor()).c_str(),
@@ -540,12 +536,8 @@ status_t BpBinder::linkToDeath(
 {
     if (isRpcBinder()) {
         if (rpcSession()->getMaxIncomingThreads() < 1) {
-<<<<<<< HEAD
-            LOG_ALWAYS_FATAL("Cannot register a DeathRecipient without any incoming connections.", 0 );
-=======
             ALOGE("Cannot register a DeathRecipient without any incoming threads. Need to set max "
                   "incoming threads to a value greater than 0 before calling linkToDeath.");
->>>>>>> d3fb93fb73
             return INVALID_OPERATION;
         }
     } else if constexpr (!kEnableKernelIpc) {
@@ -655,7 +647,11 @@ void BpBinder::sendObituary()
     mAlive = 0;
     if (mObitsSent) return;
 
+#ifdef _MSC_VER
+    RpcMutexLockGuard locker( mLock );
+#else
     mLock.lock();
+#endif
     Vector<Obituary>* obits = mObituaries;
     if(obits != nullptr) {
         ALOGV("Clearing sent death notification: %p handle %d\n", this, binderHandle());
@@ -669,7 +665,9 @@ void BpBinder::sendObituary()
         mObituaries = nullptr;
     }
     mObitsSent = 1;
+#ifndef _MSC_VER
     mLock.unlock();
+#endif
 
     ALOGV("Reporting death of proxy %p for %zu recipients\n",
         this, obits ? obits->size() : 0U);
@@ -845,7 +843,7 @@ BpBinder* BpBinder::remoteBinder()
 }
 
 BpBinder::~BpBinder() {
-<<<<<<< HEAD
+
 #ifdef _MSC_VER
     if( 0 != mDiedCallbackId )
     {
@@ -854,12 +852,11 @@ BpBinder::~BpBinder() {
         mDiedCallbackId = 0;
     }
 #endif
-    if (CC_UNLIKELY(isRpcBinder())) return;
-=======
+
     if (isRpcBinder()) [[unlikely]] {
         return;
     }
->>>>>>> d3fb93fb73
+
 
     if constexpr (!kEnableKernelIpc) {
         LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time", 0 );
@@ -934,7 +931,11 @@ void BpBinder::onLastStrongRef(const void* /*id*/) {
     IPCThreadState* ipc = IPCThreadState::self();
     if (ipc) ipc->decStrongHandle(binderHandle());
 
+#ifdef _MSC_VER
+    RpcMutexLockGuard locker( mLock );
+#else
     mLock.lock();
+#endif
     Vector<Obituary>* obits = mObituaries;
     if(obits != nullptr) {
         if (!obits->isEmpty()) {
@@ -949,7 +950,9 @@ void BpBinder::onLastStrongRef(const void* /*id*/) {
         std::ignore = IPCThreadState::self()->removeFrozenStateChangeCallback(binderHandle(), this);
         mFrozen.reset();
     }
+#ifndef _MSC_VER
     mLock.unlock();
+#endif
 
     if (obits != nullptr) {
         // XXX Should we tell any remaining DeathRecipient

@@ -38,6 +38,11 @@ namespace vintf {
         return m_port;
     }
 
+    std::optional<std::string> ManifestInstance::accessor()const
+    {
+        return "aa";
+    }
+
     VintfObject* VintfObject::GetInstance()
     {
         static VintfObject instance;

@@ -25,12 +25,7 @@ namespace android {
 
 // ----------------------------------------------------------------------
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT IResultReceiver : public IInterface
-{
-=======
-class LIBBINDER_EXPORTED IResultReceiver : public IInterface {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT IResultReceiver : public IInterface {
 public:
     DECLARE_META_INTERFACE(ResultReceiver)
 
@@ -42,13 +37,7 @@ public:
 };
 
 // ----------------------------------------------------------------------
-
-<<<<<<< HEAD
-class LIBBINDER_EXPORT BnResultReceiver : public BnInterface<IResultReceiver>
-{
-=======
-class LIBBINDER_EXPORTED BnResultReceiver : public BnInterface<IResultReceiver> {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT BnResultReceiver : public BnInterface<IResultReceiver> {
 public:
     // NOLINTNEXTLINE(google-default-arguments)
     virtual status_t    onTransact( uint32_t code,

@@ -44,26 +44,7 @@ class ClientCounterCallback;
  *
  * For more information on init .rc configuration, see system/core/init/README.md
  **/
-<<<<<<< HEAD
 class LIBBINDER_EXPORT LazyServiceRegistrar {
-   public:
-     static LazyServiceRegistrar& getInstance();
-     status_t registerService(const sp<IBinder>& service,
-                              const std::string& name = "default",
-                              bool allowIsolated = false,
-                              int dumpFlags = IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT);
-     /**
-      * Force the service to persist, even when it has 0 clients.
-      * If setting this flag from the server side, make sure to do so before calling
-      * registerService, or there may be a race with the default dynamic shutdown.
-      *
-      * This should only be used if it is every eventually set to false. If a
-      * service needs to persist but doesn't need to dynamically shut down,
-      * prefer to control it with another mechanism such as ctl.start.
-      */
-     void forcePersist(bool persist);
-=======
-class LazyServiceRegistrar {
 public:
     LIBBINDER_EXPORTED static LazyServiceRegistrar& getInstance();
     LIBBINDER_EXPORTED status_t
@@ -80,7 +61,6 @@ public:
      * prefer to control it with another mechanism such as ctl.start.
      */
     LIBBINDER_EXPORTED void forcePersist(bool persist);
->>>>>>> d3fb93fb73
 
     /**
      * Set a callback that is invoked when the active service count (i.e. services with clients)

@@ -58,11 +58,8 @@ __BEGIN_DECLS
  * Do not use this from a library. Apps setup their own threadpools, and otherwise, the main
  * function should be responsible for configuring the threadpool for the entire application.
  */
-<<<<<<< HEAD
-LIBBINDER_NDK_EXPORT void ABinderProcess_startThreadPool();
-=======
-void ABinderProcess_startThreadPool(void);
->>>>>>> d3fb93fb73
+LIBBINDER_NDK_EXPORT void ABinderProcess_startThreadPool(void);
+
 /**
  * This sets the maximum number of threads that can be started in the threadpool. By default, after
  * startThreadPool is called, this is 15. If it is called additional times, it will only prevent
@@ -86,9 +83,7 @@ LIBBINDER_NDK_EXPORT bool ABinderProcess_setThreadPoolMaxThreadCount(uint32_t nu
  * you should use this in a library to abort if the threadpool is not started.
  * Programs should configure binder threadpools once at the beginning.
  */
-<<<<<<< HEAD
-LIBBINDER_NDK_EXPORT void ABinderProcess_joinThreadPool();
-=======
+
 bool ABinderProcess_isThreadPoolStarted(void);
 /**
  * This adds the current thread to the threadpool. This thread will be in addition to the thread
@@ -98,8 +93,7 @@ bool ABinderProcess_isThreadPoolStarted(void);
  * Do not use this from a library. Apps setup their own threadpools, and otherwise, the main
  * function should be responsible for configuring the threadpool for the entire application.
  */
-void ABinderProcess_joinThreadPool(void);
->>>>>>> d3fb93fb73
+LIBBINDER_NDK_EXPORT void ABinderProcess_joinThreadPool(void);
 
 /**
  * This gives you an fd to wait on. Whenever data is available on the fd,
@@ -122,11 +116,7 @@ void ABinderProcess_joinThreadPool(void);
  *
  * \return STATUS_OK on success
  */
-<<<<<<< HEAD
-/*__attribute__((weak))*/ LIBBINDER_NDK_EXPORT binder_status_t ABinderProcess_handlePolledCommands() __INTRODUCED_IN(31);
-=======
-__attribute__((weak)) binder_status_t ABinderProcess_handlePolledCommands(void) __INTRODUCED_IN(31);
->>>>>>> d3fb93fb73
+/*__attribute__((weak))*/ LIBBINDER_NDK_EXPORT binder_status_t ABinderProcess_handlePolledCommands(void) __INTRODUCED_IN(31);
 
 __END_DECLS
 

@@ -20,11 +20,8 @@
 
 #ifndef _MSC_VER
 #include <dlfcn.h>
-<<<<<<< HEAD
-=======
 #include <inttypes.h>
 #include <netinet/tcp.h>
->>>>>>> d3fb93fb73
 #include <poll.h>
 #include <unistd.h>
 #else
@@ -158,11 +155,13 @@ status_t RpcSession::setupUnixDomainSocketBootstrapClient(unique_fd bootstrapFd)
             mCtx->newTransport(RpcTransportFd(std::move(bootstrapFd)), mShutdownTrigger.get());
     return setupClient([&](const std::vector<uint8_t>& sessionId, bool incoming) {
         int socks[2];
+#ifndef _MSC_VER
         if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, socks) < 0) {
             int savedErrno = errno;
             ALOGE("Failed socketpair: %s", strerror(savedErrno));
             return -savedErrno;
         }
+#endif
         unique_fd clientFd(socks[0]), serverFd(socks[1]);
 
         int zero = 0;
@@ -202,7 +201,9 @@ status_t RpcSession::setupPreconnectedClient(unique_fd fd, std::function<unique_
             fd = request();
             if (!fd.ok()) return BAD_VALUE;
         }
+#ifndef _MSC_VER
         if (status_t res = binder::os::setNonBlocking(fd); res != OK) return res;
+#endif
 
         RpcTransportFd transportFd(std::move(fd));
         status_t status = initAndAddConnection(std::move(transportFd), sessionId, incoming);
@@ -567,12 +568,8 @@ status_t RpcSession::setupClient(const std::function<status_t(const std::vector<
     ALOGI_IF(outgoingConnections != numThreadsAvailable,
              "Server hints client to start %zu outgoing threads, but client will only start %zu "
              "because it is preconfigured to start at most %zu outgoing threads.",
-<<<<<<< HEAD
-             numThreadsAvailable, outgoingThreads, mMaxOutgoingThreads);
-=======
              numThreadsAvailable, outgoingConnections, mMaxOutgoingConnections);
 
->>>>>>> d3fb93fb73
     // TODO(b/189955605): we should add additional sessions dynamically
     // instead of all at once - the other side should be responsible for setting
     // up additional connections. We need to create at least one (unless 0 are
@@ -628,24 +625,17 @@ status_t singleSocketConnection(const RpcSocketAddress& addr,
 #else
         unique_fd serverFd(TEMP_FAILURE_RETRY(
                 socket(addr.addr()->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)));
-<<<<<<< HEAD
 #endif
-        if (serverFd == -1) {
-=======
         if (!serverFd.ok()) {
->>>>>>> d3fb93fb73
             int savedErrno = errno;
             ALOGE("Could not create socket at %s: %s", addr.toString().c_str(),
                   strerror(savedErrno));
             return -savedErrno;
         }
 
-<<<<<<< HEAD
-        if (0 != (connect(serverFd.get(), addr.addr(), addr.addrSize()))) {
 #ifdef _MSC_VER
             char connErrno = errno;
 #else
-=======
         if (addr.addr()->sa_family == AF_INET || addr.addr()->sa_family == AF_INET6) {
             int noDelay = 1;
             int result =
@@ -661,9 +651,7 @@ status_t singleSocketConnection(const RpcSocketAddress& addr,
         RpcTransportFd transportFd(std::move(serverFd));
 
         if (0 != TEMP_FAILURE_RETRY(connect(transportFd.fd.get(), addr.addr(), addr.addrSize()))) {
->>>>>>> d3fb93fb73
             int connErrno = errno;
-#endif
             if (connErrno == EAGAIN || connErrno == EINPROGRESS) {
                 // For non-blocking sockets, connect() may return EAGAIN (for unix domain socket) or
                 // EINPROGRESS (for others). Call poll() and getsockopt() to get the error.
@@ -702,6 +690,7 @@ status_t singleSocketConnection(const RpcSocketAddress& addr,
                        transportFd.fd.get());
 
         *outFd = std::move(transportFd);
+#endif
         return OK;
     }
 
@@ -736,7 +725,7 @@ status_t RpcSession::initAndAddConnection(RpcTransportFd fd, const std::vector<u
         header.options |= RPC_CONNECTION_OPTION_INCOMING;
     }
 
-    iovec_fake headerIov{&header, sizeof(header)};
+    iovec headerIov{&header, sizeof(header)};
     auto sendHeaderStatus = server->interruptableWriteFully(mShutdownTrigger.get(), &headerIov, 1,
                                                             std::nullopt, nullptr);
     if (sendHeaderStatus != OK) {
@@ -746,7 +735,7 @@ status_t RpcSession::initAndAddConnection(RpcTransportFd fd, const std::vector<u
     }
 
     if (sessionId.size() > 0) {
-        iovec_fake sessionIov{const_cast<void*>(static_cast<const void*>(sessionId.data())),
+        iovec sessionIov{const_cast<void*>(static_cast<const void*>(sessionId.data())),
                          sessionId.size()};
         auto sendSessionIdStatus =
                 server->interruptableWriteFully(mShutdownTrigger.get(), &sessionIov, 1,

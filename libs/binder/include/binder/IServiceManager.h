@@ -19,7 +19,11 @@
 #include <binder/IInterface.h>
 // Trusty has its own definition of socket APIs from trusty_ipc.h
 #ifndef __TRUSTY__
+#ifdef _MSC_VER
+#include <cutils/sockets.h>
+#else
 #include <sys/socket.h>
+#endif
 #endif // __TRUSTY__
 #include <utils/String16.h>
 #include <utils/Vector.h>
@@ -45,12 +49,7 @@ namespace android {
  *
  * IInterface is only for legacy ABI compatibility
  */
-<<<<<<< HEAD
-class LIBBINDER_EXPORT IServiceManager : public IInterface
-{
-=======
-class LIBBINDER_EXPORTED IServiceManager : public IInterface {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT IServiceManager : public IInterface {
 public:
     // for ABI compatibility
     virtual const String16& getInterfaceDescriptor() const;
@@ -87,7 +86,9 @@ public:
      * a system property, or in the case of services in the VINTF manifest, it can be checked
      * with isDeclared).
      */
+#ifndef _MSC_VER
     [[deprecated("this polls for 5s, prefer waitForService or checkService")]]
+#endif
     virtual sp<IBinder> getService(const String16& name) const = 0;
 
     /**
@@ -173,13 +174,10 @@ public:
      * Only used for testing. This is enabled by default.
      */
     virtual void enableAddServiceCache(bool value) = 0;
+
 };
 
-<<<<<<< HEAD
 LIBBINDER_EXPORT sp<IServiceManager> defaultServiceManager();
-=======
-LIBBINDER_EXPORTED sp<IServiceManager> defaultServiceManager();
->>>>>>> d3fb93fb73
 
 /**
  * Directly set the default service manager. Only used for testing.
@@ -187,11 +185,7 @@ LIBBINDER_EXPORTED sp<IServiceManager> defaultServiceManager();
  * *before* any call to defaultServiceManager(); if the latter is
  * called first, setDefaultServiceManager() will abort.
  */
-<<<<<<< HEAD
 LIBBINDER_EXPORT void setDefaultServiceManager(const sp<IServiceManager>& sm);
-=======
-LIBBINDER_EXPORTED void setDefaultServiceManager(const sp<IServiceManager>& sm);
->>>>>>> d3fb93fb73
 
 template<typename INTERFACE>
 sp<INTERFACE> waitForService(const String16& name) {
@@ -241,20 +235,13 @@ status_t getService(const String16& name, sp<INTERFACE>* outService)
     return NAME_NOT_FOUND;
 }
 
-<<<<<<< HEAD
-LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission);
-LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission,
-                            int32_t* outPid, int32_t* outUid);
-LIBBINDER_EXPORT bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
-                     bool logPermissionFailure = true);
-=======
-LIBBINDER_EXPORTED void* openDeclaredPassthroughHal(const String16& interface,
+LIBBINDER_EXPORT void* openDeclaredPassthroughHal(const String16& interface,
                                                     const String16& instance, int flag);
 
-LIBBINDER_EXPORTED bool checkCallingPermission(const String16& permission);
-LIBBINDER_EXPORTED bool checkCallingPermission(const String16& permission, int32_t* outPid,
+LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission);
+LIBBINDER_EXPORT bool checkCallingPermission(const String16& permission, int32_t* outPid,
                                                int32_t* outUid);
-LIBBINDER_EXPORTED bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
+LIBBINDER_EXPORT bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
                                         bool logPermissionFailure = true);
 
 // ----------------------------------------------------------------------
@@ -291,7 +278,7 @@ class AccessorProvider;
  * \return A pointer used as a recept for the successful addition of the
  *         AccessorProvider. This is needed to unregister it later.
  */
-[[nodiscard]] LIBBINDER_EXPORTED std::weak_ptr<AccessorProvider> addAccessorProvider(
+[[nodiscard]] LIBBINDER_EXPORT std::weak_ptr<AccessorProvider> addAccessorProvider(
         std::set<std::string>&& instances, RpcAccessorProvider&& providerCallback);
 
 /**
@@ -301,7 +288,7 @@ class AccessorProvider;
  * \param provider cookie that was returned by addAccessorProvider to keep track
  *        of this instance.
  */
-[[nodiscard]] LIBBINDER_EXPORTED status_t
+[[nodiscard]] LIBBINDER_EXPORT status_t
 removeAccessorProvider(std::weak_ptr<AccessorProvider> provider);
 
 /**
@@ -313,7 +300,7 @@ removeAccessorProvider(std::weak_ptr<AccessorProvider> provider);
  *        connecting to the service.
  * \return the binder of the IAccessor implementation from libbinder
  */
-LIBBINDER_EXPORTED sp<IBinder> createAccessor(const String16& instance,
+LIBBINDER_EXPORT sp<IBinder> createAccessor(const String16& instance,
                                               RpcSocketAddressProvider&& connectionInfoProvider);
 
 /**
@@ -328,7 +315,7 @@ LIBBINDER_EXPORTED sp<IBinder> createAccessor(const String16& instance,
  *
  * \return OK if the binder is an IAccessor for `instance`
  */
-LIBBINDER_EXPORTED status_t validateAccessor(const String16& instance, const sp<IBinder>& binder);
+LIBBINDER_EXPORT status_t validateAccessor(const String16& instance, const sp<IBinder>& binder);
 
 /**
  * Have libbinder wrap this IAccessor binder in an IAccessorDelegator and return
@@ -349,10 +336,9 @@ LIBBINDER_EXPORTED status_t validateAccessor(const String16& instance, const sp<
  * \return OK if the binder is an IAccessor for `instance` and the delegator was
  * successfully created.
  */
-LIBBINDER_EXPORTED status_t delegateAccessor(const String16& name, const sp<IBinder>& accessor,
+LIBBINDER_EXPORT status_t delegateAccessor(const String16& name, const sp<IBinder>& accessor,
                                              sp<IBinder>* delegator);
 #endif // __TRUSTY__
->>>>>>> d3fb93fb73
 
 #ifndef __ANDROID__
 // Create an IServiceManager that delegates the service manager on the device via adb.
@@ -372,11 +358,8 @@ LIBBINDER_EXPORTED status_t delegateAccessor(const String16& name, const sp<IBin
 struct RpcDelegateServiceManagerOptions {
     std::optional<size_t> maxOutgoingConnections;
 };
-<<<<<<< HEAD
+
 LIBBINDER_EXPORT sp<IServiceManager> createRpcDelegateServiceManager(
-=======
-LIBBINDER_EXPORTED sp<IServiceManager> createRpcDelegateServiceManager(
->>>>>>> d3fb93fb73
         const RpcDelegateServiceManagerOptions& options);
 #endif
 

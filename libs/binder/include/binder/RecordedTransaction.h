@@ -21,6 +21,8 @@
 #include <binder/unique_fd.h>
 #include <mutex>
 
+#include <binder/libbinder_export.h>
+
 namespace android {
 
 namespace binder::debug {
@@ -29,7 +31,7 @@ namespace binder::debug {
 // non-stable format. A detailed description of the recording format can be found in
 // RecordedTransaction.cpp.
 
-class RecordedTransaction {
+class LIBBINDER_EXPORT RecordedTransaction {
 public:
     // Filled with the first transaction from fd.
 

@@ -126,10 +126,18 @@ static inline void rpcJoinIfSingleThreaded(RpcMaybeThread& t) {
     t.join();
 }
 #else  // BINDER_RPC_SINGLE_THREADED
+
+#ifdef _MSC_VER
+using RpcMutex = std::recursive_mutex;
+using RpcMutexUniqueLock = std::unique_lock<std::recursive_mutex>;
+using RpcMutexLockGuard = std::lock_guard<std::recursive_mutex>;
+using RpcConditionVariable = std::condition_variable_any;
+#else
 using RpcMutex = std::mutex;
 using RpcMutexUniqueLock = std::unique_lock<std::mutex>;
 using RpcMutexLockGuard = std::lock_guard<std::mutex>;
 using RpcConditionVariable = std::condition_variable;
+#endif
 using RpcMaybeThread = std::thread;
 namespace rpc_this_thread = std::this_thread;
 

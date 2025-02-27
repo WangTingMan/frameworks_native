@@ -750,7 +750,6 @@ binder_status_t AIBinder_unlinkToDeath(AIBinder* binder, AIBinder_DeathRecipient
     return recipient->unlinkToDeath(binder->getBinder(), cookie);
 }
 
-#ifdef BINDER_WITH_KERNEL_IPC
 uid_t AIBinder_getCallingUid() {
     return ::android::IPCThreadState::self()->getCallingUid();
 }
@@ -762,7 +761,6 @@ pid_t AIBinder_getCallingPid() {
 bool AIBinder_isHandlingTransaction() {
     return ::android::IPCThreadState::self()->getServingStackPointer() != nullptr;
 }
-#endif
 
 void AIBinder_incStrong(AIBinder* binder) {
     if (binder == nullptr) {

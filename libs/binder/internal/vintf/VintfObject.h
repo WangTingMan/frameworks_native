@@ -37,6 +37,8 @@ namespace vintf {
 
         const std::optional<uint64_t> port() const;
 
+        std::optional<std::string> accessor()const;
+
     private:
 
         std::string m_package;
@@ -49,6 +51,18 @@ namespace vintf {
 
     struct HalManifest
     {
+
+        std::set<std::string> getNativeInstances( const std::string& instance ) const
+        {
+            std::set<std::string> ret;
+            ret.insert( instance );
+            return ret;
+        }
+
+        bool hasNativeInstance( const std::string& package, const std::string& interfaceName )const
+        {
+            return true;
+        }
 
         // Return whether a given AIDL instance is in this manifest with version >= the given version.
         bool hasAidlInstance(const std::string& package, size_t version,

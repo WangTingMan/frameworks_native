@@ -51,6 +51,8 @@
 #include <sys/types.h>
 #include <mutex>
 
+#include <android-base/result.h>
+
 #define BINDER_VM_SIZE ((1 * 1024 * 1024) - sysconf(_SC_PAGE_SIZE) * 2)
 #define DEFAULT_MAX_BINDER_THREADS 15
 #define DEFAULT_ENABLE_ONEWAY_SPAM_DETECTION 1
@@ -59,6 +61,10 @@
 const char* kDefaultDriver = "/dev/vndbinder";
 #else
 const char* kDefaultDriver = "/dev/binder";
+#endif
+
+#ifdef _MSC_VER
+#include <corecrt_io.h>
 #endif
 
 // -------------------------------------------------------------------------
@@ -128,7 +134,11 @@ static void verifyNotForked(bool forked) {
 }
 
 bool ProcessState::isVndservicemanagerEnabled() {
+#ifdef _MSC_VER
+    return true;
+#else
     return access("/vendor/bin/vndservicemanager", R_OK) == 0;
+#endif
 }
 
 sp<ProcessState> ProcessState::init(const char* driver, bool requireDefault) {
@@ -223,7 +233,6 @@ void ProcessState::childPostFork() {
 
 void ProcessState::startThreadPool()
 {
-<<<<<<< HEAD
 #ifdef _MSC_VER
     /*startThreadPoolImpl();*/
     /**
@@ -232,10 +241,7 @@ void ProcessState::startThreadPool()
      * So please make sure that will be invoked.
      */
 #else
-    AutoMutex _l(mLock);
-=======
     std::unique_lock<std::mutex> _l(mLock);
->>>>>>> d3fb93fb73
     if (!mThreadPoolStarted) {
         if (mMaxThreads == 0) {
             // see also getThreadPoolMaxTotalThreadCount
@@ -251,7 +257,7 @@ void ProcessState::startThreadPool()
 #ifdef _MSC_VER
 void ProcessState::startThreadPoolImpl()
 {
-    AutoMutex _l( mLock );
+    std::unique_lock<std::mutex> _l( mLock );
     if( !mThreadPoolStarted )
     {
         if( mMaxThreads == 0 )
@@ -274,13 +280,9 @@ void ProcessState::startThreadPoolImpl()
 
 bool ProcessState::becomeContextManager()
 {
-<<<<<<< HEAD
     int result = 0;
-    AutoMutex _l(mLock);
-=======
     std::unique_lock<std::mutex> _l(mLock);
 
->>>>>>> d3fb93fb73
     flat_binder_object obj {
         .flags = FLAT_BINDER_FLAG_TXN_SECURITY_CTX,
     };
@@ -473,14 +475,9 @@ void ProcessState::expungeHandle(int32_t handle, IBinder* binder)
     if (e && e->binder == binder) e->binder = nullptr;
 }
 
-<<<<<<< HEAD
-String8 ProcessState::makeBinderThreadName() { 
-=======
 String8 ProcessState::makeBinderThreadName() {
     int32_t s = mThreadPoolSeq.fetch_add(1, std::memory_order_release);
->>>>>>> d3fb93fb73
     pid_t pid = getpid();
-    int32_t s = 0;
     std::string_view driverName = mDriverName.c_str();
 #ifndef _MSC_VER
     s = android_atomic_add(1, &mThreadPoolSeq);
@@ -499,13 +496,7 @@ void ProcessState::spawnPooledThread(bool isMain)
         String8 name = makeBinderThreadName();
         ALOGV("Spawning new pooled thread, name=%s\n", name.c_str());
         sp<Thread> t = sp<PoolThread>::make(isMain);
-<<<<<<< HEAD
-        t->run(name.string());
-
-        std::lock_guard<std::mutex> thread_mutex_lock(mThreadCountLock);
-=======
         t->run(name.c_str());
->>>>>>> d3fb93fb73
         mKernelStartedThreads++;
     }
     // TODO: if startThreadPool is called on another thread after the process
@@ -529,10 +520,6 @@ status_t ProcessState::setThreadPoolMaxThreadCount(size_t maxThreads) {
 }
 
 size_t ProcessState::getThreadPoolMaxTotalThreadCount() const {
-<<<<<<< HEAD
-
-    std::lock_guard<std::mutex> thread_mutex_lock(mThreadCountLock);
-=======
     // Need to read `mKernelStartedThreads` before `mThreadPoolStarted` (with
     // non-relaxed memory ordering) to avoid a race like the following:
     //
@@ -542,7 +529,6 @@ size_t ProcessState::getThreadPoolMaxTotalThreadCount() const {
     // thread A: size_t kernelStarted = mKernelStartedThreads;
     // thread A: LOG_ALWAYS_FATAL_IF(kernelStarted != 0, ...);
     size_t kernelStarted = mKernelStartedThreads;
->>>>>>> d3fb93fb73
 
     if (mThreadPoolStarted) {
         size_t max = mMaxThreads;
@@ -600,42 +586,28 @@ void ProcessState::checkExpectingThreadPoolStart() const {
 
 #define DRIVER_FEATURES_PATH "/dev/binderfs/features/"
 bool ProcessState::isDriverFeatureEnabled(const DriverFeature feature) {
-<<<<<<< HEAD
     char on = 0xFF;
 #ifndef _MSC_VER
-    static const char* const names[] = {
-        [static_cast<int>(DriverFeature::ONEWAY_SPAM_DETECTION)] =
-            DRIVER_FEATURES_PATH "oneway_spam_detection",
-        [static_cast<int>(DriverFeature::EXTENDED_ERROR)] =
-            DRIVER_FEATURES_PATH "extended_error",
-    };
-    int fd = open(names[static_cast<int>(feature)], O_RDONLY | O_CLOEXEC);
-    if (fd == -1) {
-        ALOGE_IF(errno != ENOENT, "%s: cannot open %s: %s", __func__,
-                 names[static_cast<int>(feature)], strerror(errno));
-        return false;
-=======
     // Use static variable to cache the results.
     if (feature == DriverFeature::ONEWAY_SPAM_DETECTION) {
         static bool enabled = readDriverFeatureFile(DRIVER_FEATURES_PATH "oneway_spam_detection");
         return enabled;
->>>>>>> d3fb93fb73
+
     }
     if (feature == DriverFeature::EXTENDED_ERROR) {
         static bool enabled = readDriverFeatureFile(DRIVER_FEATURES_PATH "extended_error");
         return enabled;
     }
-<<<<<<< HEAD
+
     close(fd);
-#endif
-    return on == '1';
-=======
+
     if (feature == DriverFeature::FREEZE_NOTIFICATION) {
         static bool enabled = readDriverFeatureFile(DRIVER_FEATURES_PATH "freeze_notification");
         return enabled;
     }
     return false;
->>>>>>> d3fb93fb73
+#endif
+    return on == '1';
 }
 
 status_t ProcessState::enableOnewaySpamDetection(bool enable) {
@@ -655,7 +627,6 @@ String8 ProcessState::getDriverName() {
     return mDriverName;
 }
 
-<<<<<<< HEAD
 static base::Result<int> open_driver(const char* driver) {
     int fd = porting_binder::open_binder(driver, O_RDWR | O_CLOEXEC);
     if (fd < 0) {
@@ -677,38 +648,12 @@ static base::Result<int> open_driver(const char* driver) {
     }
     size_t maxThreads = DEFAULT_MAX_BINDER_THREADS;
     result = porting_binder::fcntl_binder(fd, BINDER_SET_MAX_THREADS, &maxThreads);
-=======
-static unique_fd open_driver(const char* driver, String8* error) {
-    auto fd = unique_fd(open(driver, O_RDWR | O_CLOEXEC));
-    if (!fd.ok()) {
-        error->appendFormat("%d (%s) Opening '%s' failed", errno, strerror(errno), driver);
-        return {};
-    }
-    int vers = 0;
-    int result = ioctl(fd.get(), BINDER_VERSION, &vers);
-    if (result == -1) {
-        error->appendFormat("%d (%s) Binder ioctl to obtain version failed", errno,
-                            strerror(errno));
-        return {};
-    }
-    if (result != 0 || vers != BINDER_CURRENT_PROTOCOL_VERSION) {
-        error->appendFormat("Binder driver protocol(%d) does not match user space protocol(%d)! "
-                            "ioctl() return value: %d",
-                            vers, BINDER_CURRENT_PROTOCOL_VERSION, result);
-        return {};
-    }
-    size_t maxThreads = DEFAULT_MAX_BINDER_THREADS;
-    result = ioctl(fd.get(), BINDER_SET_MAX_THREADS, &maxThreads);
->>>>>>> d3fb93fb73
+
     if (result == -1) {
         ALOGE("Binder ioctl to set max threads failed: %s", strerror(errno));
     }
     uint32_t enable = DEFAULT_ENABLE_ONEWAY_SPAM_DETECTION;
-<<<<<<< HEAD
     result = porting_binder::fcntl_binder(fd, BINDER_ENABLE_ONEWAY_SPAM_DETECTION, &enable);
-=======
-    result = ioctl(fd.get(), BINDER_ENABLE_ONEWAY_SPAM_DETECTION, &enable);
->>>>>>> d3fb93fb73
     if (result == -1) {
         ALOGE_IF(ProcessState::isDriverFeatureEnabled(
                      ProcessState::DriverFeature::ONEWAY_SPAM_DETECTION),
@@ -722,12 +667,7 @@ ProcessState::ProcessState(const char* driver)
         mDriverFD(-1),
 #ifndef _MSC_VER
         mVMStart(MAP_FAILED),
-<<<<<<< HEAD
-        mThreadCountLock(PTHREAD_MUTEX_INITIALIZER),
-        mThreadCountDecrement(PTHREAD_COND_INITIALIZER),
 #endif
-=======
->>>>>>> d3fb93fb73
         mExecutingThreadsCount(0),
         mMaxThreads(DEFAULT_MAX_BINDER_THREADS),
         mCurrentThreads(0),
@@ -738,7 +678,9 @@ ProcessState::ProcessState(const char* driver)
         mThreadPoolSeq(1),
         mCallRestriction(CallRestriction::NONE) {
     String8 error;
-    unique_fd opened = open_driver(driver, &error);
+    unique_fd opened;
+    auto fd_result = open_driver( driver );
+    opened.reset(fd_result.value());
 
     if (opened.ok()) {
 #ifndef _MSC_VER

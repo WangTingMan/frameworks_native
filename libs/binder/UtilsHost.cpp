@@ -79,19 +79,16 @@ std::string CommandResult::toString() const {
     return ss.str();
 }
 
-<<<<<<< HEAD
-std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
-                                             const std::function<bool(const CommandResult&)>& end) {
-=======
 std::optional<CommandResult> execute(std::vector<std::string> argStringVec,
                                      const std::function<bool(const CommandResult&)>& end) {
->>>>>>> d3fb93fb73
     // turn vector<string> into null-terminated char* vector.
     std::vector<char*> argv;
     argv.reserve(argStringVec.size() + 1);
     for (auto& arg : argStringVec) argv.push_back(arg.data());
     argv.push_back(nullptr);
-#ifndef _MSC_VER
+#ifdef _MSC_VER
+    return {};
+#else
     CommandResult ret;
     unique_fd outWrite;
     if (!binder::Pipe(&ret.outPipe, &outWrite)) {
@@ -202,8 +199,6 @@ std::optional<CommandResult> execute(std::vector<std::string> argStringVec,
     }
 
     return ret;
-#else
-    return nullptr;
 #endif
 }
 } // namespace android

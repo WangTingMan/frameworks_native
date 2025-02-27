@@ -23,6 +23,7 @@
 #endif
 
 #include <binder/Common.h>
+#include <binder/libbinder_export.h>
 
 #ifdef ATRACE_TAG_AIDL
 #if ATRACE_TAG_AIDL != (1 << 24)
@@ -39,13 +40,13 @@ namespace binder {
 namespace os {
 // Trampoline functions allowing generated aidls to trace binder transactions without depending on
 // libcutils/libutils
-void trace_begin(uint64_t tag, const char* name);
-void trace_end(uint64_t tag);
-void trace_int(uint64_t tag, const char* name, int32_t value);
-uint64_t get_trace_enabled_tags();
+LIBBINDER_EXPORT void trace_begin(uint64_t tag, const char* name);
+LIBBINDER_EXPORT void trace_end(uint64_t tag);
+LIBBINDER_EXPORT void trace_int(uint64_t tag, const char* name, int32_t value);
+LIBBINDER_EXPORT uint64_t get_trace_enabled_tags();
 } // namespace os
 
-class LIBBINDER_EXPORTED ScopedTrace {
+class LIBBINDER_EXPORT ScopedTrace {
 public:
     inline ScopedTrace(uint64_t tag, const char* name) : mTag(tag) { os::trace_begin(mTag, name); }
 

@@ -20,6 +20,8 @@
 #include <cutils/trace.h>
 #include <utils/misc.h>
 
+#include <binder/Trace.h>
+
 namespace android::binder {
 namespace os {
 

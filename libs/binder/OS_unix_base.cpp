@@ -21,7 +21,11 @@
 #include <binder/RpcTransportRaw.h>
 #include <log/log.h>
 #include <string.h>
+#ifdef _MSC_VER
+#include <base/rand_util.h>
+#else
 #include <sys/socket.h>
+#endif
 
 using android::binder::ReadFully;
 
@@ -31,6 +35,7 @@ namespace android::binder::os {
 constexpr size_t kMaxFdsPerMsg = 253;
 
 status_t setNonBlocking(borrowed_fd fd) {
+#ifndef _MSC_VER
     int flags = TEMP_FAILURE_RETRY(fcntl(fd.get(), F_GETFL));
     if (flags == -1) {
         PLOGE("Failed setNonBlocking: Could not get flags for fd");
@@ -40,10 +45,14 @@ status_t setNonBlocking(borrowed_fd fd) {
         PLOGE("Failed setNonBlocking: Could not set non-blocking flag for fd");
         return -errno;
     }
+#endif
     return OK;
 }
 
 status_t getRandomBytes(uint8_t* data, size_t size) {
+#ifdef _MSC_VER
+    ::base::RandBytes( data, size );
+#else
     unique_fd fd(TEMP_FAILURE_RETRY(open("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NOFOLLOW)));
     if (!fd.ok()) {
         return -errno;
@@ -52,16 +61,19 @@ status_t getRandomBytes(uint8_t* data, size_t size) {
     if (!ReadFully(fd, data, size)) {
         return -errno;
     }
+#endif
     return OK;
 }
 
 status_t dupFileDescriptor(int oldFd, int* newFd) {
+#ifndef _MSC_VER
     int ret = fcntl(oldFd, F_DUPFD_CLOEXEC, 0);
     if (ret < 0) {
         return -errno;
     }
 
     *newFd = ret;
+#endif
     return OK;
 }
 
@@ -71,6 +83,9 @@ std::unique_ptr<RpcTransportCtxFactory> makeDefaultRpcTransportCtxFactory() {
 
 ssize_t sendMessageOnSocket(const RpcTransportFd& socket, iovec* iovs, int niovs,
                             const std::vector<std::variant<unique_fd, borrowed_fd>>* ancillaryFds) {
+#ifdef _MSC_VER
+    return 20;
+#else
     if (ancillaryFds != nullptr && !ancillaryFds->empty()) {
         if (ancillaryFds->size() > kMaxFdsPerMsg) {
             errno = EINVAL;
@@ -111,10 +126,14 @@ ssize_t sendMessageOnSocket(const RpcTransportFd& socket, iovec* iovs, int niovs
             .msg_iovlen = static_cast<decltype(msg.msg_iovlen)>(niovs),
     };
     return TEMP_FAILURE_RETRY(sendmsg(socket.fd.get(), &msg, MSG_NOSIGNAL));
+#endif
 }
 
 ssize_t receiveMessageFromSocket(const RpcTransportFd& socket, iovec* iovs, int niovs,
                                  std::vector<std::variant<unique_fd, borrowed_fd>>* ancillaryFds) {
+#ifdef _MSC_VER
+    return 20;
+#else
     if (ancillaryFds != nullptr) {
         int fdBuffer[kMaxFdsPerMsg];
         alignas(struct cmsghdr) char msgControlBuf[CMSG_SPACE(sizeof(fdBuffer))];
@@ -160,6 +179,7 @@ ssize_t receiveMessageFromSocket(const RpcTransportFd& socket, iovec* iovs, int 
     };
 
     return TEMP_FAILURE_RETRY(recvmsg(socket.fd.get(), &msg, MSG_NOSIGNAL));
+#endif
 }
 
 } // namespace android::binder::os

@@ -19,11 +19,9 @@
 #include <stddef.h>
 #ifndef _MSC_VER
 #include <sys/uio.h>
-<<<<<<< HEAD
 #endif
-=======
+
 #include <chrono>
->>>>>>> d3fb93fb73
 #include <cstdint>
 #include <optional>
 
@@ -31,9 +29,8 @@
 #include <log/log.h>
 #include <utils/Errors.h>
 
-<<<<<<< HEAD
 #include <binder/compatible_porting.h>
-=======
+
 #define PLOGE(fmt, ...)                                                     \
     do {                                                                    \
         auto savedErrno = errno;                                            \
@@ -57,7 +54,6 @@
         _rc;                                   \
     })
 #endif
->>>>>>> d3fb93fb73
 
 #define TEST_AND_RETURN(value, expr)            \
     do {                                        \
@@ -104,7 +100,7 @@ struct Span {
 
     size_t byteSize() { return size * sizeof(T); }
 
-    iovec_fake toIovec() { return {const_cast<std::remove_const_t<T>*>(data), byteSize()}; }
+    iovec toIovec() { return {const_cast<std::remove_const_t<T>*>(data), byteSize()}; }
 
     // Truncates `this` to a length of `offset` and returns a span with the
     // remainder.

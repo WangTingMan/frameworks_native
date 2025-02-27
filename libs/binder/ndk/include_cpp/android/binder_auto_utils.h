@@ -31,15 +31,11 @@
 #include <android/binder_parcel.h>
 #include <android/binder_status.h>
 #include <assert.h>
-<<<<<<< HEAD
 
+#include <string.h>
 #if __has_include(<unistd.h>)
 #include <unistd.h>
 #endif
-=======
-#include <string.h>
-#include <unistd.h>
->>>>>>> d3fb93fb73
 
 #include <cstddef>
 #include <iostream>

@@ -30,11 +30,7 @@ namespace internal {
 class Stability;
 }
 
-<<<<<<< HEAD
 class LIBBINDER_EXPORT BBinder : public IBinder {
-=======
-class BBinder : public IBinder {
->>>>>>> d3fb93fb73
 public:
     LIBBINDER_EXPORTED BBinder();
 
@@ -106,13 +102,8 @@ public:
     // to another process.
     LIBBINDER_EXPORTED void setParceled();
 
-<<<<<<< HEAD
-    [[nodiscard]] status_t setRpcClientDebug(android::base::unique_fd socketFd,
-                                             const sp<IBinder>& keepAliveBinder);
-=======
     [[nodiscard]] LIBBINDER_EXPORTED status_t setRpcClientDebug(binder::unique_fd clientFd,
                                                                 const sp<IBinder>& keepAliveBinder);
->>>>>>> d3fb93fb73
 
 protected:
     LIBBINDER_EXPORTED virtual ~BBinder();
@@ -149,11 +140,7 @@ private:
 
 // ---------------------------------------------------------------------------
 
-<<<<<<< HEAD
 class LIBBINDER_EXPORT BpRefBase : public virtual RefBase {
-=======
-class BpRefBase : public virtual RefBase {
->>>>>>> d3fb93fb73
 protected:
     LIBBINDER_EXPORTED explicit BpRefBase(const sp<IBinder>& o);
     LIBBINDER_EXPORTED virtual ~BpRefBase();

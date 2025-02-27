@@ -17,11 +17,9 @@
 #define LOG_TAG "RpcServer"
 
 #include <inttypes.h>
-<<<<<<< HEAD
+
 #ifndef _MSC_VER
-=======
 #include <netinet/tcp.h>
->>>>>>> d3fb93fb73
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -76,15 +74,9 @@ status_t RpcServer::setupUnixDomainServer(const char* path) {
     return setupSocketServer(UnixSocketAddress(path));
 }
 
-<<<<<<< HEAD
-status_t RpcServer::setupVsockServer(unsigned int port) {
-    // realizing value w/ this type at compile time to avoid ubsan abort
-    constexpr unsigned int kAnyCid = static_cast<uint32_t>( 0/*VMADDR_CID_ANY*/ );
-=======
 status_t RpcServer::setupVsockServer(unsigned bindCid, unsigned port, unsigned* assignedPort) {
     auto status = setupSocketServer(VsockSocketAddress(bindCid, port));
     if (status != OK) return status;
->>>>>>> d3fb93fb73
 
     if (assignedPort == nullptr) return OK;
     sockaddr_vm addr;
@@ -225,6 +217,7 @@ void RpcServer::start() {
 }
 
 status_t RpcServer::acceptSocketConnection(const RpcServer& server, RpcTransportFd* out) {
+#ifndef _MSC_VER
     RpcTransportFd clientSocket(unique_fd(TEMP_FAILURE_RETRY(
             accept4(server.mServer.fd.get(), nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK))));
     if (!clientSocket.fd.ok()) {
@@ -234,6 +227,7 @@ status_t RpcServer::acceptSocketConnection(const RpcServer& server, RpcTransport
     }
 
     *out = std::move(clientSocket);
+#endif
     return OK;
 }
 
@@ -257,7 +251,9 @@ status_t RpcServer::recvmsgSocketConnection(const RpcServer& server, RpcTranspor
     }
 
     unique_fd fd(std::move(std::get<unique_fd>(fds.back())));
+#ifndef _MSC_VER
     if (status_t res = binder::os::setNonBlocking(fd); res != OK) return res;
+#endif
 
     *out = RpcTransportFd(std::move(fd));
     return OK;
@@ -596,13 +592,9 @@ void RpcServer::establishConnection(
 status_t RpcServer::setupSocketServer(const RpcSocketAddress& addr) {
     LOG_RPC_DETAIL("Setting up socket server %s", addr.toString().c_str());
     LOG_ALWAYS_FATAL_IF(hasServer(), "Each RpcServer can only have one server.");
-<<<<<<< HEAD
 #ifndef _MSC_VER
-    unique_fd serverFd(TEMP_FAILURE_RETRY(
-=======
 
     unique_fd socket_fd(TEMP_FAILURE_RETRY(
->>>>>>> d3fb93fb73
             socket(addr.addr()->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)));
     if (!socket_fd.ok()) {
         int savedErrno = errno;
@@ -649,13 +641,7 @@ status_t RpcServer::setupRawSocketServer(unique_fd socket_fd) {
         ALOGE("Could not listen initialized Unix socket: %s", strerror(savedErrno));
         return -savedErrno;
     }
-<<<<<<< HEAD
-    LOG_RPC_DETAIL("Successfully setup socket server %s", addr.toString().c_str());
-
-    if (status_t status = setupExternalServer(std::move(serverFd)); status != OK) {
-=======
     if (status_t status = setupExternalServer(std::move(socket_fd)); status != OK) {
->>>>>>> d3fb93fb73
         ALOGE("Another thread has set up server while calling setupSocketServer. Race?");
         return status;
     }

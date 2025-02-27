@@ -29,12 +29,7 @@ namespace android {
 
 // ---------------------------------------------------------------------------
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT MemoryHeapBase : public BnMemoryHeap
-{
-=======
-class MemoryHeapBase : public BnMemoryHeap {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT MemoryHeapBase : public BnMemoryHeap {
 public:
     static constexpr auto MEMFD_ALLOW_SEALING_FLAG = 0x00000800;
     enum {

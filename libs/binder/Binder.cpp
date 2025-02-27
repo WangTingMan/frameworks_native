@@ -28,7 +28,9 @@
 #include <binder/RecordedTransaction.h>
 #include <binder/RpcServer.h>
 #include <binder/unique_fd.h>
+#if __has_include(<pthread.h>)
 #include <pthread.h>
+#endif
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -40,6 +42,12 @@
 #include "BuildFlags.h"
 #include "OS.h"
 #include "RpcState.h"
+
+#ifdef _MSC_VER
+#ifndef __PRETTY_FUNCTION__
+#define __PRETTY_FUNCTION__ __FUNCSIG__
+#endif
+#endif
 
 namespace android {
 

@@ -32,12 +32,7 @@ class SimpleBestFitAllocator;
 
 // ----------------------------------------------------------------------------
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT MemoryDealer : public RefBase
-{
-=======
-class MemoryDealer : public RefBase {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT MemoryDealer : public RefBase {
 public:
     LIBBINDER_EXPORTED explicit MemoryDealer(
             size_t size, const char* name = nullptr,

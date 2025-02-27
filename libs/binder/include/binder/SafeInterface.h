@@ -36,11 +36,7 @@ namespace android {
 namespace SafeInterface {
 
 // ParcelHandler is responsible for writing/reading various types to/from a Parcel in a generic way
-<<<<<<< HEAD
 class LIBBINDER_EXPORT ParcelHandler {
-=======
-class LIBBINDER_EXPORTED ParcelHandler {
->>>>>>> d3fb93fb73
 public:
     explicit ParcelHandler(const char* logTag) : mLogTag(logTag) {}
 

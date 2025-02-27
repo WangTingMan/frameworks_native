@@ -91,6 +91,9 @@ AIBinder* AServiceManager_getService(const char* instance) {
 
     sp<IServiceManager> sm = defaultServiceManager();
     LIBBINDER_IGNORE("-Wdeprecated-declarations")
+#ifdef _MSC_VER
+#pragma warning(disable : 4996)
+#endif
     sp<IBinder> binder = sm->getService(String16(instance));
     LIBBINDER_IGNORE_END()
 
@@ -154,7 +157,7 @@ struct AServiceManager_NotificationRegistration
     }
 };
 
-__attribute__((warn_unused_result)) AServiceManager_NotificationRegistration*
+/*__attribute__((warn_unused_result))*/ AServiceManager_NotificationRegistration*
 AServiceManager_registerForServiceNotifications(const char* instance,
                                                 AServiceManager_onRegister onRegister,
                                                 void* cookie) {

@@ -21,7 +21,9 @@
 #include <binder/unique_fd.h>
 
 #include <inttypes.h>
+#ifndef _MSC_VER
 #include <sys/mman.h>
+#endif
 #include <sys/stat.h>
 #include <algorithm>
 
@@ -178,6 +180,7 @@ typedef uint64_t transaction_checksum_t;
 
 std::optional<RecordedTransaction> RecordedTransaction::fromFile(const unique_fd& fd) {
     RecordedTransaction t;
+#ifndef _MSC_VER
     ChunkDescriptor chunk;
     const long pageSize = sysconf(_SC_PAGE_SIZE);
     struct stat fileStat;
@@ -306,7 +309,7 @@ std::optional<RecordedTransaction> RecordedTransaction::fromFile(const unique_fd
                 break;
         }
     } while (chunk.chunkType != END_CHUNK);
-
+#endif
     return std::optional<RecordedTransaction>(std::move(t));
 }
 
@@ -408,7 +411,14 @@ int32_t RecordedTransaction::getReturnedStatus() const {
 timespec RecordedTransaction::getTimestamp() const {
     time_t sec = mData.mHeader.timestampSeconds;
     int32_t nsec = mData.mHeader.timestampNanoseconds;
+#ifdef _MSC_VER
+    timespec tv;
+    tv.tv_sec = sec;
+    tv.tv_nsec = nsec;
+    return tv;
+#else
     return (timespec){.tv_sec = sec, .tv_nsec = nsec};
+#endif
 }
 
 uint32_t RecordedTransaction::getVersion() const {

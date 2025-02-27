@@ -28,12 +28,7 @@
 // ---------------------------------------------------------------------------
 namespace android {
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT TextOutput
-{
-=======
-class LIBBINDER_EXPORTED TextOutput {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT TextOutput {
 public:
                         TextOutput();
     virtual             ~TextOutput();
@@ -69,29 +64,17 @@ public:
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to the log (via utils/Log.h).
-<<<<<<< HEAD
-LIBBINDER_EXPORT extern TextOutput& alog;
-=======
-extern LIBBINDER_EXPORTED TextOutput& alog;
->>>>>>> d3fb93fb73
+extern LIBBINDER_EXPORT TextOutput& alog;
 
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to stdout.
-<<<<<<< HEAD
-LIBBINDER_EXPORT extern TextOutput& aout;
-=======
-extern LIBBINDER_EXPORTED TextOutput& aout;
->>>>>>> d3fb93fb73
+extern LIBBINDER_EXPORT TextOutput& aout;
 
 // DO NOT USE: prefer libutils/libbase logs, which don't require static data to
 // be allocated.
 // Text output stream for printing to stderr.
-<<<<<<< HEAD
-LIBBINDER_EXPORT extern TextOutput& aerr;
-=======
-extern LIBBINDER_EXPORTED TextOutput& aerr;
->>>>>>> d3fb93fb73
+extern LIBBINDER_EXPORT TextOutput& aerr;
 
 typedef TextOutput& (*TextOutputManipFunc)(TextOutput&);
 
@@ -111,12 +94,7 @@ TextOutput& operator<<(TextOutput& to, const T& val)
 
 LIBBINDER_EXPORTED TextOutput& operator<<(TextOutput& to, TextOutputManipFunc func);
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT TypeCode
-{
-=======
-class LIBBINDER_EXPORTED TypeCode {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT TypeCode {
 public:
     inline explicit TypeCode(uint32_t code);
     inline ~TypeCode();
@@ -129,12 +107,7 @@ private:
 
 LIBBINDER_EXPORTED std::ostream& operator<<(std::ostream& to, const TypeCode& val);
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT HexDump
-{
-=======
-class LIBBINDER_EXPORTED HexDump {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT HexDump {
 public:
     HexDump(const void *buf, size_t size, size_t bytesPerLine=16);
     inline ~HexDump();

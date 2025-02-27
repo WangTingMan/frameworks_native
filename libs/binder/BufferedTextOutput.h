@@ -29,12 +29,7 @@
 // ---------------------------------------------------------------------------
 namespace android {
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT BufferedTextOutput : public TextOutput
-{
-=======
-class LIBBINDER_INTERNAL_EXPORTED BufferedTextOutput : public TextOutput {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT BufferedTextOutput : public TextOutput {
 public:
     //** Flags for constructor */
     enum {
@@ -51,7 +46,7 @@ public:
     virtual void        popBundle();
     
 protected:
-    virtual status_t writeLines(const struct iovec_fake& vec, size_t N) = 0;
+    virtual status_t writeLines(const struct iovec& vec, size_t N) = 0;
 
 private:
     struct BufferState;

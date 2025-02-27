@@ -11,8 +11,10 @@ class BpServiceManager : public ::android::BpInterface<IServiceManager> {
 public:
   explicit BpServiceManager(const ::android::sp<::android::IBinder>& _aidl_impl);
   virtual ~BpServiceManager() = default;
-  ::android::binder::Status getService(const ::std::string& name, ::android::sp<::android::IBinder>* _aidl_return) override;
-  ::android::binder::Status checkService(const ::std::string& name, ::android::sp<::android::IBinder>* _aidl_return) override;
+  ::android::binder::Status getService(const ::std::string& name, ::android::sp<::android::IBinder>* _aidl_return) override /*__attribute__((deprecated("TODO(b/355394904): Use getService2 instead. This does not return metadata that is included in ServiceWithMetadata")))*/;
+  ::android::binder::Status getService2(const ::std::string& name, ::android::os::Service* _aidl_return) override;
+  ::android::binder::Status checkService(const ::std::string& name, ::android::sp<::android::IBinder>* _aidl_return) override /*__attribute__((deprecated("TODO(b/355394904): Use checkService2 instead. This does not return metadata that is included in ServiceWithMetadata")))*/;
+  ::android::binder::Status checkService2(const ::std::string& name, ::android::os::Service* _aidl_return) override;
   ::android::binder::Status addService(const ::std::string& name, const ::android::sp<::android::IBinder>& service, bool allowIsolated, int32_t dumpPriority) override;
   ::android::binder::Status listServices(int32_t dumpPriority, ::std::vector<::std::string>* _aidl_return) override;
   ::android::binder::Status registerForNotifications(const ::std::string& name, const ::android::sp<::android::os::IServiceCallback>& callback) override;
@@ -20,6 +22,7 @@ public:
   ::android::binder::Status isDeclared(const ::std::string& name, bool* _aidl_return) override;
   ::android::binder::Status getDeclaredInstances(const ::std::string& iface, ::std::vector<::std::string>* _aidl_return) override;
   ::android::binder::Status updatableViaApex(const ::std::string& name, ::std::optional<::std::string>* _aidl_return) override;
+  ::android::binder::Status getUpdatableNames( const ::std::string& apexName, ::std::vector<::std::string>* _aidl_return ) override;
   ::android::binder::Status getConnectionInfo(const ::std::string& name, ::std::optional<::android::os::ConnectionInfo>* _aidl_return) override;
   ::android::binder::Status registerClientCallback(const ::std::string& name, const ::android::sp<::android::IBinder>& service, const ::android::sp<::android::os::IClientCallback>& callback) override;
   ::android::binder::Status tryUnregisterService(const ::std::string& name, const ::android::sp<::android::IBinder>& service) override;

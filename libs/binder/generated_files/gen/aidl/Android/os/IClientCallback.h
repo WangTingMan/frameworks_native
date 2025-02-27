@@ -3,12 +3,15 @@
 #include <binder/IBinder.h>
 #include <binder/IInterface.h>
 #include <binder/Status.h>
+#include <binder/Trace.h>
 #include <utils/StrongPointer.h>
 
 namespace android {
 namespace os {
+class LIBBINDER_EXPORTED IClientCallbackDelegator;
 class IClientCallback : public ::android::IInterface {
 public:
+  typedef IClientCallbackDelegator DefaultDelegator;
   DECLARE_META_INTERFACE(ClientCallback)
   virtual ::android::binder::Status onClients(const ::android::sp<::android::IBinder>& registered, bool hasClients) = 0;
 };  // class IClientCallback

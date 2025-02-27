@@ -26,12 +26,7 @@
 namespace android {
 
 // ----------------------------------------------------------------------
-
-<<<<<<< HEAD
 class LIBBINDER_EXPORT IInterface : public virtual RefBase {
-=======
-class LIBBINDER_EXPORTED IInterface : public virtual RefBase {
->>>>>>> d3fb93fb73
 public:
             IInterface();
             static sp<IBinder>  asBinder(const IInterface*);

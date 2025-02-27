@@ -16,13 +16,10 @@
 
 #pragma once
 
-<<<<<<< HEAD
 #include <memory>
 
 #include <utils/Errors.h>
-=======
 #include <binder/Common.h>
->>>>>>> d3fb93fb73
 #include <binder/Parcel.h>
 #include <binder/ProcessState.h>
 #include <utils/Errors.h>
@@ -48,12 +45,7 @@ namespace android {
  * Kernel binder thread state. All operations here refer to kernel binder. This
  * object is allocated per-thread.
  */
-<<<<<<< HEAD
-class LIBBINDER_EXPORT IPCThreadState
-{
-=======
-class IPCThreadState {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT IPCThreadState {
 public:
     using CallRestriction = ProcessState::CallRestriction;
 
@@ -144,22 +136,18 @@ public:
      */
     LIBBINDER_EXPORTED void checkContextIsBinderForUse(const char* use) const;
 
-<<<<<<< HEAD
-            /**
-             * If there are some/an events need to handle, then them will be notified
-             * by a_handler, then call handlePolledCommands asynchronous.
-             */
-            void registerAsyncFdEventHandler(std::function<void()> a_handler)
-            {
-                mAsyncHandler = a_handler;
-            }
 
-            void                setStrictModePolicy(int32_t policy);
-            int32_t             getStrictModePolicy() const;
-=======
+    /**
+        * If there are some/an events need to handle, then them will be notified
+        * by a_handler, then call handlePolledCommands asynchronous.
+        */
+    void registerAsyncFdEventHandler(std::function<void()> a_handler)
+    {
+        mAsyncHandler = a_handler;
+    }
+
     LIBBINDER_EXPORTED void setStrictModePolicy(int32_t policy);
     LIBBINDER_EXPORTED int32_t getStrictModePolicy() const;
->>>>>>> d3fb93fb73
 
     // See Binder#setCallingWorkSourceUid in Binder.java.
     LIBBINDER_EXPORTED int64_t setCallingWorkSourceUid(uid_t uid);
@@ -248,7 +236,6 @@ public:
     LIBBINDER_EXPORTED static const int32_t kUnsetWorkSource = -1;
 
 private:
-<<<<<<< HEAD
 
 #ifdef _MSC_VER
             void                routeContextObject( std::string a_service_name );
@@ -258,15 +245,15 @@ private:
                                 IPCThreadState();
                                 ~IPCThreadState();
 #ifdef _MSC_VER
-            status_t            sendReply( const Parcel& reply, uint32_t flags, binder_transaction_data* tr = nullptr);
+    [[nodiscard]] status_t      sendReply( const Parcel& reply, uint32_t flags, binder_transaction_data* tr = nullptr);
 #else
-            status_t            sendReply(const Parcel& reply, uint32_t flags);
+    [[nodiscard]] status_t      sendReply(const Parcel& reply, uint32_t flags);
 #endif
-            status_t            waitForResponse(Parcel *reply,
+    [[nodiscard]] status_t      waitForResponse(Parcel *reply,
                                                 status_t *acquireResult=nullptr);
-            status_t            talkWithDriver(bool doReceive=true);
+    [[nodiscard]] status_t      talkWithDriver(bool doReceive=true);
 #ifdef _MSC_VER
-            status_t            writeTransactionData(int32_t cmd,
+    [[nodiscard]] status_t      writeTransactionData(int32_t cmd,
                                                      uint32_t binderFlags,
                                                      int32_t handle,
                                                      uint32_t code,
@@ -274,32 +261,17 @@ private:
                                                      status_t* statusBuffer,
                                                      binder_transaction_data* tr = nullptr);
 #else
-            status_t            writeTransactionData(int32_t cmd,
+    [[nodiscard]] status_t      writeTransactionData(int32_t cmd,
                                                      uint32_t binderFlags,
                                                      int32_t handle,
                                                      uint32_t code,
                                                      const Parcel& data,
                                                      status_t* statusBuffer);
 #endif
-            status_t            getAndExecuteCommand();
-            status_t            executeCommand(int32_t command);
+    [[nodiscard]] status_t      getAndExecuteCommand();
+    [[nodiscard]] status_t      executeCommand(int32_t command);
             void                processPendingDerefs();
             void                processPostWriteDerefs();
-=======
-    IPCThreadState();
-    ~IPCThreadState();
-
-    [[nodiscard]] status_t sendReply(const Parcel& reply, uint32_t flags);
-    [[nodiscard]] status_t waitForResponse(Parcel* reply, status_t* acquireResult = nullptr);
-    [[nodiscard]] status_t talkWithDriver(bool doReceive = true);
-    [[nodiscard]] status_t writeTransactionData(int32_t cmd, uint32_t binderFlags, int32_t handle,
-                                                uint32_t code, const Parcel& data,
-                                                status_t* statusBuffer);
-    [[nodiscard]] status_t getAndExecuteCommand();
-    [[nodiscard]] status_t executeCommand(int32_t command);
-    void processPendingDerefs();
-    void processPostWriteDerefs();
->>>>>>> d3fb93fb73
 
     void clearCaller();
 

@@ -50,7 +50,13 @@ public:
     // getService will try to start any services it cannot find
     binder::Status getService(const std::string& name, sp<IBinder>* outBinder) override;
     binder::Status getService2(const std::string& name, os::Service* outService) override;
-    binder::Status checkService(const std::string& name, os::Service* outService) override;
+    binder::Status checkService(const std::string& name, sp<IBinder>* _aidl_return) override;
+    binder::Status checkService2( const std::string& name, os::Service* outService ) override
+    {
+        return checkService( name, outService );
+    }
+
+    binder::Status checkService(const std::string& name, os::Service* outService);
     binder::Status addService(const std::string& name, const sp<IBinder>& binder,
                               bool allowIsolated, int32_t dumpPriority) override;
     binder::Status listServices(int32_t dumpPriority, std::vector<std::string>* outList) override;

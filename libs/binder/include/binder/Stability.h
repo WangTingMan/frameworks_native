@@ -152,7 +152,7 @@ private:
       REPR_ALLOW_DOWNGRADE = 2,
     };
     // applies stability to binder if stability level is known
-    __attribute__((warn_unused_result)) static status_t setRepr(IBinder* binder, int32_t setting,
+    /*__attribute__((warn_unused_result))*/ static status_t setRepr(IBinder* binder, int32_t setting,
                                                                 uint32_t flags);
 
     // get stability information as encoded on the wire

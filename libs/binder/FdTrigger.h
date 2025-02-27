@@ -61,16 +61,10 @@ private:
 #ifdef BINDER_RPC_SINGLE_THREADED
     bool mTriggered = false;
 #else
-<<<<<<< HEAD
 
-#ifdef _MSC_VER
-#else
-    base::unique_fd mWrite;
-    base::unique_fd mRead;
-=======
+#ifndef _MSC_VER
     binder::unique_fd mWrite;
     binder::unique_fd mRead;
->>>>>>> d3fb93fb73
 #endif
 
 #endif

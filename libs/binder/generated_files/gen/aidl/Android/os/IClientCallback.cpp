@@ -23,6 +23,7 @@ BpClientCallback::BpClientCallback(const ::android::sp<::android::IBinder>& _aid
   ::android::Parcel _aidl_reply;
   ::android::status_t _aidl_ret_status = ::android::OK;
   ::android::binder::Status _aidl_status;
+  ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IClientCallback::onClients::cppClient");
   _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
@@ -36,7 +37,7 @@ BpClientCallback::BpClientCallback(const ::android::sp<::android::IBinder>& _aid
     goto _aidl_error;
   }
   _aidl_ret_status = remote()->transact(BnClientCallback::TRANSACTION_onClients, _aidl_data, &_aidl_reply, ::android::IBinder::FLAG_ONEWAY);
-  if (UNLIKELY(_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IClientCallback::getDefaultImpl())) {
+  if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IClientCallback::getDefaultImpl()) [[unlikely]] {
      return IClientCallback::getDefaultImpl()->onClients(registered, hasClients);
   }
   if (((_aidl_ret_status) != (::android::OK))) {
@@ -72,6 +73,7 @@ BnClientCallback::BnClientCallback()
       _aidl_ret_status = ::android::BAD_TYPE;
       break;
     }
+    ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IClientCallback::onClients::cppServer" );
     _aidl_ret_status = _aidl_data.readStrongBinder(&in_registered);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;

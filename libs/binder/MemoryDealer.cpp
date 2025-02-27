@@ -160,17 +160,10 @@ private:
     void     dump_l(const char* what) const;
     void     dump_l(String8& res, const char* what) const;
 
-<<<<<<< HEAD
-    static const uint32_t   kMemoryAlign;
-    mutable Mutex           mLock;
-    LinkedList<chunk_t>     mList;
-    size_t                  mHeapSize;
-=======
     static const int    kMemoryAlign;
     mutable std::mutex mLock;
     LinkedList<chunk_t> mList;
     size_t              mHeapSize;
->>>>>>> d3fb93fb73
 };
 
 // ----------------------------------------------------------------------------
@@ -285,7 +278,7 @@ size_t MemoryDealer::getAllocationAlignment()
 // ----------------------------------------------------------------------------
 
 // align all the memory blocks on a cache-line boundary
-const uint32_t SimpleBestFitAllocator::kMemoryAlign = 32;
+const int SimpleBestFitAllocator::kMemoryAlign = 32;
 
 SimpleBestFitAllocator::SimpleBestFitAllocator(size_t size)
 {

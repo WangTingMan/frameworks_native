@@ -19,6 +19,10 @@
 #include <binder/Common.h>
 #include <binder/IBinder.h>
 
+#ifdef _MSC_VER
+#define BINDER_ENABLE_LIBLOG_ASSERT
+#endif
+
 #if !defined(__BIONIC__) && defined(BINDER_ENABLE_LIBLOG_ASSERT)
 #include <log/log.h>
 #define __assert(file, line, message) LOG_ALWAYS_FATAL(file ":" #line ": " message)

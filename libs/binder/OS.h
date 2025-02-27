@@ -18,22 +18,21 @@
 #include <stddef.h>
 #include <cstdint>
 
-<<<<<<< HEAD
-#include <android-base/result.h>
-#include <android-base/unique_fd.h>
-
-=======
 #include <binder/RpcTransport.h>
 #include <binder/unique_fd.h>
->>>>>>> d3fb93fb73
 #include <utils/Errors.h>
+#include <binder/libbinder_export.h>
+
+#ifndef ssize_t
+#define ssize_t int64_t
+#endif
 
 namespace android::binder::os {
 
-LIBBINDER_EXPORTED void trace_begin(uint64_t tag, const char* name);
-LIBBINDER_EXPORTED void trace_end(uint64_t tag);
-LIBBINDER_EXPORTED void trace_int(uint64_t tag, const char* name, int32_t value);
-LIBBINDER_EXPORTED uint64_t get_trace_enabled_tags();
+LIBBINDER_EXPORT void trace_begin(uint64_t tag, const char* name);
+LIBBINDER_EXPORT void trace_end(uint64_t tag);
+LIBBINDER_EXPORT void trace_int(uint64_t tag, const char* name, int32_t value);
+LIBBINDER_EXPORT uint64_t get_trace_enabled_tags();
 
 status_t setNonBlocking(borrowed_fd fd);
 

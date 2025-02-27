@@ -16,11 +16,8 @@
 
 #pragma once
 
-<<<<<<< HEAD
-=======
 #include <binder/Common.h>
 #include <binder/unique_fd.h>
->>>>>>> d3fb93fb73
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 #include <utils/String16.h>
@@ -59,12 +56,8 @@ class IShellCallback;
  * (method calls, property get and set) is down through a low-level
  * protocol implemented on top of the transact() API.
  */
-<<<<<<< HEAD
 class [[clang::lto_visibility_public]] LIBBINDER_EXPORT IBinder : public virtual RefBase
 {
-=======
-class [[clang::lto_visibility_public]] LIBBINDER_EXPORTED IBinder : public virtual RefBase {
->>>>>>> d3fb93fb73
 public:
     enum {
         FIRST_CALL_TRANSACTION = 0x00000001,

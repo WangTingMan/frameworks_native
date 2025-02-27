@@ -21,12 +21,9 @@
 #include <android/binder_ibinder.h>
 #include <android/binder_parcel.h>
 #include <binder/IBinder.h>
-<<<<<<< HEAD
-#include <android/libbinder_ndk_export.h>
-=======
 #include <binder/Parcel.h>
->>>>>>> d3fb93fb73
 
+#include <android/libbinder_ndk_export.h>
 /**
  * Get libbinder version of binder from AIBinder.
  *
@@ -62,7 +59,7 @@ LIBBINDER_NDK_EXPORT AIBinder* AIBinder_fromPlatformBinder(const android::sp<and
  * \param parcel non-null parcel with ownership retained by client
  * \return platform parcel object
  */
-android::Parcel* AParcel_viewPlatformParcel(AParcel* parcel);
+LIBBINDER_NDK_EXPORT android::Parcel* AParcel_viewPlatformParcel(AParcel* parcel);
 
 /**
  * View libbinder version of parcel from AParcel (const version).
@@ -73,6 +70,6 @@ android::Parcel* AParcel_viewPlatformParcel(AParcel* parcel);
  * \param parcel non-null parcel with ownership retained by client
  * \return platform parcel object
  */
-const android::Parcel* AParcel_viewPlatformParcel(const AParcel* parcel);
+LIBBINDER_NDK_EXPORT const android::Parcel* AParcel_viewPlatformParcel(const AParcel* parcel);
 
 #endif

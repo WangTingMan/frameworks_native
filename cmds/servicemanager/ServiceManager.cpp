@@ -42,16 +42,15 @@
 #include <vintf/constants.h>
 #endif  // !VENDORSERVICEMANAGER
 
-<<<<<<< HEAD
 #ifdef _MSC_VER
 #include <binder_driver/ipc_connection_token.h>
 #include <base/strings/string_split.h>
 #include <base/strings/string_number_conversions.h>
 #include <linux/MessageLooper.h>
 #endif
-=======
+
 #include "NameUtil.h"
->>>>>>> d3fb93fb73
+
 
 using ::android::binder::Status;
 using ::android::internal::Stability;
@@ -443,6 +442,11 @@ Status ServiceManager::getService2(const std::string& name, os::Service* outServ
     return Status::ok();
 }
 
+Status ServiceManager::checkService( const std::string& name, sp<IBinder>* _aidl_return )
+{
+    return Status::ok();
+}
+
 Status ServiceManager::checkService(const std::string& name, os::Service* outService) {
     SM_PERFETTO_TRACE_FUNC(PERFETTO_TE_PROTO_FIELDS(
             PERFETTO_TE_PROTO_FIELD_CSTR(kProtoServiceName, name.c_str())));
@@ -613,14 +617,10 @@ Status ServiceManager::addService(const std::string& name, const sp<IBinder>& bi
             .ctx = ctx,
     };
 
-<<<<<<< HEAD
 #ifdef _MSC_VER
     LOG( INFO ) << "service: " << name << " added.";
 #endif
 
-    auto it = mNameToRegistrationCallback.find(name);
-    if (it != mNameToRegistrationCallback.end()) {
-=======
     if (auto it = mNameToRegistrationCallback.find(name); it != mNameToRegistrationCallback.end()) {
         // If someone is currently waiting on the service, notify the service that
         // we're waiting and flush it to the service.
@@ -628,7 +628,6 @@ Status ServiceManager::addService(const std::string& name, const sp<IBinder>& bi
         CHECK(handleServiceClientCallback(2 /* sm + transaction */, name, false));
         mNameToService[name].guaranteeClient = true;
 
->>>>>>> d3fb93fb73
         for (const sp<IServiceCallback>& cb : it->second) {
             // permission checked in registerForNotifications
 #ifdef _MSC_VER

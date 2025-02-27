@@ -17,7 +17,7 @@
 #define LOG_TAG "Parcel"
 //#define LOG_NDEBUG 0
 
-#include <endian.h>
+#include <android-base/endian.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -30,17 +30,14 @@
 #include <sys/resource.h>
 #include <unistd.h>
 #else
-#include <linux\binder.h>
-#include <binder_driver\ipc_connection_token.h>
+#include <linux/binder.h>
+#include <binder_driver/ipc_connection_token.h>
+#include <corecrt_io.h>
 #endif
 
 #include <sys/stat.h>
 #include <sys/types.h>
-<<<<<<< HEAD
-=======
-#include <unistd.h>
 #include <algorithm>
->>>>>>> d3fb93fb73
 
 #include <binder/Binder.h>
 #include <binder/BpBinder.h>
@@ -57,11 +54,8 @@
 #endif
 #include <utils/String16.h>
 #include <utils/String8.h>
-<<<<<<< HEAD
-#include <utils/misc.h> 
+#include <utils/misc.h>
 #include <utils/uitils_overflow_check_ms.h>
-=======
->>>>>>> d3fb93fb73
 
 #include "OS.h"
 #include "RpcState.h"
@@ -86,15 +80,14 @@
 typedef uintptr_t binder_uintptr_t;
 #endif // BINDER_WITH_KERNEL_IPC
 
-<<<<<<< HEAD
 #ifndef BYTE_ORDER
 #define BIG_ENDIAN 1
 #define LITTLE_ENDIAN 2
 #define BYTE_ORDER LITTLE_ENDIAN
-=======
+#endif
+
 #ifdef __BIONIC__
 #include <android/fdsan.h>
->>>>>>> d3fb93fb73
 #endif
 
 #define LOG_REFS(...)
@@ -209,7 +202,9 @@ static void acquire_object(const sp<ProcessState>& proc, const flat_binder_objec
         }
         case BINDER_TYPE_FD: {
             if (obj.cookie != 0) { // owned
+#ifndef _MSC_VER
                 FdTag(obj.handle, nullptr, who);
+#endif
             }
             return;
         }
@@ -239,11 +234,11 @@ static void release_object(const sp<ProcessState>& proc, const flat_binder_objec
             // note: this path is not used when mOwner, so the tag is also released
             // in 'closeFileDescriptors'
             if (obj.cookie != 0) { // owned
-<<<<<<< HEAD
+#ifdef _MSC_VER
                 porting_binder::close_binder(obj.binder_internal_handle);
-=======
+#else
                 FdTagClose(obj.handle, who);
->>>>>>> d3fb93fb73
+#endif
             }
             return;
         }
@@ -704,15 +699,8 @@ status_t Parcel::appendFrom(const Parcel* parcel, size_t offset, size_t len) {
                 if (status_t status = readInt32(&fdIndex); status != OK) {
                     return status;
                 }
-<<<<<<< HEAD
+
 #ifndef _MSC_VER
-                const auto& oldFd = otherRpcFields->mFds->at(fdIndex);
-                // To match kernel binder behavior, we always dup, even if the
-                // FD was unowned in the source parcel.
-                rpcFields->mFds->emplace_back(
-                        base::unique_fd(fcntl(toRawFd(oldFd), F_DUPFD_CLOEXEC, 0)));
-#endif
-=======
                 int oldFd = toRawFd(otherRpcFields->mFds->at(fdIndex));
                 // To match kernel binder behavior, we always dup, even if the
                 // FD was unowned in the source parcel.
@@ -722,7 +710,7 @@ status_t Parcel::appendFrom(const Parcel* parcel, size_t offset, size_t len) {
                           statusToString(status).c_str());
                 }
                 rpcFields->mFds->emplace_back(unique_fd(newFd));
->>>>>>> d3fb93fb73
+#endif
                 // Fixup the index in the data.
                 mDataPos = newDataPos + 4;
                 if (status_t status = writeInt32(rpcFields->mFds->size() - 1); status != OK) {
@@ -1597,16 +1585,22 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
     std::string connection_name;
     std::string listen_addr;
     status_t ret_status = NO_ERROR;
-    connection_name = ipc_connection_token_mgr::get_instance().get_local_connection_name();
-    listen_addr = ipc_connection_token_mgr::get_instance().get_local_listen_address();
+    String16 dec = val->getInterfaceDescriptor();
+    std::string interface_descriptor = String8( dec ).c_str();
+    int exist_ret = ipc_connection_token_mgr::get_instance()
+        .find_remote_service_by_service_name( interface_descriptor, connection_name, listen_addr );
+    if( 0 != exist_ret )
+    {
+        connection_name = ipc_connection_token_mgr::get_instance().get_local_connection_name();
+        listen_addr = ipc_connection_token_mgr::get_instance().get_local_listen_address();
+        ipc_connection_token_mgr::get_instance().add_local_service( interface_descriptor, val );
+        ALOGI( "%s will be treated as local service. connection name: %s, listen address: %s",
+               interface_descriptor.c_str(), connection_name.c_str(), listen_addr.c_str() );
+    }
+
     ret_status = writeUtf8AsUtf16( connection_name );
     ret_status = writeUtf8AsUtf16( listen_addr );
-    String16 dec = val->getInterfaceDescriptor();
     ret_status = writeString16( dec );
-
-    std::string interface_descriptor = String8( dec ).c_str();
-    ipc_connection_token_mgr::get_instance().add_local_service( interface_descriptor, val );
-
     return ret_status;
 #else
     return flattenBinder(val);
@@ -1715,21 +1709,15 @@ status_t Parcel::writeFileDescriptor(int fd, bool takeOwnership) {
 
 status_t Parcel::writeDupFileDescriptor(int fd)
 {
-<<<<<<< HEAD
 #ifdef _MSC_VER
     /** We do not support transport fd to another process on windows.
      *  So just write it directly
      */
     return writeInt32( fd );
 #else
-    int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
-    if (dupFd < 0) {
-        return -errno;
-=======
     int dupFd;
     if (status_t err = binder::os::dupFileDescriptor(fd, &dupFd); err != OK) {
         return err;
->>>>>>> d3fb93fb73
     }
     status_t err = writeFileDescriptor(dupFd, true /*takeOwnership*/);
     if (err != OK) {
@@ -1751,18 +1739,12 @@ status_t Parcel::writeParcelFileDescriptor(int fd, bool takeOwnership)
 
 status_t Parcel::writeDupParcelFileDescriptor(int fd)
 {
-<<<<<<< HEAD
 #ifdef _MSC_VER
     return writeDupFileDescriptor( fd );
 #else
-    int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
-    if (dupFd < 0) {
-        return -errno;
-=======
     int dupFd;
     if (status_t err = binder::os::dupFileDescriptor(fd, &dupFd); err != OK) {
         return err;
->>>>>>> d3fb93fb73
     }
     status_t err = writeParcelFileDescriptor(dupFd, true /*takeOwnership*/);
     if (err != OK) {
@@ -2565,7 +2547,7 @@ int Parcel::readFileDescriptor() const {
 #ifdef _MSC_VER
     int fd = 0;
     android::status_t status = readInt32( &fd );
-    if( status != ANDROID_NO_ERROR )
+    if( status != android::OK )
     {
         fd = BAD_TYPE;
     }
@@ -2665,12 +2647,9 @@ status_t Parcel::readUniqueFileDescriptor(unique_fd* val) const {
     if (got == BAD_TYPE) {
         return BAD_TYPE;
     }
-<<<<<<< HEAD
 #ifdef _MSC_VER
     val->reset( got );
 #else
-    val->reset(fcntl(got, F_DUPFD_CLOEXEC, 0));
-=======
 
     int dupFd;
     if (status_t err = binder::os::dupFileDescriptor(got, &dupFd); err != OK) {
@@ -2678,7 +2657,6 @@ status_t Parcel::readUniqueFileDescriptor(unique_fd* val) const {
     }
 
     val->reset(dupFd);
->>>>>>> d3fb93fb73
 
     if (val->get() < 0) {
         return BAD_VALUE;
@@ -2693,12 +2671,10 @@ status_t Parcel::readUniqueParcelFileDescriptor(unique_fd* val) const {
     if (got == BAD_TYPE) {
         return BAD_TYPE;
     }
-<<<<<<< HEAD
+
 #ifdef _MSC_VER
     val->reset( got );
 #else
-    val->reset(fcntl(got, F_DUPFD_CLOEXEC, 0));
-=======
 
     int dupFd;
     if (status_t err = binder::os::dupFileDescriptor(got, &dupFd); err != OK) {
@@ -2707,7 +2683,6 @@ status_t Parcel::readUniqueParcelFileDescriptor(unique_fd* val) const {
 
     val->reset(dupFd);
 
->>>>>>> d3fb93fb73
     if (val->get() < 0) {
         return BAD_VALUE;
     }
@@ -2898,12 +2873,12 @@ void Parcel::closeFileDescriptors() {
                     reinterpret_cast<flat_binder_object*>(mData + kernelFields->mObjects[i]);
             if (flat->hdr.type == BINDER_TYPE_FD) {
                 // ALOGI("Closing fd: %ld", flat->handle);
-<<<<<<< HEAD
+#ifdef _MSC_VER
                 porting_binder::close_binder(flat->binder_internal_handle);
-=======
+#else
                 // FDs from the kernel are always owned
                 FdTagClose(flat->handle, this);
->>>>>>> d3fb93fb73
+#endif
             }
         }
 #else  // BINDER_WITH_KERNEL_IPC
@@ -2986,7 +2961,9 @@ void Parcel::ipcSetDataReference(const uint8_t* data, size_t dataSize, const bin
         }
         if (type == BINDER_TYPE_FD) {
             // FDs from the kernel are always owned
+#ifndef _MSC_VER
             FdTag(flat->handle, nullptr, this);
+#endif
         }
         minOffset = offset + sizeof(flat_binder_object);
     }
@@ -3550,15 +3527,12 @@ Parcel::Blob::~Blob() {
 
 void Parcel::Blob::release() {
     if (mFd != -1 && mData) {
-<<<<<<< HEAD
+
 #ifndef _MSC_VER
-        ::munmap(mData, mSize);
-#endif
-=======
         if (::munmap(mData, mSize) == -1) {
             ALOGW("munmap() failed: %s", strerror(errno));
         }
->>>>>>> d3fb93fb73
+#endif
     }
     clear();
 }

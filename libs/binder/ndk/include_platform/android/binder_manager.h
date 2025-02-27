@@ -85,7 +85,7 @@ enum AServiceManager_AddServiceFlag : uint32_t {
  *
  * \return EX_NONE on success.
  */
-__attribute__((warn_unused_result)) binder_exception_t AServiceManager_addServiceWithFlags(
+/*__attribute__((warn_unused_result))*/ binder_exception_t AServiceManager_addServiceWithFlags(
         AIBinder* binder, const char* instance, const AServiceManager_AddServiceFlag flags)
         __INTRODUCED_IN(34);
 
@@ -121,13 +121,8 @@ __attribute__((warn_unused_result)) binder_exception_t AServiceManager_addServic
  *
  * \param instance identifier of the service used to lookup the service.
  */
-<<<<<<< HEAD
-/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder* AServiceManager_getService(
-        const char* instance)
-=======
 [[deprecated("this polls 5s, use AServiceManager_waitForService or AServiceManager_checkService")]]
-__attribute__((warn_unused_result)) AIBinder* AServiceManager_getService(const char* instance)
->>>>>>> d3fb93fb73
+/*__attribute__((warn_unused_result))*/ LIBBINDER_NDK_EXPORT AIBinder* AServiceManager_getService(const char* instance)
         __INTRODUCED_IN(29);
 
 /**
@@ -212,7 +207,7 @@ struct AServiceManager_NotificationRegistration;
  *
  * \return the token for this registration. Deleting this token will unregister.
  */
-__attribute__((warn_unused_result)) AServiceManager_NotificationRegistration*
+/*__attribute__((warn_unused_result))*/ AServiceManager_NotificationRegistration*
 AServiceManager_registerForServiceNotifications(const char* instance,
                                                 AServiceManager_onRegister onRegister, void* cookie)
         __INTRODUCED_IN(34);

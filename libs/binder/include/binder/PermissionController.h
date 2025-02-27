@@ -25,12 +25,7 @@
 // ---------------------------------------------------------------------------
 namespace android {
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT PermissionController
-{
-=======
-class PermissionController {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT PermissionController {
 public:
 
     enum {

@@ -218,10 +218,38 @@ struct binder_node_info_for_ref {
     __u32            reserved3;
 };
 
+struct binder_frozen_state_info
+{
+    binder_uintptr_t cookie;
+    __u32 is_frozen;
+    __u32 reserved;
+};
+
 /* Use with BINDER_VERSION, driver fills in fields. */
 struct binder_version {
     /* driver protocol version -- increment with incompatible change */
     __s32       protocol_version;
+};
+
+struct binder_frozen_status_info
+{
+    __u32 pid;
+    __u32 sync_recv;
+    __u32 async_recv;
+};
+
+struct binder_freeze_info
+{
+    __u32 pid;
+    __u32 enable;
+    __u32 timeout_ms;
+};
+
+struct binder_extended_error
+{
+    __u32 id;
+    __u32 command;
+    __s32 param;
 };
 
 /* This is the current protocol version. */
@@ -247,6 +275,9 @@ enum
 #define BINDER_GET_NODE_INFO_FOR_REF _IOWR('b', 12, struct binder_node_info_for_ref)
 #define BINDER_SET_CONTEXT_MGR_EXT _IOW('b', 13, struct flat_binder_object)
 #define BINDER_ENABLE_ONEWAY_SPAM_DETECTION _IOW('b', 16, __u32)
+#define BINDER_GET_FROZEN_INFO _IOWR( 'b', 15, struct binder_frozen_status_info )
+#define BINDER_FREEZE _IOW('b', 14, struct binder_freeze_info)
+#define BINDER_GET_EXTENDED_ERROR _IOWR('b', 17, struct binder_extended_error)
 
 enum binder_driver_command_protocol {
     BC_TRANSACTION = _IOW('c', 0, struct binder_transaction_data),
@@ -268,6 +299,9 @@ enum binder_driver_command_protocol {
     BC_DEAD_BINDER_DONE = _IOW('c', 16, binder_uintptr_t),
     BC_TRANSACTION_SG = _IOW('c', 17, struct binder_transaction_data_sg),
     BC_REPLY_SG = _IOW('c', 18, struct binder_transaction_data_sg),
+    BC_REQUEST_FREEZE_NOTIFICATION = _IOW( 'c', 19, struct binder_handle_cookie ),
+    BC_CLEAR_FREEZE_NOTIFICATION = _IOW( 'c', 20, struct binder_handle_cookie ),
+    BC_FREEZE_NOTIFICATION_DONE = _IOW( 'c', 21, binder_uintptr_t ),
 };
 
 #ifdef BR_FROZEN_REPLY
@@ -300,6 +334,11 @@ enum binder_driver_return_protocol {
     BR_FAILED_REPLY = 1073771025,
     BR_FROZEN_REPLY = 1073771026,
     BR_ONEWAY_SPAM_SUSPECT = (((1U) << (((0 + 8) + 8) + 14)) | ((('r')) << (0 + 8)) | (((19)) << 0) | ((0) << ((0 + 8) + 8))),
+#ifndef BR_TRANSACTION_PENDING_FROZEN
+    BR_TRANSACTION_PENDING_FROZEN = _IO( 'r', 20 ),
+#endif
+    BR_FROZEN_BINDER = _IOR( 'r', 21, struct binder_frozen_state_info ),
+    BR_CLEAR_FREEZE_NOTIFICATION_DONE = _IOR( 'r', 22, binder_uintptr_t ),
 };
 
 #ifdef CONFIG_ANDROID_VENDOR_OEM_DATA

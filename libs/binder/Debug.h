@@ -20,13 +20,12 @@
 #include <sys/types.h>
 #include <string>
 
-<<<<<<< HEAD
 #ifndef ssize_t
 #define ssize_t int64_t
 #endif
-=======
+
 #include <binder/Common.h>
->>>>>>> d3fb93fb73
+
 
 namespace android {
 // ---------------------------------------------------------------------------

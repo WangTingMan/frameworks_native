@@ -81,7 +81,6 @@ public:
     // are all called, then up to 5 threads can be started.
     LIBBINDER_EXPORTED void startThreadPool();
 
-<<<<<<< HEAD
 #ifdef _MSC_VER
     sp<IBinder> getStrongProxyForHandle
         (
@@ -90,11 +89,7 @@ public:
         );
 #endif
 
-    sp<IBinder> getStrongProxyForHandle(int32_t handle);
-    void expungeHandle(int32_t handle, IBinder* binder);
-=======
     [[nodiscard]] LIBBINDER_EXPORTED bool becomeContextManager();
->>>>>>> d3fb93fb73
 
     LIBBINDER_EXPORTED sp<IBinder> getStrongProxyForHandle(int32_t handle);
     LIBBINDER_EXPORTED void expungeHandle(int32_t handle, IBinder* binder);
@@ -157,13 +152,11 @@ public:
 private:
     static sp<ProcessState> init(const char* defaultDriver, bool requireDefault);
 
-<<<<<<< HEAD
 #ifdef _MSC_VER
     void startThreadPoolImpl();
 #endif
-=======
+
     void checkExpectingThreadPoolStart() const;
->>>>>>> d3fb93fb73
 
     static void onFork();
     static void parentPostFork();
@@ -192,29 +185,10 @@ private:
     void* mVMStart;
 #endif
 
-<<<<<<< HEAD
-    // Protects thread count and wait variables below.
-    mutable std::mutex mThreadCountLock;
-    // Broadcast whenever mWaitingForThreads > 0
-    std::condition_variable mThreadCountDecrement;
-    // Number of binder threads current executing a command.
-    size_t mExecutingThreadsCount;
-    // Number of threads calling IPCThreadState::blockUntilThreadAvailable()
-    size_t mWaitingForThreads;
-    // Maximum number of lazy threads to be started in the threadpool by the kernel.
-    size_t mMaxThreads;
-    // Current number of threads inside the thread pool.
-    size_t mCurrentThreads;
-    // Current number of pooled threads inside the thread pool.
-    size_t mKernelStartedThreads;
-    // Time when thread pool was emptied
-    int64_t mStarvationStartTimeMs;
-=======
     mutable std::mutex mOnThreadAvailableLock;
     std::condition_variable mOnThreadAvailableCondVar;
     // Number of threads waiting on `mOnThreadAvailableCondVar`.
     std::atomic_int64_t mOnThreadAvailableWaiting = 0;
->>>>>>> d3fb93fb73
 
     // Number of binder threads current executing a command.
     std::atomic_size_t mExecutingThreadsCount;

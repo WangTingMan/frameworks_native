@@ -36,7 +36,7 @@ public:
     virtual ~LogTextOutput() { }
 
 protected:
-    virtual status_t writeLines(const struct iovec_fake& vec, size_t N)
+    virtual status_t writeLines(const struct iovec& vec, size_t N)
     {
         //android_writevLog(&vec, N);       <-- this is now a no-op
         if (N != 1) ALOGI("WARNING: writeLines N=%zu\n", N);
@@ -57,7 +57,7 @@ public:
     virtual ~FdTextOutput() { }
 
 protected:
-    virtual status_t writeLines(const struct iovec_fake& vec, size_t N)
+    virtual status_t writeLines(const struct iovec& vec, size_t N)
     {
         ssize_t ret = 0;
         //writev(mFD, &vec, N);

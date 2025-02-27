@@ -25,7 +25,6 @@
 #include "Access.h"
 #include "ServiceManager.h"
 
-<<<<<<< HEAD
 #ifdef _MSC_VER
 #include <windows.h>
 #include "linux/MessageLooper.h"
@@ -44,16 +43,16 @@
 #undef ERROR
 #endif
 
-#ifdef _MSC_VER
-extern void load_hw_service_manager();
-#endif
-=======
 #if !defined(VENDORSERVICEMANAGER) && !defined(__ANDROID_RECOVERY__)
 
 #include <perfetto/public/producer.h>
 #include <perfetto/public/te_category_macros.h>
 #include <perfetto/public/te_macros.h>
 #include <perfetto/public/track_event.h>
+
+#ifdef _MSC_VER
+#include <perfetto/base/logging.h>
+#endif
 
 namespace android {
 
@@ -67,7 +66,6 @@ static void register_perfetto_te_categories() {
 } // namespace android
 
 #endif // !defined(VENDORSERVICEMANAGER) && !defined(__ANDROID_RECOVERY__)
->>>>>>> d3fb93fb73
 
 using ::android::Access;
 using ::android::IPCThreadState;
@@ -81,6 +79,11 @@ using ::android::os::IServiceManager;
 
 bool libchrome_logging_handler( int levelIn, const char* file, int line,
                          size_t message_start, const std::string& str );
+void PerfettoLogMessageCallback( ::perfetto::base::LogMessageCallbackArgs perfetto_log );
+
+#ifdef _MSC_VER
+extern void load_hw_service_manager();
+#endif
 
 class BinderCallback : public LooperCallback {
 public:
@@ -204,13 +207,16 @@ BOOL WINAPI HandlerRoutineReceiver(DWORD dwCtrlType);
 #endif
 
 int main(int argc, char** argv) {
+#ifndef _MSC_VER /*We do not use kernel logger on windows.*/
     android::base::InitLogging(argv, android::base::KernelLogger);
-
+#endif
 #ifdef _MSC_VER
     SetConsoleCtrlHandler(&HandlerRoutineReceiver, TRUE);
 #endif
 
     logging::SetLogMessageHandler( libchrome_logging_handler );
+    ::perfetto::base::SetLogMessageCallback( PerfettoLogMessageCallback );
+
     __set_default_log_file_name( nullptr, false );
 
     if (argc > 2) {
@@ -265,15 +271,9 @@ int main(int argc, char** argv) {
 
 #else
     sp<Looper> looper = Looper::prepare(false /*allowNonCallbacks*/);
-
-<<<<<<< HEAD
-    BinderCallback::setupTo(looper);
-    ClientCallbackCallback::setupTo(looper, manager);
-#endif
-=======
     sp<BinderCallback> binderCallback = BinderCallback::setupTo(looper);
     ClientCallbackCallback::setupTo(looper, manager, binderCallback);
->>>>>>> d3fb93fb73
+#endif
 
 #ifndef VENDORSERVICEMANAGER
     if (!SetProperty("servicemanager.ready", "true")) {
@@ -341,6 +341,34 @@ bool libchrome_logging_handler( int levelIn, const char* file, int line,
 #endif
 
     return true;
+}
+
+void PerfettoLogMessageCallback( ::perfetto::base::LogMessageCallbackArgs perfetto_log)
+{
+    android_LogPriority level = android_LogPriority::ANDROID_LOG_DEFAULT;
+    switch( perfetto_log.level )
+    {
+    case perfetto::base::kLogDebug:
+        level = ANDROID_LOG_DEBUG;
+        break;
+    case perfetto::base::kLogError:
+        level = ANDROID_LOG_ERROR;
+        break;
+    case perfetto::base::kLogImportant:
+        level = ANDROID_LOG_WARN;
+        break;
+    case perfetto::base::kLogInfo:
+        level = ANDROID_LOG_INFO;
+        break;
+    default:
+        break;
+    }
+
+#ifdef __android_log_print_ext_defined
+    __android_log_print_ext( level, nullptr, perfetto_log.filename, perfetto_log.line, perfetto_log.message );
+#else
+    __android_log_print( level, nullptr, perfetto_log.message );
+#endif
 }
 
 #ifdef _MSC_VER

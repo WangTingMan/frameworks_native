@@ -168,12 +168,6 @@ public:
     // This Api is used by fuzzers to skip dataAvail checks.
     LIBBINDER_EXPORTED void setEnforceNoDataAvail(bool enforceNoDataAvail);
 
-<<<<<<< HEAD
-    size_t              objectsCount() const;
-    
-    status_t            errorCheck() const;
-    void                setError(status_t err);
-
 #ifdef _MSC_VER
     status_t            writeDynamic( std::string const& a_str )
     {
@@ -183,29 +177,6 @@ public:
     }
 #endif
 
-    status_t            write(const void* data, size_t len);
-    void*               writeInplace(size_t len);
-    status_t            writeUnpadded(const void* data, size_t len);
-    status_t            writeInt32(int32_t val);
-    status_t            writeUint32(uint32_t val);
-    status_t            writeInt64(int64_t val);
-    status_t            writeUint64(uint64_t val);
-    status_t            writeFloat(float val);
-    status_t            writeDouble(double val);
-    status_t            writeCString(const char* str);
-    status_t            writeString8(const String8& str);
-    status_t            writeString8(const char* str, size_t len);
-    status_t            writeString16(const String16& str);
-    status_t            writeString16(const std::optional<String16>& str);
-    status_t            writeString16(const std::unique_ptr<String16>& str) __attribute__((deprecated("use std::optional version instead")));
-    status_t            writeString16(const char16_t* str, size_t len);
-    status_t            writeStrongBinder(const sp<IBinder>& val);
-    status_t            writeInt32Array(size_t len, const int32_t *val);
-    status_t            writeByteArray(size_t len, const uint8_t *val);
-    status_t            writeBool(bool val);
-    status_t            writeChar(char16_t val);
-    status_t            writeByte(int8_t val);
-=======
     // When fuzzing, we want to remove certain ABI checks that cause significant
     // lost coverage, and we also want to avoid logs that cost too much to write.
     LIBBINDER_EXPORTED void setServiceFuzzing();
@@ -233,7 +204,7 @@ public:
     LIBBINDER_EXPORTED status_t writeString16(const String16& str);
     LIBBINDER_EXPORTED status_t writeString16(const std::optional<String16>& str);
     LIBBINDER_EXPORTED status_t writeString16(const std::unique_ptr<String16>& str)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeString16(const char16_t* str, size_t len);
     LIBBINDER_EXPORTED status_t writeStrongBinder(const sp<IBinder>& val);
     LIBBINDER_EXPORTED status_t writeInt32Array(size_t len, const int32_t* val);
@@ -241,68 +212,67 @@ public:
     LIBBINDER_EXPORTED status_t writeBool(bool val);
     LIBBINDER_EXPORTED status_t writeChar(char16_t val);
     LIBBINDER_EXPORTED status_t writeByte(int8_t val);
->>>>>>> d3fb93fb73
 
     // Take a UTF8 encoded string, convert to UTF16, write it to the parcel.
     LIBBINDER_EXPORTED status_t writeUtf8AsUtf16(const std::string& str);
     LIBBINDER_EXPORTED status_t writeUtf8AsUtf16(const std::optional<std::string>& str);
     LIBBINDER_EXPORTED status_t writeUtf8AsUtf16(const std::unique_ptr<std::string>& str)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
 
     LIBBINDER_EXPORTED status_t writeByteVector(const std::optional<std::vector<int8_t>>& val);
     LIBBINDER_EXPORTED status_t writeByteVector(const std::unique_ptr<std::vector<int8_t>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeByteVector(const std::vector<int8_t>& val);
     LIBBINDER_EXPORTED status_t writeByteVector(const std::optional<std::vector<uint8_t>>& val);
     LIBBINDER_EXPORTED status_t writeByteVector(const std::unique_ptr<std::vector<uint8_t>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeByteVector(const std::vector<uint8_t>& val);
     LIBBINDER_EXPORTED status_t writeInt32Vector(const std::optional<std::vector<int32_t>>& val);
     LIBBINDER_EXPORTED status_t writeInt32Vector(const std::unique_ptr<std::vector<int32_t>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeInt32Vector(const std::vector<int32_t>& val);
     LIBBINDER_EXPORTED status_t writeInt64Vector(const std::optional<std::vector<int64_t>>& val);
     LIBBINDER_EXPORTED status_t writeInt64Vector(const std::unique_ptr<std::vector<int64_t>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeInt64Vector(const std::vector<int64_t>& val);
     LIBBINDER_EXPORTED status_t writeUint64Vector(const std::optional<std::vector<uint64_t>>& val);
     LIBBINDER_EXPORTED status_t writeUint64Vector(const std::unique_ptr<std::vector<uint64_t>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeUint64Vector(const std::vector<uint64_t>& val);
     LIBBINDER_EXPORTED status_t writeFloatVector(const std::optional<std::vector<float>>& val);
     LIBBINDER_EXPORTED status_t writeFloatVector(const std::unique_ptr<std::vector<float>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeFloatVector(const std::vector<float>& val);
     LIBBINDER_EXPORTED status_t writeDoubleVector(const std::optional<std::vector<double>>& val);
     LIBBINDER_EXPORTED status_t writeDoubleVector(const std::unique_ptr<std::vector<double>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeDoubleVector(const std::vector<double>& val);
     LIBBINDER_EXPORTED status_t writeBoolVector(const std::optional<std::vector<bool>>& val);
     LIBBINDER_EXPORTED status_t writeBoolVector(const std::unique_ptr<std::vector<bool>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeBoolVector(const std::vector<bool>& val);
     LIBBINDER_EXPORTED status_t writeCharVector(const std::optional<std::vector<char16_t>>& val);
     LIBBINDER_EXPORTED status_t writeCharVector(const std::unique_ptr<std::vector<char16_t>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeCharVector(const std::vector<char16_t>& val);
     LIBBINDER_EXPORTED status_t
     writeString16Vector(const std::optional<std::vector<std::optional<String16>>>& val);
     LIBBINDER_EXPORTED status_t
     writeString16Vector(const std::unique_ptr<std::vector<std::unique_ptr<String16>>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeString16Vector(const std::vector<String16>& val);
     LIBBINDER_EXPORTED status_t
     writeUtf8VectorAsUtf16Vector(const std::optional<std::vector<std::optional<std::string>>>& val);
     LIBBINDER_EXPORTED status_t writeUtf8VectorAsUtf16Vector(
             const std::unique_ptr<std::vector<std::unique_ptr<std::string>>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeUtf8VectorAsUtf16Vector(const std::vector<std::string>& val);
 
     LIBBINDER_EXPORTED status_t
     writeStrongBinderVector(const std::optional<std::vector<sp<IBinder>>>& val);
     LIBBINDER_EXPORTED status_t
     writeStrongBinderVector(const std::unique_ptr<std::vector<sp<IBinder>>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t writeStrongBinderVector(const std::vector<sp<IBinder>>& val);
 
     // Write an IInterface or a vector of IInterface's
@@ -394,7 +364,7 @@ public:
     template<typename T>
     status_t            writeVectorSize(const std::optional<std::vector<T>>& val);
     template<typename T>
-    status_t            writeVectorSize(const std::unique_ptr<std::vector<T>>& val) __attribute__((deprecated("use std::optional version instead")));
+    status_t            writeVectorSize(const std::unique_ptr<std::vector<T>>& val) /*__attribute__((deprecated("use std::optional version instead")))*/;
 
 #ifndef BINDER_DISABLE_NATIVE_HANDLE
     // Place a native_handle into the parcel (the native_handle's file-
@@ -433,7 +403,7 @@ public:
     writeUniqueFileDescriptorVector(const std::optional<std::vector<binder::unique_fd>>& val);
     LIBBINDER_EXPORTED status_t
     writeUniqueFileDescriptorVector(const std::unique_ptr<std::vector<binder::unique_fd>>& val)
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t
     writeUniqueFileDescriptorVector(const std::vector<binder::unique_fd>& val);
 
@@ -452,12 +422,6 @@ public:
 
     LIBBINDER_EXPORTED status_t writeObject(const flat_binder_object& val, bool nullMetaData);
 
-    // Like Parcel.java's writeNoException().  Just writes a zero int32.
-    // Currently the native implementation doesn't do any of the StrictMode
-    // stack gathering and serialization that the Java implementation does.
-<<<<<<< HEAD
-    status_t            writeNoException();
-
 #ifdef _MSC_VER
     status_t            readDynamic( std::string& a_str )
     {
@@ -469,27 +433,9 @@ public:
     }
 #endif
 
-    status_t            read(void* outData, size_t len) const;
-    const void*         readInplace(size_t len) const;
-    int32_t             readInt32() const;
-    status_t            readInt32(int32_t *pArg) const;
-    uint32_t            readUint32() const;
-    status_t            readUint32(uint32_t *pArg) const;
-    int64_t             readInt64() const;
-    status_t            readInt64(int64_t *pArg) const;
-    uint64_t            readUint64() const;
-    status_t            readUint64(uint64_t *pArg) const;
-    float               readFloat() const;
-    status_t            readFloat(float *pArg) const;
-    double              readDouble() const;
-    status_t            readDouble(double *pArg) const;
-    bool                readBool() const;
-    status_t            readBool(bool *pArg) const;
-    char16_t            readChar() const;
-    status_t            readChar(char16_t *pArg) const;
-    int8_t              readByte() const;
-    status_t            readByte(int8_t *pArg) const;
-=======
+    // Like Parcel.java's writeNoException().  Just writes a zero int32.
+    // Currently the native implementation doesn't do any of the StrictMode
+    // stack gathering and serialization that the Java implementation does.
     LIBBINDER_EXPORTED status_t writeNoException();
 
     LIBBINDER_EXPORTED status_t read(void* outData, size_t len) const;
@@ -512,13 +458,12 @@ public:
     LIBBINDER_EXPORTED status_t readChar(char16_t* pArg) const;
     LIBBINDER_EXPORTED int8_t readByte() const;
     LIBBINDER_EXPORTED status_t readByte(int8_t* pArg) const;
->>>>>>> d3fb93fb73
 
     // Read a UTF16 encoded string, convert to UTF8
     LIBBINDER_EXPORTED status_t readUtf8FromUtf16(std::string* str) const;
     LIBBINDER_EXPORTED status_t readUtf8FromUtf16(std::optional<std::string>* str) const;
     LIBBINDER_EXPORTED status_t readUtf8FromUtf16(std::unique_ptr<std::string>* str) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
 
     LIBBINDER_EXPORTED const char* readCString() const;
     LIBBINDER_EXPORTED String8 readString8() const;
@@ -528,7 +473,7 @@ public:
     LIBBINDER_EXPORTED status_t readString16(String16* pArg) const;
     LIBBINDER_EXPORTED status_t readString16(std::optional<String16>* pArg) const;
     LIBBINDER_EXPORTED status_t readString16(std::unique_ptr<String16>* pArg) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED const char16_t* readString16Inplace(size_t* outLen) const;
     LIBBINDER_EXPORTED sp<IBinder> readStrongBinder() const;
     LIBBINDER_EXPORTED status_t readStrongBinder(sp<IBinder>* val) const;
@@ -593,7 +538,7 @@ public:
     readStrongBinderVector(std::optional<std::vector<sp<IBinder>>>* val) const;
     LIBBINDER_EXPORTED status_t
     readStrongBinderVector(std::unique_ptr<std::vector<sp<IBinder>>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readStrongBinderVector(std::vector<sp<IBinder>>* val) const;
     template <typename T,
               std::enable_if_t<std::is_base_of_v<::android::IInterface, T>, bool> = true>
@@ -608,51 +553,51 @@ public:
 
     LIBBINDER_EXPORTED status_t readByteVector(std::optional<std::vector<int8_t>>* val) const;
     LIBBINDER_EXPORTED status_t readByteVector(std::unique_ptr<std::vector<int8_t>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readByteVector(std::vector<int8_t>* val) const;
     LIBBINDER_EXPORTED status_t readByteVector(std::optional<std::vector<uint8_t>>* val) const;
     LIBBINDER_EXPORTED status_t readByteVector(std::unique_ptr<std::vector<uint8_t>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readByteVector(std::vector<uint8_t>* val) const;
     LIBBINDER_EXPORTED status_t readInt32Vector(std::optional<std::vector<int32_t>>* val) const;
     LIBBINDER_EXPORTED status_t readInt32Vector(std::unique_ptr<std::vector<int32_t>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readInt32Vector(std::vector<int32_t>* val) const;
     LIBBINDER_EXPORTED status_t readInt64Vector(std::optional<std::vector<int64_t>>* val) const;
     LIBBINDER_EXPORTED status_t readInt64Vector(std::unique_ptr<std::vector<int64_t>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readInt64Vector(std::vector<int64_t>* val) const;
     LIBBINDER_EXPORTED status_t readUint64Vector(std::optional<std::vector<uint64_t>>* val) const;
     LIBBINDER_EXPORTED status_t readUint64Vector(std::unique_ptr<std::vector<uint64_t>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readUint64Vector(std::vector<uint64_t>* val) const;
     LIBBINDER_EXPORTED status_t readFloatVector(std::optional<std::vector<float>>* val) const;
     LIBBINDER_EXPORTED status_t readFloatVector(std::unique_ptr<std::vector<float>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readFloatVector(std::vector<float>* val) const;
     LIBBINDER_EXPORTED status_t readDoubleVector(std::optional<std::vector<double>>* val) const;
     LIBBINDER_EXPORTED status_t readDoubleVector(std::unique_ptr<std::vector<double>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readDoubleVector(std::vector<double>* val) const;
     LIBBINDER_EXPORTED status_t readBoolVector(std::optional<std::vector<bool>>* val) const;
     LIBBINDER_EXPORTED status_t readBoolVector(std::unique_ptr<std::vector<bool>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readBoolVector(std::vector<bool>* val) const;
     LIBBINDER_EXPORTED status_t readCharVector(std::optional<std::vector<char16_t>>* val) const;
     LIBBINDER_EXPORTED status_t readCharVector(std::unique_ptr<std::vector<char16_t>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readCharVector(std::vector<char16_t>* val) const;
     LIBBINDER_EXPORTED status_t
     readString16Vector(std::optional<std::vector<std::optional<String16>>>* val) const;
     LIBBINDER_EXPORTED status_t
     readString16Vector(std::unique_ptr<std::vector<std::unique_ptr<String16>>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readString16Vector(std::vector<String16>* val) const;
     LIBBINDER_EXPORTED status_t readUtf8VectorFromUtf16Vector(
             std::optional<std::vector<std::optional<std::string>>>* val) const;
     LIBBINDER_EXPORTED status_t readUtf8VectorFromUtf16Vector(
             std::unique_ptr<std::vector<std::unique_ptr<std::string>>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t readUtf8VectorFromUtf16Vector(std::vector<std::string>* val) const;
 
     template <typename T, size_t N>
@@ -676,7 +621,7 @@ public:
     template<typename T>
     status_t            resizeOutVector(std::optional<std::vector<T>>* val) const;
     template<typename T>
-    status_t            resizeOutVector(std::unique_ptr<std::vector<T>>* val) const __attribute__((deprecated("use std::optional version instead")));
+    status_t            resizeOutVector(std::unique_ptr<std::vector<T>>* val) const /*__attribute__((deprecated("use std::optional version instead")))*/;
 
     // Like Parcel.java's readExceptionCode().  Reads the first int32
     // off of a Parcel's header, returning 0 or the negative error
@@ -712,7 +657,7 @@ public:
     readUniqueFileDescriptorVector(std::optional<std::vector<binder::unique_fd>>* val) const;
     LIBBINDER_EXPORTED status_t
     readUniqueFileDescriptorVector(std::unique_ptr<std::vector<binder::unique_fd>>* val) const
-            __attribute__((deprecated("use std::optional version instead")));
+            /*__attribute__((deprecated("use std::optional version instead")))*/;
     LIBBINDER_EXPORTED status_t
     readUniqueFileDescriptorVector(std::vector<binder::unique_fd>* val) const;
 
@@ -1326,12 +1271,8 @@ private:
             if (__builtin_mul_overflow(size, sizeof(T), &dataLen)) {
                 return -EOVERFLOW;
             }
-<<<<<<< HEAD
 #endif
             auto data = reinterpret_cast<const T*>(readInplace(dataLen));
-=======
-            auto data = readInplace(dataLen);
->>>>>>> d3fb93fb73
             if (data == nullptr) return BAD_VALUE;
             // std::vector::insert and similar methods will require type-dependent
             // byte alignment when inserting from a const iterator such as `data`,

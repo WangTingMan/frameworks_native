@@ -65,15 +65,9 @@ private:
 std::optional<AdbForwarder> AdbForwarder::forward(unsigned int devicePort) {
     auto result =
             execute({"adb", "forward", "tcp:0", "tcp:" + std::to_string(devicePort)}, nullptr);
-<<<<<<< HEAD
 #ifndef _MSC_VER
-    if (!result.ok()) {
-        ALOGE("Unable to run `adb forward tcp:0 tcp:%d`: %s", devicePort,
-              result.error().message().c_str());
-=======
     if (!result.has_value()) {
         ALOGE("Unable to run `adb forward tcp:0 tcp:%d`", devicePort);
->>>>>>> d3fb93fb73
         return std::nullopt;
     }
 #endif
@@ -103,15 +97,10 @@ AdbForwarder::~AdbForwarder() {
     if (!mPort.has_value()) return;
 
     auto result = execute({"adb", "forward", "--remove", "tcp:" + std::to_string(*mPort)}, nullptr);
-<<<<<<< HEAD
+
 #ifndef _MSC_VER
-    if (!result.ok()) {
-        ALOGE("Unable to run `adb forward --remove tcp:%d`: %s", *mPort,
-              result.error().message().c_str());
-=======
     if (!result.has_value()) {
         ALOGE("Unable to run `adb forward --remove tcp:%d`", *mPort);
->>>>>>> d3fb93fb73
         return;
     }
 #endif
@@ -146,13 +135,9 @@ sp<IBinder> getDeviceService(std::vector<std::string>&& serviceDispatcherArgs,
     serviceDispatcherArgs.insert(serviceDispatcherArgs.begin(), prefix.begin(), prefix.end());
 
     auto result = execute(std::move(serviceDispatcherArgs), &CommandResult::stdoutEndsWithNewLine);
-<<<<<<< HEAD
+
 #ifndef _MSC_VER
-    if (!result.ok()) {
-        ALOGE("%s", result.error().message().c_str());
-=======
     if (!result.has_value()) {
->>>>>>> d3fb93fb73
         return nullptr;
     }
 #endif

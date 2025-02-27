@@ -30,13 +30,13 @@
 #include <binder/Common.h>
 #include <binder/Functional.h>
 #include <binder/RpcCertificateFormat.h>
-<<<<<<< HEAD
-#include <binder/compatible_porting.h>
-#include <binder/libbinder_export.h>
-=======
 #include <binder/RpcThreads.h>
 #include <binder/unique_fd.h>
->>>>>>> d3fb93fb73
+
+#ifdef _MSC_VER
+#include <binder/compatible_porting.h>
+#include <binder/libbinder_export.h>
+#endif
 
 #ifndef _MSC_VER
 #include <sys/uio.h>
@@ -59,11 +59,7 @@ class RpcTransportCtxTipcTrusty;
 
 // Represents a socket connection.
 // No thread-safety is guaranteed for these APIs.
-<<<<<<< HEAD
 class LIBBINDER_EXPORT RpcTransport {
-=======
-class LIBBINDER_EXPORTED RpcTransport {
->>>>>>> d3fb93fb73
 public:
     virtual ~RpcTransport() = default;
 
@@ -97,15 +93,6 @@ public:
      *   error - interrupted (failure or trigger)
      */
     [[nodiscard]] virtual status_t interruptableWriteFully(
-<<<<<<< HEAD
-            FdTrigger *fdTrigger, iovec_fake* iovs, int niovs,
-            const std::optional<android::base::function_ref<status_t()>> &altPoll,
-            const std::vector<std::variant<base::unique_fd, base::borrowed_fd>> *ancillaryFds) = 0;
-    [[nodiscard]] virtual status_t interruptableReadFully(
-            FdTrigger *fdTrigger, iovec_fake* iovs, int niovs,
-            const std::optional<android::base::function_ref<status_t()>> &altPoll,
-            std::vector<std::variant<base::unique_fd, base::borrowed_fd>> *ancillaryFds) = 0;
-=======
             FdTrigger* fdTrigger, iovec* iovs, int niovs,
             const std::optional<binder::impl::SmallFunction<status_t()>>& altPoll,
             const std::vector<std::variant<binder::unique_fd, binder::borrowed_fd>>*
@@ -138,18 +125,13 @@ private:
     friend class ::android::RpcTransportTls;
     friend class ::android::RpcTransportTipcAndroid;
     friend class ::android::RpcTransportTipcTrusty;
->>>>>>> d3fb93fb73
 
     RpcTransport() = default;
 };
 
 // Represents the context that generates the socket connection.
 // All APIs are thread-safe. See RpcTransportCtxRaw and RpcTransportCtxTls for details.
-<<<<<<< HEAD
 class LIBBINDER_EXPORT RpcTransportCtx {
-=======
-class LIBBINDER_EXPORTED RpcTransportCtx {
->>>>>>> d3fb93fb73
 public:
     virtual ~RpcTransportCtx() = default;
 
@@ -180,11 +162,7 @@ private:
 
 // A factory class that generates RpcTransportCtx.
 // All APIs are thread-safe.
-<<<<<<< HEAD
 class LIBBINDER_EXPORT RpcTransportCtxFactory {
-=======
-class LIBBINDER_EXPORTED RpcTransportCtxFactory {
->>>>>>> d3fb93fb73
 public:
     virtual ~RpcTransportCtxFactory() = default;
     // Creates server context.

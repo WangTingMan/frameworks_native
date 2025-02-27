@@ -28,6 +28,7 @@ BpServiceCallback::BpServiceCallback(const ::android::sp<::android::IBinder>& _a
   ::android::Parcel _aidl_reply;
   ::android::status_t _aidl_ret_status = ::android::OK;
   ::android::binder::Status _aidl_status;
+  ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IServiceCallback::onRegistration::cppClient" );
   _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
@@ -60,7 +61,7 @@ BpServiceCallback::BpServiceCallback(const ::android::sp<::android::IBinder>& _a
   }
 #endif
   _aidl_ret_status = remote()->transact(BnServiceCallback::TRANSACTION_onRegistration, _aidl_data, &_aidl_reply, ::android::IBinder::FLAG_ONEWAY);
-  if (UNLIKELY(_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceCallback::getDefaultImpl())) {
+  if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceCallback::getDefaultImpl()) [[unlikely]] {
      return IServiceCallback::getDefaultImpl()->onRegistration(name, binder);
   }
   if (((_aidl_ret_status) != (::android::OK))) {
@@ -96,6 +97,7 @@ BnServiceCallback::BnServiceCallback()
       _aidl_ret_status = ::android::BAD_TYPE;
       break;
     }
+    ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IServiceCallback::onRegistration::cppServer" );
     _aidl_ret_status = _aidl_data.readUtf8FromUtf16(&in_name);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;

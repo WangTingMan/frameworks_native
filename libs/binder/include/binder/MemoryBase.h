@@ -27,12 +27,7 @@ namespace android {
 
 // ---------------------------------------------------------------------------
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT MemoryBase : public BnMemory 
-{
-=======
-class LIBBINDER_EXPORTED MemoryBase : public BnMemory {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT MemoryBase : public BnMemory {
 public:
     MemoryBase(const sp<IMemoryHeap>& heap, ssize_t offset, size_t size);
     virtual ~MemoryBase();

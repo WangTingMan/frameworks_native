@@ -47,12 +47,8 @@ class ProcessState;
 using binder_proxy_limit_callback = std::function<void(int)>;
 using binder_proxy_warning_callback = std::function<void(int)>;
 
-<<<<<<< HEAD
 class LIBBINDER_EXPORT BpBinder : public IBinder
 {
-=======
-class BpBinder : public IBinder {
->>>>>>> d3fb93fb73
 public:
     /**
      * Return value:
@@ -254,24 +250,15 @@ private:
 
     void onFrozenStateChanged(bool isFrozen);
 
-<<<<<<< HEAD
-    mutable Mutex               mLock;
-            volatile int32_t    mAlive;
-            volatile int32_t    mObitsSent;
-            Vector<Obituary>*   mObituaries;
-            ObjectManager       mObjects;
-    mutable String16            mDescriptorCache;
-            int32_t             mTrackedUid;
 #ifdef _MSC_VER
    std::atomic_uint32_t         mDiedCallbackId{ 0 };
 #endif
-=======
+
     struct FrozenStateChange {
         bool isFrozen = false;
         Vector<wp<FrozenStateChangeCallback>> callbacks;
         bool initialStateReceived = false;
     };
->>>>>>> d3fb93fb73
 
     void reportOneDeath(const Obituary& obit);
     bool isDescriptorCached() const;

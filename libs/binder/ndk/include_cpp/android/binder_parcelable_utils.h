@@ -55,15 +55,6 @@ class AParcelableHolder {
                            AParcel_getDataSize(other.mParcel.get()));
     }
 
-    AParcelableHolder& operator=(const AParcelableHolder& other)
-    {
-        mParcel = ndk::ScopedAParcel(AParcel_create());
-        mStability = other.mStability;
-        AParcel_appendFrom(other.mParcel.get(), this->mParcel.get(), 0,
-            AParcel_getDataSize(other.mParcel.get()));
-        return *this;
-    }
-
     AParcelableHolder(AParcelableHolder&& other) = default;
     virtual ~AParcelableHolder() = default;
 

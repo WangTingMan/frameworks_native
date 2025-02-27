@@ -53,11 +53,7 @@ namespace binder {
 //         // exception during handling.
 //     }
 //
-<<<<<<< HEAD
 class LIBBINDER_EXPORT Status final {
-=======
-class LIBBINDER_EXPORTED Status final {
->>>>>>> d3fb93fb73
 public:
     // Keep the exception codes in sync with android/os/Parcel.java.
     enum Exception {

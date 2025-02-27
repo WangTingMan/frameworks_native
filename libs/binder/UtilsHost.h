@@ -25,17 +25,12 @@
 #include <functional>
 #include <memory>
 
-#ifndef _MSC_VER
 #include <android-base/macros.h>
-<<<<<<< HEAD
-#include <android-base/result.h>
-#include <android-base/unique_fd.h>
-#endif
-=======
+
 #include <binder/Common.h>
 #include <binder/unique_fd.h>
 #include <utils/Errors.h>
->>>>>>> d3fb93fb73
+
 
 /**
  * Log a lot more information about host-device binder communication, when debugging issues.
@@ -60,17 +55,10 @@ struct LIBBINDER_EXPORTED CommandResult {
     std::optional<pid_t> pid;
     std::string stdoutStr;
     std::string stderrStr;
-<<<<<<< HEAD
-#ifndef _MSC_VER
-    android::base::unique_fd outPipe;
-    android::base::unique_fd errPipe;
-#endif
-=======
 
     binder::unique_fd outPipe;
     binder::unique_fd errPipe;
 
->>>>>>> d3fb93fb73
     CommandResult() = default;
     CommandResult(CommandResult&& other) noexcept { (*this) = std::move(other); }
     CommandResult& operator=(CommandResult&& other) noexcept {
@@ -89,14 +77,8 @@ struct LIBBINDER_EXPORTED CommandResult {
     }
 
 private:
-<<<<<<< HEAD
-#ifndef _MSC_VER
-    DISALLOW_COPY_AND_ASSIGN(CommandResult);
-#endif
-=======
     CommandResult(const CommandResult&) = delete;
     void operator=(const CommandResult&) = delete;
->>>>>>> d3fb93fb73
 };
 
 LIBBINDER_EXPORTED std::ostream& operator<<(std::ostream& os, const CommandResult& res);
@@ -123,12 +105,7 @@ LIBBINDER_EXPORTED std::ostream& operator<<(std::ostream& os, const CommandResul
 //
 // If the parent process has encountered any errors for system calls, return ExecuteError with
 // the proper errno set.
-<<<<<<< HEAD
-std::shared_ptr<CommandResult> execute(std::vector<std::string> argStringVec,
-                                             const std::function<bool(const CommandResult&)>& end);
-=======
 LIBBINDER_EXPORTED std::optional<CommandResult> execute(
         std::vector<std::string> argStringVec,
         const std::function<bool(const CommandResult&)>& end);
->>>>>>> d3fb93fb73
 } // namespace android

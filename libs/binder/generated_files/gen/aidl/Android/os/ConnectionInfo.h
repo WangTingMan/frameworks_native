@@ -16,38 +16,38 @@ class LIBBINDER_EXPORT ConnectionInfo : public ::android::Parcelable {
 public:
   ::std::string ipAddress;
   int32_t port = 0;
-  inline bool operator!=(const ConnectionInfo& rhs) const {
-    return std::tie(ipAddress, port) != std::tie(rhs.ipAddress, rhs.port);
+  inline bool operator==(const ConnectionInfo& _rhs) const {
+    return std::tie(ipAddress, port) == std::tie(_rhs.ipAddress, _rhs.port);
   }
-  inline bool operator<(const ConnectionInfo& rhs) const {
-    return std::tie(ipAddress, port) < std::tie(rhs.ipAddress, rhs.port);
+  inline bool operator<(const ConnectionInfo& _rhs) const {
+    return std::tie(ipAddress, port) < std::tie(_rhs.ipAddress, _rhs.port);
   }
-  inline bool operator<=(const ConnectionInfo& rhs) const {
-    return std::tie(ipAddress, port) <= std::tie(rhs.ipAddress, rhs.port);
+  inline bool operator!=(const ConnectionInfo& _rhs) const {
+    return !(*this == _rhs);
   }
-  inline bool operator==(const ConnectionInfo& rhs) const {
-    return std::tie(ipAddress, port) == std::tie(rhs.ipAddress, rhs.port);
+  inline bool operator>(const ConnectionInfo& _rhs) const {
+    return _rhs < *this;
   }
-  inline bool operator>(const ConnectionInfo& rhs) const {
-    return std::tie(ipAddress, port) > std::tie(rhs.ipAddress, rhs.port);
+  inline bool operator>=(const ConnectionInfo& _rhs) const {
+    return !(*this < _rhs);
   }
-  inline bool operator>=(const ConnectionInfo& rhs) const {
-    return std::tie(ipAddress, port) >= std::tie(rhs.ipAddress, rhs.port);
+  inline bool operator<=(const ConnectionInfo& _rhs) const {
+    return !(_rhs < *this);
   }
 
   ::android::status_t readFromParcel(const ::android::Parcel* _aidl_parcel) final;
   ::android::status_t writeToParcel(::android::Parcel* _aidl_parcel) const final;
   static const ::android::String16& getParcelableDescriptor() {
-    static const ::android::StaticString16 DESCIPTOR (u"android.os.ConnectionInfo");
-    return DESCIPTOR;
+    static const ::android::StaticString16 DESCRIPTOR (u"android.os.ConnectionInfo");
+    return DESCRIPTOR;
   }
   inline std::string toString() const {
-    std::ostringstream os;
-    os << "ConnectionInfo{";
-    os << "ipAddress: " << ::android::internal::ToString(ipAddress);
-    os << ", port: " << ::android::internal::ToString(port);
-    os << "}";
-    return os.str();
+    std::ostringstream _aidl_os;
+    _aidl_os << "ConnectionInfo{";
+    _aidl_os << "ipAddress: " << ::android::internal::ToString(ipAddress);
+    _aidl_os << ", port: " << ::android::internal::ToString(port);
+    _aidl_os << "}";
+    return _aidl_os.str();
   }
 };  // class ConnectionInfo
 }  // namespace os

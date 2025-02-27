@@ -3,13 +3,16 @@
 #include <binder/IBinder.h>
 #include <binder/IInterface.h>
 #include <binder/Status.h>
+#include <binder/Trace.h>
 #include <string>
 #include <utils/StrongPointer.h>
 
 namespace android {
 namespace os {
+class LIBBINDER_EXPORTED IServiceCallbackDelegator;
 class IServiceCallback : public ::android::IInterface {
 public:
+  typedef IServiceCallbackDelegator DefaultDelegator;
   DECLARE_META_INTERFACE(ServiceCallback)
   virtual ::android::binder::Status onRegistration(const ::std::string& name, const ::android::sp<::android::IBinder>& binder) = 0;
 };  // class IServiceCallback

@@ -13,8 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#ifdef _MSC_VER
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#endif
 
+#ifndef _MSC_VER
 #include <sys/socket.h>
+#endif
 #define LOG_TAG "ServiceManagerCppClient"
 
 #include <binder/IServiceManager.h>
@@ -22,15 +27,15 @@
 #include "BackendUnifiedServiceManager.h"
 
 #include <inttypes.h>
-<<<<<<< HEAD
-=======
+#ifndef _MSC_VER
 #include <unistd.h>
+#endif
 #include <chrono>
 #include <condition_variable>
->>>>>>> d3fb93fb73
 
-#include <FdTrigger.h>
-#include <RpcSocketAddress.h>
+
+#include <binder/FdTrigger.h>
+#include <binder/RpcSocketAddress.h>
 #include <android-base/properties.h>
 #include <android/os/BnAccessor.h>
 #include <android/os/BnServiceCallback.h>
@@ -313,33 +318,10 @@ android::binder::Status getInjectedAccessor(const std::string& name,
 sp<IServiceManager> defaultServiceManager()
 {
     std::call_once(gSmOnce, []() {
-<<<<<<< HEAD
-#if defined(__BIONIC__) && !defined(__ANDROID_VNDK__)
-        /* wait for service manager */ {
-            using std::literals::chrono_literals::operator""s;
-            using android::base::WaitForProperty;
-            while (!WaitForProperty("servicemanager.ready", "true", 1s)) {
-                ALOGE("Waited for servicemanager.ready for a second, waiting another...");
-            }
-        }
-#endif
-
-        sp<AidlServiceManager> sm = nullptr;
-        while (sm == nullptr) {
-            sm = interface_cast<AidlServiceManager>(ProcessState::self()->getContextObject(nullptr));
-            if (sm == nullptr) {
-                ALOGE("Waiting 1s on context object on %s.", ProcessState::self()->getDriverName().c_str());
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-            }
-        }
-
-        gDefaultServiceManager = sp<ServiceManagerShim>::make(sm);
+        gDefaultServiceManager = sp<CppBackendShim>::make(getBackendUnifiedServiceManager());
 #ifdef _MSC_VER
         gDefaultServiceManager->setName( "[IServiceManager.cpp:167]gDefaultServiceManager = sp<ServiceManagerShim>::make(sm)" );
 #endif
-=======
-        gDefaultServiceManager = sp<CppBackendShim>::make(getBackendUnifiedServiceManager());
->>>>>>> d3fb93fb73
     });
 
     return gDefaultServiceManager;
@@ -637,7 +619,7 @@ sp<IBinder> CppBackendShim::getService(const String16& name) const {
 
 sp<IBinder> CppBackendShim::checkService(const String16& name) const {
     Service ret;
-    if (!mUnifiedServiceManager->checkService(String8(name).c_str(), &ret).isOk()) {
+    if (!mUnifiedServiceManager->checkService2(String8(name).c_str(), &ret).isOk()) {
         return nullptr;
     }
     return ret.get<Service::Tag::serviceWithMetadata>().service;

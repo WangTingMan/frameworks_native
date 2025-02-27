@@ -35,6 +35,7 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
   bool result = false;
 #endif
 #ifdef _MSC_VER
+  ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::getService::cppClient" );
   _aidl_ret_status = _aidl_data.writeString16( getInterfaceDescriptor() );
 #else
   _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
@@ -47,7 +48,7 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
     goto _aidl_error;
   }
   _aidl_ret_status = remote()->transact(BnServiceManager::TRANSACTION_getService, _aidl_data, &_aidl_reply, 0);
-  if (UNLIKELY(_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceManager::getDefaultImpl())) {
+  if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceManager::getDefaultImpl()) [[unlikely]] {
      return IServiceManager::getDefaultImpl()->getService(name, _aidl_return);
   }
   if (((_aidl_ret_status) != (::android::OK))) {
@@ -82,6 +83,44 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
   return _aidl_status;
 }
 
+::android::binder::Status BpServiceManager::getService2(const ::std::string& name, ::android::os::Service* _aidl_return) {
+  ::android::Parcel _aidl_data;
+  _aidl_data.markForBinder(remoteStrong());
+  ::android::Parcel _aidl_reply;
+  ::android::status_t _aidl_ret_status = ::android::OK;
+  ::android::binder::Status _aidl_status;
+  ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::getService2::cppClient");
+  _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = _aidl_data.writeUtf8AsUtf16(name);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = remote()->transact(BnServiceManager::TRANSACTION_getService2, _aidl_data, &_aidl_reply, 0);
+  if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceManager::getDefaultImpl()) [[unlikely]] {
+     return IServiceManager::getDefaultImpl()->getService2(name, _aidl_return);
+  }
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = _aidl_status.readFromParcel(_aidl_reply);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  if (!_aidl_status.isOk()) {
+    return _aidl_status;
+  }
+  _aidl_ret_status = _aidl_reply.readParcelable(_aidl_return);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_error:
+  _aidl_status.setFromStatusT(_aidl_ret_status);
+  return _aidl_status;
+}
+
 ::android::binder::Status BpServiceManager::checkService(const ::std::string& name, ::android::sp<::android::IBinder>* _aidl_return) {
   ::android::Parcel _aidl_data;
   _aidl_data.markForBinder(remoteStrong());
@@ -106,12 +145,12 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
   LOG( INFO ) << "check service: " << name;
 #endif
   _aidl_ret_status = remote()->transact(BnServiceManager::TRANSACTION_checkService, _aidl_data, &_aidl_reply, 0);
-  if (UNLIKELY(_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceManager::getDefaultImpl())) {
+  if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceManager::getDefaultImpl()) [[unlikely]] {
      return IServiceManager::getDefaultImpl()->checkService(name, _aidl_return);
   }
   if (((_aidl_ret_status) != (::android::OK))) {
 #ifdef _MSC_VER
-      LOG( INFO ) << "check service: " << name << " failed.";
+    LOG( INFO ) << "check service: " << name << " failed.";
 #endif
     goto _aidl_error;
   }
@@ -139,6 +178,44 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
 #else
   _aidl_ret_status = _aidl_reply.readNullableStrongBinder(_aidl_return);
 #endif
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_error:
+  _aidl_status.setFromStatusT(_aidl_ret_status);
+  return _aidl_status;
+}
+
+::android::binder::Status BpServiceManager::checkService2(const ::std::string& name, ::android::os::Service* _aidl_return) {
+  ::android::Parcel _aidl_data;
+  _aidl_data.markForBinder(remoteStrong());
+  ::android::Parcel _aidl_reply;
+  ::android::status_t _aidl_ret_status = ::android::OK;
+  ::android::binder::Status _aidl_status;
+  ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::checkService2::cppClient");
+  _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = _aidl_data.writeUtf8AsUtf16(name);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = remote()->transact(BnServiceManager::TRANSACTION_checkService2, _aidl_data, &_aidl_reply, 0);
+  if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceManager::getDefaultImpl()) [[unlikely]] {
+     return IServiceManager::getDefaultImpl()->checkService2(name, _aidl_return);
+  }
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = _aidl_status.readFromParcel(_aidl_reply);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  if (!_aidl_status.isOk()) {
+    return _aidl_status;
+  }
+  _aidl_ret_status = _aidl_reply.readParcelable(_aidl_return);
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
   }
@@ -431,12 +508,51 @@ BpServiceManager::BpServiceManager(const ::android::sp<::android::IBinder>& _aid
   return _aidl_status;
 }
 
+::android::binder::Status BpServiceManager::getUpdatableNames(const ::std::string& apexName, ::std::vector<::std::string>* _aidl_return) {
+  ::android::Parcel _aidl_data;
+  _aidl_data.markForBinder(remoteStrong());
+  ::android::Parcel _aidl_reply;
+  ::android::status_t _aidl_ret_status = ::android::OK;
+  ::android::binder::Status _aidl_status;
+  ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::getUpdatableNames::cppClient");
+  _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = _aidl_data.writeUtf8AsUtf16(apexName);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = remote()->transact(BnServiceManager::TRANSACTION_getUpdatableNames, _aidl_data, &_aidl_reply, 0);
+  if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceManager::getDefaultImpl()) [[unlikely]] {
+     return IServiceManager::getDefaultImpl()->getUpdatableNames(apexName, _aidl_return);
+  }
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_ret_status = _aidl_status.readFromParcel(_aidl_reply);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  if (!_aidl_status.isOk()) {
+    return _aidl_status;
+  }
+  _aidl_ret_status = _aidl_reply.readUtf8VectorFromUtf16Vector(_aidl_return);
+  if (((_aidl_ret_status) != (::android::OK))) {
+    goto _aidl_error;
+  }
+  _aidl_error:
+  _aidl_status.setFromStatusT(_aidl_ret_status);
+  return _aidl_status;
+}
+
 ::android::binder::Status BpServiceManager::getConnectionInfo(const ::std::string& name, ::std::optional<::android::os::ConnectionInfo>* _aidl_return) {
   ::android::Parcel _aidl_data;
   _aidl_data.markForBinder(remoteStrong());
   ::android::Parcel _aidl_reply;
   ::android::status_t _aidl_ret_status = ::android::OK;
   ::android::binder::Status _aidl_status;
+  ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::getConnectionInfo::cppClient" );
   _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
@@ -641,6 +757,37 @@ BnServiceManager::BnServiceManager()
     }
   }
   break;
+  case BnServiceManager::TRANSACTION_getService2:
+  {
+    ::std::string in_name;
+    ::android::os::Service _aidl_return;
+    if (!(_aidl_data.checkInterface(this))) {
+      _aidl_ret_status = ::android::BAD_TYPE;
+      break;
+    }
+    ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::getService2::cppServer");
+    _aidl_ret_status = _aidl_data.readUtf8FromUtf16(&in_name);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+    if (auto st = _aidl_data.enforceNoDataAvail(); !st.isOk()) {
+      _aidl_ret_status = st.writeToParcel(_aidl_reply);
+      break;
+    }
+    ::android::binder::Status _aidl_status(getService2(in_name, &_aidl_return));
+    _aidl_ret_status = _aidl_status.writeToParcel(_aidl_reply);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+    if (!_aidl_status.isOk()) {
+      break;
+    }
+    _aidl_ret_status = _aidl_reply->writeParcelable(_aidl_return);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+  }
+  break;
   case BnServiceManager::TRANSACTION_checkService:
   {
     ::std::string in_name;
@@ -677,6 +824,37 @@ BnServiceManager::BnServiceManager()
 #else
     _aidl_ret_status = _aidl_reply->writeStrongBinder(_aidl_return);
 #endif
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+  }
+  break;
+  case BnServiceManager::TRANSACTION_checkService2:
+  {
+    ::std::string in_name;
+    ::android::os::Service _aidl_return;
+    if (!(_aidl_data.checkInterface(this))) {
+      _aidl_ret_status = ::android::BAD_TYPE;
+      break;
+    }
+    ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::checkService2::cppServer");
+    _aidl_ret_status = _aidl_data.readUtf8FromUtf16(&in_name);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+    if (auto st = _aidl_data.enforceNoDataAvail(); !st.isOk()) {
+      _aidl_ret_status = st.writeToParcel(_aidl_reply);
+      break;
+    }
+    ::android::binder::Status _aidl_status(checkService2(in_name, &_aidl_return));
+    _aidl_ret_status = _aidl_status.writeToParcel(_aidl_reply);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+    if (!_aidl_status.isOk()) {
+      break;
+    }
+    _aidl_ret_status = _aidl_reply->writeParcelable(_aidl_return);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;
     }
@@ -914,6 +1092,37 @@ BnServiceManager::BnServiceManager()
       break;
     }
     _aidl_ret_status = _aidl_reply->writeUtf8AsUtf16(_aidl_return);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+  }
+  break;
+  case BnServiceManager::TRANSACTION_getUpdatableNames:
+  {
+    ::std::string in_apexName;
+    ::std::vector<::std::string> _aidl_return;
+    if (!(_aidl_data.checkInterface(this))) {
+      _aidl_ret_status = ::android::BAD_TYPE;
+      break;
+    }
+    ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceManager::getUpdatableNames::cppServer");
+    _aidl_ret_status = _aidl_data.readUtf8FromUtf16(&in_apexName);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+    if (auto st = _aidl_data.enforceNoDataAvail(); !st.isOk()) {
+      _aidl_ret_status = st.writeToParcel(_aidl_reply);
+      break;
+    }
+    ::android::binder::Status _aidl_status(getUpdatableNames(in_apexName, &_aidl_return));
+    _aidl_ret_status = _aidl_status.writeToParcel(_aidl_reply);
+    if (((_aidl_ret_status) != (::android::OK))) {
+      break;
+    }
+    if (!_aidl_status.isOk()) {
+      break;
+    }
+    _aidl_ret_status = _aidl_reply->writeUtf8VectorAsUtf16Vector(_aidl_return);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;
     }

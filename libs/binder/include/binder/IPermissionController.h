@@ -31,13 +31,7 @@
 namespace android {
 
 // ----------------------------------------------------------------------
-
-<<<<<<< HEAD
-class LIBBINDER_EXPORT IPermissionController : public IInterface
-{
-=======
-class LIBBINDER_EXPORTED IPermissionController : public IInterface {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT IPermissionController : public IInterface {
 public:
     DECLARE_META_INTERFACE(PermissionController)
 
@@ -62,12 +56,7 @@ public:
 
 // ----------------------------------------------------------------------
 
-<<<<<<< HEAD
-class LIBBINDER_EXPORT BnPermissionController : public BnInterface<IPermissionController>
-{
-=======
-class LIBBINDER_EXPORTED BnPermissionController : public BnInterface<IPermissionController> {
->>>>>>> d3fb93fb73
+class LIBBINDER_EXPORT BnPermissionController : public BnInterface<IPermissionController> {
 public:
     // NOLINTNEXTLINE(google-default-arguments)
     virtual status_t    onTransact( uint32_t code,
