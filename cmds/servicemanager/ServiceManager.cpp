@@ -619,6 +619,7 @@ Status ServiceManager::addService(const std::string& name, const sp<IBinder>& bi
 
 #ifdef _MSC_VER
     LOG( INFO ) << "service: " << name << " added.";
+    binder->setName( name );
 #endif
 
     if (auto it = mNameToRegistrationCallback.find(name); it != mNameToRegistrationCallback.end()) {

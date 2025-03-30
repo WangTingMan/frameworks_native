@@ -1585,22 +1585,61 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
     std::string connection_name;
     std::string listen_addr;
     status_t ret_status = NO_ERROR;
-    String16 dec = val->getInterfaceDescriptor();
-    std::string interface_descriptor = String8( dec ).c_str();
-    int exist_ret = ipc_connection_token_mgr::get_instance()
-        .find_remote_service_by_service_name( interface_descriptor, connection_name, listen_addr );
+    if( val )
+    {
+        ret_status = writeUint32( NO_ERROR );
+    }
+    else
+    {
+        ret_status = writeUint32( BAD_VALUE );
+        return ret_status;
+    }
+
+    std::string name;
+    int exist_ret = -9;
+    do
+    {
+        name = val->getName();
+        exist_ret = ipc_connection_token_mgr::get_instance()
+            .find_remote_service_by_service_name( name, connection_name, listen_addr );
+        if( 0 == exist_ret )
+        {
+            break;
+        }
+
+        auto remote_binder = val->remoteBinder();
+        if( remote_binder )
+        {
+            int32_t handle = remote_binder->getPrivateAccessor().binderHandle();
+            exist_ret = ipc_connection_token_mgr::get_instance()
+                .find_remote_service_by_id( handle, name, connection_name );
+            if( 0 == exist_ret )
+            {
+                exist_ret = ipc_connection_token_mgr::get_instance()
+                    .find_remote_service_by_service_name( name, connection_name, listen_addr );
+                break;
+            }
+        }
+
+        String16 dec = val->getInterfaceDescriptor();
+        name = String8( dec ).c_str();
+        exist_ret = ipc_connection_token_mgr::get_instance()
+            .find_remote_service_by_service_name( name, connection_name, listen_addr );
+
+    } while (false);
+
     if( 0 != exist_ret )
     {
         connection_name = ipc_connection_token_mgr::get_instance().get_local_connection_name();
         listen_addr = ipc_connection_token_mgr::get_instance().get_local_listen_address();
-        ipc_connection_token_mgr::get_instance().add_local_service( interface_descriptor, val );
-        ALOGI( "%s will be treated as local service. connection name: %s, listen address: %s",
-               interface_descriptor.c_str(), connection_name.c_str(), listen_addr.c_str() );
+        ipc_connection_token_mgr::get_instance().add_local_service( name, val );
+        ALOGW( "%s will be treated as local service. connection name: %s, listen address: %s",
+               name.c_str(), connection_name.c_str(), listen_addr.c_str() );
     }
 
     ret_status = writeUtf8AsUtf16( connection_name );
     ret_status = writeUtf8AsUtf16( listen_addr );
-    ret_status = writeString16( dec );
+    ret_status = writeUtf8AsUtf16( name );
     return ret_status;
 #else
     return flattenBinder(val);
@@ -2444,6 +2483,12 @@ status_t Parcel::readNullableStrongBinder(sp<IBinder>* val) const
     std::string listen_addr;
     std::string interface_name;
     String16 temp_str;
+    status_t value_status = NO_ERROR;
+    ret_status = readUint32();
+    if( value_status != NO_ERROR )
+    {
+        return ret_status;
+    }
 
     ret_status = readString16( &temp_str );
     connection_name = String8( temp_str ).c_str();
