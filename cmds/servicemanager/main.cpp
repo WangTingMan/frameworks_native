@@ -58,7 +58,11 @@ namespace android {
 
 static void register_perfetto_te_categories() {
     struct PerfettoProducerInitArgs perfetto_args = PERFETTO_PRODUCER_INIT_ARGS_INIT();
+#ifdef _MSC_VER
+    perfetto_args.backends = PERFETTO_BACKEND_IN_PROCESS;
+#else
     perfetto_args.backends = PERFETTO_BACKEND_SYSTEM;
+#endif
     PerfettoProducerInit(perfetto_args);
     PerfettoTeInit();
     PERFETTO_TE_REGISTER_CATEGORIES(PERFETTO_SM_CATEGORIES);

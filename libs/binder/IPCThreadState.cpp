@@ -1711,7 +1711,11 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             //    (mCallingSid ? mCallingSid : "<N/A>"), mCallingUid);
 
             Parcel reply;
+#ifdef _MSC_VER
+            status_t error = OK;
+#else
             status_t error;
+#endif
             IF_LOG_TRANSACTIONS() {
                 std::ostringstream logStream;
                 logStream << "BR_TRANSACTION thr " << (void*)pthread_self() << " / obj "
