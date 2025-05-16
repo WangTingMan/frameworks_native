@@ -53,6 +53,8 @@
 #include <memory>
 #include <mutex>
 
+#include <string>
+
 namespace ndk {
 
 /**
@@ -113,6 +115,17 @@ class SharedRefBase {
 
     static void operator delete(void* p) { std::free(p); }
 
+#ifdef _MSC_VER
+    std::string getObjectName()
+    {
+        return mName;
+    }
+    void setObjectName(std::string a_name)
+    {
+        mName = a_name;
+    }
+#endif
+
     // Once minSdkVersion is 30, we are guaranteed to be building with the
     // Android 11 AIDL compiler which supports the SharedRefBase::make API.
     //
@@ -128,6 +141,9 @@ class SharedRefBase {
    private:
     std::once_flag mFlagThis;
     std::weak_ptr<SharedRefBase> mThis;
+#ifdef _MSC_VER
+    std::string mName;
+#endif
 };
 
 /**
@@ -252,7 +268,13 @@ class BnCInterface : public INTERFACE {
 template <typename INTERFACE>
 class BpCInterface : public INTERFACE {
    public:
-    explicit BpCInterface(const SpAIBinder& binder) : mBinder(binder) {}
+    explicit BpCInterface(const SpAIBinder& binder) : mBinder(binder) {
+#ifdef _MSC_VER
+        char name_buffer[256] = { 0 };
+        AIBinder_getName(mBinder.get(), name_buffer, 256);
+        INTERFACE::setObjectName(std::string(name_buffer));
+#endif
+    }
     virtual ~BpCInterface() {}
 
     SpAIBinder asBinder() override final;
@@ -386,6 +408,8 @@ SpAIBinder BnCInterface<INTERFACE>::asBinder() {
         {
             binder = createBinder();
         }
+        std::string name = INTERFACE::getObjectName();
+        AIBinder_setName(binder.get(), name.c_str());
 #else
         binder = createBinder();
 #endif

@@ -1749,8 +1749,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                 }
                 else
                 {
-                    routeContextObject( tr.service_name );
-                    context_object = the_context_object;
+                    context_object = routeContextObject( tr.service_name );
                 }
 
                 lcker.unlock();
@@ -1891,8 +1890,9 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 }
 
 #ifdef _MSC_VER
-void IPCThreadState::routeContextObject( std::string a_service_name )
+sp<BBinder> IPCThreadState::routeContextObject( std::string a_service_name )
 {
+    sp<BBinder> context_object;
     sp<RefBase> service = ipc_connection_token_mgr::get_instance().get_local_service( a_service_name );
     if( !service )
     {
@@ -1902,7 +1902,6 @@ void IPCThreadState::routeContextObject( std::string a_service_name )
     BBinder* p = dynamic_cast< BBinder* >( service.get() );
     if( p )
     {
-        sp<BBinder> context_object;
         context_object.force_set( p );
         std::lock_guard<std::recursive_mutex> lcker( the_context_mutex );
         the_context_object_service_name = a_service_name;
@@ -1912,6 +1911,7 @@ void IPCThreadState::routeContextObject( std::string a_service_name )
     {
         ALOGE( "cannot cast to BBinder pointer!" );
     }
+    return context_object;
 }
 #endif
 

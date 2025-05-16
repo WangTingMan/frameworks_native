@@ -1602,19 +1602,22 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
         name = val->getName();
         exist_ret = ipc_connection_token_mgr::get_instance()
             .find_remote_service_by_service_name( name, connection_name, listen_addr );
-        if( 0 == exist_ret )
-        {
+        if ( 0 == exist_ret ) {
+            break;
+        }
+
+        auto binder_val = ipc_connection_token_mgr::get_instance().get_local_service(name);
+        if (binder_val) {
+            exist_ret = 0;
             break;
         }
 
         auto remote_binder = val->remoteBinder();
-        if( remote_binder )
-        {
+        if( remote_binder ) {
             int32_t handle = remote_binder->getPrivateAccessor().binderHandle();
             exist_ret = ipc_connection_token_mgr::get_instance()
                 .find_remote_service_by_id( handle, name, connection_name );
-            if( 0 == exist_ret )
-            {
+            if( 0 == exist_ret ) {
                 exist_ret = ipc_connection_token_mgr::get_instance()
                     .find_remote_service_by_service_name( name, connection_name, listen_addr );
                 break;
@@ -1622,9 +1625,21 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
         }
 
         String16 dec = val->getInterfaceDescriptor();
-        name = String8( dec ).c_str();
+        std::string descriptor = String8(dec).c_str();
+        if (name.empty()) {
+            name = descriptor;
+        }
         exist_ret = ipc_connection_token_mgr::get_instance()
-            .find_remote_service_by_service_name( name, connection_name, listen_addr );
+            .find_remote_service_by_service_name(descriptor, connection_name, listen_addr );
+        if (0 == exist_ret) {
+            break;
+        }
+
+        binder_val = ipc_connection_token_mgr::get_instance().get_local_service(descriptor);
+        if (binder_val) {
+            exist_ret = 0;
+            break;
+        }
 
     } while (false);
 
@@ -1637,6 +1652,12 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
                name.c_str(), connection_name.c_str(), listen_addr.c_str() );
     }
 
+    if (connection_name.empty() ||
+        listen_addr.empty())
+    {
+        connection_name = ipc_connection_token_mgr::get_instance().get_local_connection_name();
+        listen_addr = ipc_connection_token_mgr::get_instance().get_local_listen_address();
+    }
     ret_status = writeUtf8AsUtf16( connection_name );
     ret_status = writeUtf8AsUtf16( listen_addr );
     ret_status = writeUtf8AsUtf16( name );
@@ -2512,6 +2533,10 @@ status_t Parcel::readNullableStrongBinder(sp<IBinder>* val) const
                 .add_remote_service( interface_name, connection_name, listen_addr );
         }
         val_gen = ProcessState::self()->getStrongProxyForHandle( interface_name, connection_name );
+        if (val_gen->getName().empty())
+        {
+            val_gen->setName(interface_name);
+        }
     }
     else
     {

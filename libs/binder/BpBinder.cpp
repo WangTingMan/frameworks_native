@@ -460,7 +460,9 @@ status_t BpBinder::dump(int fd, const Vector<String16>& args)
 {
     Parcel send;
     Parcel reply;
+#ifndef _MSC_VER
     send.writeFileDescriptor(fd);
+#endif
     const size_t numArgs = args.size();
     send.writeInt32(numArgs);
     for (size_t i = 0; i < numArgs; i++) {

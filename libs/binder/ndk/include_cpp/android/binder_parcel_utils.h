@@ -362,10 +362,16 @@ static inline binder_status_t AParcel_readNullableParcelFileDescriptor(const APa
  */
 static inline binder_status_t AParcel_writeRequiredParcelFileDescriptor(
         AParcel* parcel, const ScopedFileDescriptor& fd) {
+#ifndef _MSC_VER
+    /**
+     * We do not support transfer file descriptor to another process on windows.
+     * So we ignore this case.
+     */
     if (fd.get() < 0) {
         ALOGE("Passing -1 file descriptor as non-@nullable AIDL ParcelFileDescriptor");
         return STATUS_UNEXPECTED_NULL;
     }
+#endif
     return AParcel_writeParcelFileDescriptor(parcel, fd.get());
 }
 
@@ -377,9 +383,15 @@ static inline binder_status_t AParcel_readRequiredParcelFileDescriptor(const APa
     int readFd;
     binder_status_t status = AParcel_readParcelFileDescriptor(parcel, &readFd);
     if (status == STATUS_OK) {
+#ifndef _MSC_VER
+        /**
+        * We do not support transfer file descriptor to another process on windows.
+        * So we ignore this case.
+        */
         if (readFd < 0) {
             return STATUS_UNEXPECTED_NULL;
         }
+#endif
         fd->set(readFd);
     }
     return status;

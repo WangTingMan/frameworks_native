@@ -33,9 +33,7 @@
 #include <sys/cdefs.h>
 #endif
 
-#include <base\logging.h>
-
-#include <android\libbinder_ndk_export.h>
+#include <android/libbinder_ndk_export.h>
 
 #ifdef __cplusplus
 #ifndef __BEGIN_DECLS
@@ -67,11 +65,7 @@ __BEGIN_DECLS
 #endif
 
 #ifndef __assert
-#define __assert(a, b, c) \
-    do {                  \
-        LOG(FATAL) << c;  \
-        abort();          \
-    } while (false)
+#define __assert(a, b, c) AIBinder_assert(a,b,c)
 #endif
 
 #ifndef __ANDROID_API__
@@ -167,6 +161,10 @@ typedef int32_t binder_exception_t;
  */
 struct AStatus;
 typedef struct AStatus AStatus;
+
+#ifdef _MSC_VER
+LIBBINDER_NDK_EXPORT void AIBinder_assert( const char* a_file, uint64_t a_line, const char* a_message );
+#endif
 
 /**
  * New status which is considered a success.

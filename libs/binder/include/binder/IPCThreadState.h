@@ -238,8 +238,8 @@ public:
 private:
 
 #ifdef _MSC_VER
-            void                routeContextObject( std::string a_service_name );
-            void                startThreadPoolImpl( bool a_is_main );
+    sp<BBinder>                routeContextObject( std::string a_service_name );
+    void                       startThreadPoolImpl( bool a_is_main );
 #endif
 
                                 IPCThreadState();

@@ -21,6 +21,13 @@ using ::android::status_t;
 using ::android::statusToString;
 using ::android::binder::Status;
 
+#ifdef _MSC_VER
+void AIBinder_assert(const char* a_file, uint64_t a_line, const char* a_message)
+{
+    __android_log_print_ext(ANDROID_LOG_FATAL, "AIBinder", a_file, a_line, a_message);
+}
+#endif
+
 AStatus* AStatus_newOk() {
     static AStatus status = AStatus();
     return &status;
@@ -159,6 +166,10 @@ binder_exception_t PruneException(int32_t exception) {
         default:
             ALOGW("%s: Unknown binder exception (%d) pruned into EX_TRANSACTION_FAILED", __func__,
                   exception);
+#ifdef _MSC_VER
+            return exception;
+#else
             return EX_TRANSACTION_FAILED;
+#endif
     }
 }

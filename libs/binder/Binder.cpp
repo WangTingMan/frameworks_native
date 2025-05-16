@@ -795,7 +795,11 @@ status_t BBinder::onTransact(
             return NO_ERROR;
 
         case DUMP_TRANSACTION: {
+#ifdef _MSC_VER
+            int fd = 0;
+#else
             int fd = data.readFileDescriptor();
+#endif
             int argc = data.readInt32();
             Vector<String16> args;
             for (int i = 0; i < argc && data.dataAvail() > 0; i++) {

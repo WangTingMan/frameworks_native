@@ -693,6 +693,38 @@ bool AIBinder_isAlive(const AIBinder* binder) {
     return const_cast<AIBinder*>(binder)->getBinder()->isBinderAlive();
 }
 
+#ifdef _MSC_VER
+bool AIBinder_setName(AIBinder* binder, const char* a_name)
+{
+    if(a_name)
+    {
+        std::string name(a_name);
+        if(!name.empty())
+        {
+            binder->getBinder()->setName(std::string(name));
+            return true;
+        }
+    }
+    return false;
+}
+
+void AIBinder_getName(AIBinder* binder, char* name_buffer, int buffer_size)
+{
+    if (!name_buffer)
+    {
+        return;
+    }
+
+    std::string name;
+    name = binder->getBinder()->getName();
+    int buffer_available = buffer_size - 1;
+    int cpy_size = (name.size() < buffer_available ? name.size() : buffer_available);
+    memcpy(name_buffer, name.data(), cpy_size);
+    name_buffer[cpy_size] = '\0';
+}
+
+#endif
+
 binder_status_t AIBinder_ping(AIBinder* binder) {
     if (binder == nullptr) {
         return STATUS_UNEXPECTED_NULL;

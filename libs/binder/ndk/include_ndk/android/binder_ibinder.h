@@ -66,6 +66,10 @@ __BEGIN_DECLS
 #define pid_t int
 #endif
 
+#ifndef __ANDROID_API__
+#define __ANDROID_API__ 10000
+#endif
+
 /**
  * Flags for AIBinder_transact.
  */
@@ -367,6 +371,20 @@ LIBBINDER_NDK_EXPORT bool AIBinder_isRemote(const AIBinder* binder) __INTRODUCED
  * \return true if the binder is alive.
  */
 LIBBINDER_NDK_EXPORT bool AIBinder_isAlive(const AIBinder* binder) __INTRODUCED_IN(29);
+
+#ifdef _MSC_VER
+/**
+ * Set binder object's name.
+ * Warning: Cannot available on Android, just add this for windows.
+ */
+LIBBINDER_NDK_EXPORT bool AIBinder_setName(AIBinder* binder, const char* name);
+
+/**
+ * Get binder object's name.
+ * Warning: Cannot available on Android, just add this for windows.
+ */
+LIBBINDER_NDK_EXPORT void AIBinder_getName(AIBinder* binder, char* name_buffer, int buffer_size);
+#endif
 
 /**
  * Built-in transaction for all binder objects. This sends a transaction that will immediately
