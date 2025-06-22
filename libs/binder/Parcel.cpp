@@ -1600,10 +1600,13 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
     do
     {
         name = val->getName();
-        exist_ret = ipc_connection_token_mgr::get_instance()
-            .find_remote_service_by_service_name( name, connection_name, listen_addr );
-        if ( 0 == exist_ret ) {
-            break;
+        auto remote_binder = val->remoteBinder();
+        if (remote_binder) {
+            exist_ret = ipc_connection_token_mgr::get_instance()
+                .find_remote_service_by_service_name(name, connection_name, listen_addr);
+            if (0 == exist_ret) {
+                break;
+            }
         }
 
         auto binder_val = ipc_connection_token_mgr::get_instance().get_local_service(name);
@@ -1612,7 +1615,6 @@ status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
             break;
         }
 
-        auto remote_binder = val->remoteBinder();
         if( remote_binder ) {
             int32_t handle = remote_binder->getPrivateAccessor().binderHandle();
             exist_ret = ipc_connection_token_mgr::get_instance()

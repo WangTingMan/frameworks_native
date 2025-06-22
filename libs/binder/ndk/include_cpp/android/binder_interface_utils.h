@@ -44,6 +44,12 @@
 #define HAS_BINDER_SHELL_COMMAND
 #endif  //_has_include
 
+#ifdef _MSC_VER
+#ifndef HAS_BINDER_SHELL_COMMAND
+#error "Please make sure add path for file: android/binder_shell.h"
+#endif
+#endif
+
 #ifdef interface
 #undef interface
 #endif
@@ -122,7 +128,22 @@ class SharedRefBase {
     }
     void setObjectName(std::string a_name)
     {
+        bool desire_for_name = getDesireForName();
+        if (desire_for_name && a_name.empty())
+        {
+            __assert(__FILE__, __LINE__,
+                "since this object want to have a unique name, please set its name!");
+        }
+        setDesireForName(false);/*set to false since we already have a name*/
         mName = a_name;
+    }
+    void setDesireForName(bool a_desireForName)
+    {
+        mDesireForName = a_desireForName;
+    }
+    bool getDesireForName()const
+    {
+        return mDesireForName;
     }
 #endif
 
@@ -143,6 +164,7 @@ class SharedRefBase {
     std::weak_ptr<SharedRefBase> mThis;
 #ifdef _MSC_VER
     std::string mName;
+    bool mDesireForName = false;
 #endif
 };
 
@@ -409,6 +431,12 @@ SpAIBinder BnCInterface<INTERFACE>::asBinder() {
             binder = createBinder();
         }
         std::string name = INTERFACE::getObjectName();
+        bool desire_for_name = INTERFACE::getDesireForName();
+        if(desire_for_name)
+        {
+            __assert(__FILE__, __LINE__,
+                "since this object want to have a unique name, please set its name!");
+        }
         AIBinder_setName(binder.get(), name.c_str());
 #else
         binder = createBinder();
