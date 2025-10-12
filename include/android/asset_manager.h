@@ -32,6 +32,8 @@
 #endif
 #include <sys/types.h>
 
+#include <android-base/off64_t.h>
+
 #if defined(__APPLE__)
 typedef off_t off64_t; // Mac OSX does not define off64_t
 #endif

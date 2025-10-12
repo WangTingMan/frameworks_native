@@ -68,7 +68,11 @@ public:
                 mCurrFlag = 0;
             } else {
                 // TODO: Replace with std::countr_zero in C++20.
+                #ifdef _MSC_VER
+                const Bits bit = static_cast<Bits>(std::countr_zero(mRemainingFlags.to_ullong()));
+                #else
                 const Bits bit = static_cast<Bits>(__builtin_ctzll(mRemainingFlags.to_ullong()));
+                #endif
                 mRemainingFlags.reset(static_cast<std::size_t>(bit));
                 mCurrFlag = static_cast<U>(static_cast<Bits>(1) << bit);
             }

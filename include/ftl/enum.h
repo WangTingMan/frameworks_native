@@ -25,6 +25,12 @@
 
 #include <ftl/string.h>
 
+#ifdef _MSC_VER
+#ifndef __PRETTY_FUNCTION__
+#define __PRETTY_FUNCTION__ __FUNCSIG__
+#endif
+#endif
+
 // Returns the name of enumerator E::V and optionally the class (i.e. "E::V" or "V") as
 // std::optional<std::string_view> by parsing the compiler-generated string literal for the
 // signature of this function. The function is defined in the global namespace with a short name

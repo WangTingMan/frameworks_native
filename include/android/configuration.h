@@ -26,7 +26,9 @@
 #ifndef ANDROID_CONFIGURATION_H
 #define ANDROID_CONFIGURATION_H
 
+#if __has_include(<sys / cdefs.h>)
 #include <sys/cdefs.h>
+#endif
 
 #include <android/asset_manager.h>
 

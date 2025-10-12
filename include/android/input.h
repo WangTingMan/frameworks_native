@@ -26,7 +26,9 @@
 #ifndef _ANDROID_INPUT_H
 #define _ANDROID_INPUT_H
 
+#if __has_include(<sys/cdefs.h>)
 #include <sys/cdefs.h>
+#endif
 
 /******************************************************************
  *

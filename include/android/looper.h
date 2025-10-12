@@ -26,11 +26,15 @@
 #ifndef ANDROID_LOOPER_H
 #define ANDROID_LOOPER_H
 
+#if __has_include(<sys/cdefs.h>)
 #include <sys/cdefs.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define __REMOVED_IN(...)
 
 // This file may also be built on glibc or on Windows/MacOS libc's, so
 // deprecated definitions are provided.

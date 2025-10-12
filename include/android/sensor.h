@@ -29,7 +29,9 @@
 #ifndef ANDROID_SENSOR_H
 #define ANDROID_SENSOR_H
 
+#if __has_include(<sys/cdefs.h>)
 #include <sys/cdefs.h>
+#endif
 
 /******************************************************************
  *
@@ -53,6 +55,8 @@
 #include <sys/types.h>
 #include <math.h>
 #include <stdint.h>
+
+#define __DEPRECATED_IN(...)
 
 // This file may also be built on glibc or on Windows/MacOS libc's, so no-op
 // and deprecated definitions are provided.
