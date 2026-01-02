@@ -23,6 +23,8 @@
 #include <binder/PermissionCache.h>
 #include <utils/String8.h>
 
+#include <utils/Timers.h>
+
 namespace android {
 
 // ----------------------------------------------------------------------------
