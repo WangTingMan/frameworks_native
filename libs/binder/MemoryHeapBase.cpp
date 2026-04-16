@@ -102,7 +102,7 @@ MemoryHeapBase::MemoryHeapBase(size_t size, uint32_t flags, char const * name)
 #endif
     }
     fd = ashmem_create_region(name ? name : "MemoryHeapBase", size);
-    ALOGE_IF(fd < 0, "MemoryHeapBase: error creating ashmem region: %s", strerror(errno));
+    ALOGE_IF(fd == nullptr, "MemoryHeapBase: error creating ashmem region: %s", strerror(errno));
 #ifdef _MSC_VER
     ALOGE( "No Implementation!" );
 #else

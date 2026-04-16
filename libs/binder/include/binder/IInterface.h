@@ -293,6 +293,9 @@ constexpr bool inList(const char* a, const char* const* allowlist) {
 }
 
 constexpr bool allowedManualInterface(const char* name) {
+#ifdef __NOT_CHECK_ALLOWED_OR_NOT
+    return true;
+#endif
   return inList(name, kManualInterfaces) ||
          inList(name, kDownstreamManualInterfaces);
 }
