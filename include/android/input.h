@@ -851,6 +851,7 @@ enum {
  * Refer to the documentation on the MotionEvent class for descriptions of each button.
  */
 enum {
+    // LINT.IfChange(AMOTION_EVENT_BUTTON)
     /** primary */
     AMOTION_EVENT_BUTTON_PRIMARY = 1 << 0,
     /** secondary */
@@ -863,6 +864,7 @@ enum {
     AMOTION_EVENT_BUTTON_FORWARD = 1 << 4,
     AMOTION_EVENT_BUTTON_STYLUS_PRIMARY = 1 << 5,
     AMOTION_EVENT_BUTTON_STYLUS_SECONDARY = 1 << 6,
+    // LINT.ThenChange(/frameworks/native/libs/input/rust/input.rs,/frameworks/native/services/inputflinger/tests/fuzzers/FuzzedInputStream.h)
 };
 
 /**

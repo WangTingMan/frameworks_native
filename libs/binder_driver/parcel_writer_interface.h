@@ -42,7 +42,6 @@ public: // writing related APIs
 
     virtual status_t            write( const void* data, size_t len ) = 0;
     virtual void*               writeInplace( size_t len ) = 0;
-    virtual status_t            writeUnpadded( const void* data, size_t len ) = 0;
     virtual status_t            writeInt32( int32_t val ) = 0;
     virtual status_t            writeUint32( uint32_t val ) = 0;
     virtual status_t            writeInt64( int64_t val ) = 0;
@@ -148,7 +147,6 @@ public: // reading related APIs
 
     virtual status_t            finishWrite( size_t len ) = 0;
     virtual void                releaseObjects() = 0;
-    virtual void                acquireObjects() = 0;
     virtual status_t            growData( size_t len ) = 0;
     // Clear the Parcel and set the capacity to `desired`.
     // Doesn't reset the RPC session association.

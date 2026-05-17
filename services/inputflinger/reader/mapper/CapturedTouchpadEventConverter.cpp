@@ -25,8 +25,6 @@
 #include <linux/input-event-codes.h>
 #include <log/log_main.h>
 
-namespace input_flags = com::android::input::flags;
-
 namespace android {
 
 namespace {
@@ -58,7 +56,7 @@ void addRawMotionRange(InputDeviceInfo& deviceInfo, int32_t androidAxis,
 
 CapturedTouchpadEventConverter::CapturedTouchpadEventConverter(
         InputReaderContext& readerContext, const InputDeviceContext& deviceContext,
-        MultiTouchMotionAccumulator& motionAccumulator, int32_t deviceId)
+        MultiTouchMotionAccumulator& motionAccumulator, DeviceId deviceId)
       : mDeviceId(deviceId),
         mReaderContext(readerContext),
         mDeviceContext(deviceContext),
@@ -119,15 +117,10 @@ std::string CapturedTouchpadEventConverter::dump() const {
 }
 
 void CapturedTouchpadEventConverter::populateMotionRanges(InputDeviceInfo& info) const {
-    if (input_flags::include_relative_axis_values_for_captured_touchpads()) {
-        tryAddRawMotionRangeWithRelative(/*byref*/ info, AMOTION_EVENT_AXIS_X,
-                                         AMOTION_EVENT_AXIS_RELATIVE_X, ABS_MT_POSITION_X);
-        tryAddRawMotionRangeWithRelative(/*byref*/ info, AMOTION_EVENT_AXIS_Y,
-                                         AMOTION_EVENT_AXIS_RELATIVE_Y, ABS_MT_POSITION_Y);
-    } else {
-        tryAddRawMotionRange(/*byref*/ info, AMOTION_EVENT_AXIS_X, ABS_MT_POSITION_X);
-        tryAddRawMotionRange(/*byref*/ info, AMOTION_EVENT_AXIS_Y, ABS_MT_POSITION_Y);
-    }
+    tryAddRawMotionRangeWithRelative(/*byref*/ info, AMOTION_EVENT_AXIS_X,
+                                     AMOTION_EVENT_AXIS_RELATIVE_X, ABS_MT_POSITION_X);
+    tryAddRawMotionRangeWithRelative(/*byref*/ info, AMOTION_EVENT_AXIS_Y,
+                                     AMOTION_EVENT_AXIS_RELATIVE_Y, ABS_MT_POSITION_Y);
     tryAddRawMotionRange(/*byref*/ info, AMOTION_EVENT_AXIS_TOUCH_MAJOR, ABS_MT_TOUCH_MAJOR);
     tryAddRawMotionRange(/*byref*/ info, AMOTION_EVENT_AXIS_TOUCH_MINOR, ABS_MT_TOUCH_MINOR);
     tryAddRawMotionRange(/*byref*/ info, AMOTION_EVENT_AXIS_TOOL_MAJOR, ABS_MT_WIDTH_MAJOR);
@@ -213,13 +206,11 @@ std::list<NotifyArgs> CapturedTouchpadEventConverter::sync(nsecs_t when, nsecs_t
         }
         out.push_back(
                 makeMotionArgs(when, readTime, AMOTION_EVENT_ACTION_MOVE, coords, properties));
-        if (input_flags::include_relative_axis_values_for_captured_touchpads()) {
-            // For any further events we send from this sync, the pointers won't have moved relative
-            // to the positions we just reported in this MOVE event, so zero out the relative axes.
-            for (PointerCoords& pointer : coords) {
-                pointer.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_X, 0);
-                pointer.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_Y, 0);
-            }
+        // For any further events we send from this sync, the pointers won't have moved relative to
+        // the positions we just reported in this MOVE event, so zero out the relative axes.
+        for (PointerCoords& pointer : coords) {
+            pointer.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_X, 0);
+            pointer.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_Y, 0);
         }
     }
 
@@ -275,9 +266,7 @@ std::list<NotifyArgs> CapturedTouchpadEventConverter::sync(nsecs_t when, nsecs_t
                                      /*flags=*/cancel ? AMOTION_EVENT_FLAG_CANCELED : 0));
 
         freePointerIdForSlot(slotNumber);
-        if (input_flags::include_relative_axis_values_for_captured_touchpads()) {
-            mPreviousCoordsForSlotNumber.erase(slotNumber);
-        }
+        mPreviousCoordsForSlotNumber.erase(slotNumber);
         coords.erase(coords.begin() + indexToRemove);
         properties.erase(properties.begin() + indexToRemove);
         // Now that we've removed some coords and properties, we might have to update the slot
@@ -324,8 +313,8 @@ NotifyMotionArgs CapturedTouchpadEventConverter::makeMotionArgs(
                             ui::LogicalDisplayId::INVALID, /*policyFlags=*/POLICY_FLAG_WAKE, action,
                             /*actionButton=*/actionButton, flags,
                             mReaderContext.getGlobalMetaState(), mButtonState,
-                            MotionClassification::NONE, AMOTION_EVENT_EDGE_FLAG_NONE, coords.size(),
-                            properties.data(), coords.data(), /*xPrecision=*/1.0f,
+                            MotionClassification::NONE, coords.size(), properties.data(),
+                            coords.data(), /*xPrecision=*/1.0f,
                             /*yPrecision=*/1.0f, AMOTION_EVENT_INVALID_CURSOR_POSITION,
                             AMOTION_EVENT_INVALID_CURSOR_POSITION, mDownTime, /*videoFrames=*/{});
 }
@@ -336,15 +325,13 @@ PointerCoords CapturedTouchpadEventConverter::makePointerCoordsForSlot(size_t sl
     coords.clear();
     coords.setAxisValue(AMOTION_EVENT_AXIS_X, slot.getX());
     coords.setAxisValue(AMOTION_EVENT_AXIS_Y, slot.getY());
-    if (input_flags::include_relative_axis_values_for_captured_touchpads()) {
-        if (auto it = mPreviousCoordsForSlotNumber.find(slotNumber);
-            it != mPreviousCoordsForSlotNumber.end()) {
-            auto [oldX, oldY] = it->second;
-            coords.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_X, slot.getX() - oldX);
-            coords.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_Y, slot.getY() - oldY);
-        }
-        mPreviousCoordsForSlotNumber[slotNumber] = std::make_pair(slot.getX(), slot.getY());
+    if (auto it = mPreviousCoordsForSlotNumber.find(slotNumber);
+        it != mPreviousCoordsForSlotNumber.end()) {
+        auto [oldX, oldY] = it->second;
+        coords.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_X, slot.getX() - oldX);
+        coords.setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_Y, slot.getY() - oldY);
     }
+    mPreviousCoordsForSlotNumber[slotNumber] = std::make_pair(slot.getX(), slot.getY());
 
     coords.setAxisValue(AMOTION_EVENT_AXIS_TOUCH_MAJOR, slot.getTouchMajor());
     coords.setAxisValue(AMOTION_EVENT_AXIS_TOUCH_MINOR, slot.getTouchMinor());

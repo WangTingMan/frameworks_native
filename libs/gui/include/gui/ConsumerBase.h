@@ -75,7 +75,6 @@ public:
     void dumpState(String8& result) const;
     void dumpState(String8& result, const char* prefix) const;
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     // Returns a Surface that can be used as the producer for this consumer.
     sp<Surface> getSurface() const;
 
@@ -83,7 +82,6 @@ public:
     // that backs this ConsumerBase.
     sp<IGraphicBufferConsumer> getIGraphicBufferConsumer() const
             __attribute((deprecated("DO NOT USE: Temporary hack for refactoring")));
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
     // setFrameAvailableListener sets the listener object that will be notified
     // when a new frame becomes available.
@@ -93,10 +91,10 @@ public:
     status_t detachBuffer(int slot) __attribute((
             deprecated("Please use the GraphicBuffer variant--slots are deprecated.")));
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
     // See IGraphicBufferConsumer::detachBuffer
     status_t detachBuffer(const sp<GraphicBuffer>& buffer);
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
+
+    status_t addReleaseFence(const sp<GraphicBuffer> buffer, const sp<Fence>& fence);
 
     // See IGraphicBufferConsumer::setDefaultBufferSize
     status_t setDefaultBufferSize(uint32_t width, uint32_t height);
@@ -113,17 +111,13 @@ public:
     // See IGraphicBufferConsumer::setTransformHint
     status_t setTransformHint(uint32_t hint);
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     // See IGraphicBufferConsumer::setMaxBufferCount
     status_t setMaxBufferCount(int bufferCount);
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
     // See IGraphicBufferConsumer::setMaxAcquiredBufferCount
     status_t setMaxAcquiredBufferCount(int maxAcquiredBuffers);
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     status_t setConsumerIsProtected(bool isProtected);
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
     // See IGraphicBufferConsumer::getSidebandStream
     sp<NativeHandle> getSidebandStream() const;
@@ -146,7 +140,6 @@ protected:
     // buffers from the given IGraphicBufferConsumer.
     // The controlledByApp flag indicates that this consumer is under the application's
     // control.
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     explicit ConsumerBase(bool controlledByApp = false, bool consumerIsSurfaceFlinger = false);
     explicit ConsumerBase(const sp<IGraphicBufferProducer>& producer,
                           const sp<IGraphicBufferConsumer>& consumer, bool controlledByApp = false);
@@ -154,9 +147,6 @@ protected:
     explicit ConsumerBase(const sp<IGraphicBufferConsumer>& consumer, bool controlledByApp = false)
             __attribute((deprecated("ConsumerBase should own its own producer, and constructing it "
                                     "without one is fragile! This method is going away soon.")));
-#else
-    explicit ConsumerBase(const sp<IGraphicBufferConsumer>& consumer, bool controlledByApp = false);
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
     // onLastStrongRef gets called by RefBase just before the dtor of the most
     // derived class.  It is used to clean up the buffers so that ConsumerBase
@@ -185,8 +175,12 @@ protected:
     virtual void onFrameDetached(const uint64_t bufferId) override;
     virtual void onBuffersReleased() override;
     virtual void onSidebandStreamChanged() override;
-
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_UNLIMITED_SLOTS)
+    virtual void onSlotCountChanged(int slotCount) override;
+#endif
     virtual int getSlotForBufferLocked(const sp<GraphicBuffer>& buffer);
+
+    virtual void onBuffersReleasedLocked();
 
     virtual status_t detachBufferLocked(int slotIndex);
 
@@ -243,10 +237,13 @@ protected:
     // must take place when a buffer is released back to the BufferQueue.  If
     // it is overridden the derived class's implementation must call
     // ConsumerBase::releaseBufferLocked.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(BQ_GL_FENCE_CLEANUP)
+    virtual status_t releaseBufferLocked(int slot, const sp<GraphicBuffer> graphicBuffer);
+#else
     virtual status_t releaseBufferLocked(int slot,
             const sp<GraphicBuffer> graphicBuffer,
             EGLDisplay display = EGL_NO_DISPLAY, EGLSyncKHR eglFence = EGL_NO_SYNC_KHR);
-
+#endif
     // returns true iff the slot still has the graphicBuffer in it.
     bool stillTracking(int slot, const sp<GraphicBuffer> graphicBuffer);
 
@@ -284,7 +281,11 @@ protected:
     // slot that has not yet been used. The buffer allocated to a slot will also
     // be replaced if the requested buffer usage or geometry differs from that
     // of the buffer allocated to a slot.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_UNLIMITED_SLOTS)
+    std::vector<Slot> mSlots;
+#else
     Slot mSlots[BufferQueueDefs::NUM_BUFFER_SLOTS];
+#endif
 
     // mAbandoned indicates that the BufferQueue will no longer be used to
     // consume images buffers pushed to it using the IGraphicBufferProducer
@@ -308,11 +309,9 @@ protected:
     // objects if not supplied.
     sp<IGraphicBufferConsumer> mConsumer;
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     // This Surface wraps the IGraphicBufferConsumer created for this
     // ConsumerBase.
     sp<Surface> mSurface;
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
     // The final release fence of the most recent buffer released by
     // releaseBufferLocked.

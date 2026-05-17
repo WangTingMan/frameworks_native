@@ -46,10 +46,14 @@
 #include <utils/Errors.h>
 #include <utils/Timers.h>
 
+#include "InputReaderTracer.h"
+
 namespace android {
 
 class MockInputReaderContext : public InputReaderContext {
 public:
+    std::string dump() override { return "(dump from MockInputReaderContext)"; }
+
     MOCK_METHOD(void, updateGlobalMetaState, (), (override));
     MOCK_METHOD(int32_t, getGlobalMetaState, (), (override));
 
@@ -68,7 +72,7 @@ public:
     MOCK_METHOD(InputReaderPolicyInterface*, getPolicy, (), (override));
     MOCK_METHOD(EventHubInterface*, getEventHub, (), (override));
 
-    int32_t getNextId() override { return 1; };
+    int32_t getNextId() const override { return 1; };
 
     MOCK_METHOD(void, updateLedMetaState, (int32_t metaState), (override));
     MOCK_METHOD(int32_t, getLedMetaState, (), (override));
@@ -88,6 +92,7 @@ private:
 
 class MockEventHubInterface : public EventHubInterface {
 public:
+    MOCK_METHOD(void, setTracer, (std::shared_ptr<InputReaderTracer> tracer));
     MOCK_METHOD(ftl::Flags<InputDeviceClass>, getDeviceClasses, (int32_t deviceId), (const));
     MOCK_METHOD(InputDeviceIdentifier, getDeviceIdentifier, (int32_t deviceId), (const));
     MOCK_METHOD(int32_t, getDeviceControllerNumber, (int32_t deviceId), (const));
@@ -179,7 +184,9 @@ public:
     MOCK_METHOD(bool, isDeviceEnabled, (int32_t deviceId), (const, override));
     MOCK_METHOD(status_t, enableDevice, (int32_t deviceId), (override));
     MOCK_METHOD(status_t, disableDevice, (int32_t deviceId), (override));
+    MOCK_METHOD(std::filesystem::path, getSysfsRootPath, (int32_t deviceId), (const, override));
     MOCK_METHOD(void, sysfsNodeChanged, (const std::string& sysfsNodePath), (override));
+    MOCK_METHOD(bool, setKernelWakeEnabled, (int32_t deviceId, bool enabled), (override));
 };
 
 class MockPointerChoreographerPolicyInterface : public PointerChoreographerPolicyInterface {
@@ -187,20 +194,25 @@ public:
     MOCK_METHOD(std::shared_ptr<PointerControllerInterface>, createPointerController,
                 (PointerControllerInterface::ControllerType), (override));
     MOCK_METHOD(void, notifyPointerDisplayIdChanged,
-                (ui::LogicalDisplayId displayId, const FloatPoint& position), (override));
+                (ui::LogicalDisplayId displayId, const vec2& position), (override));
     MOCK_METHOD(bool, isInputMethodConnectionActive, (), (override));
     MOCK_METHOD(void, notifyMouseCursorFadedOnTyping, (), (override));
+    MOCK_METHOD(std::optional<vec2>, filterPointerMotionForAccessibility,
+                (const vec2& current, const vec2& delta, const ui::LogicalDisplayId& displayId),
+                (override));
 };
 
 class MockInputDevice : public InputDevice {
 public:
     MockInputDevice(InputReaderContext* context, int32_t id, int32_t generation,
-                    const InputDeviceIdentifier& identifier)
-          : InputDevice(context, id, generation, identifier) {}
+                    const InputDeviceIdentifier& identifier, bool isExternal)
+          : InputDevice(context, id, generation, identifier), mIsExternal(isExternal) {}
 
     MOCK_METHOD(uint32_t, getSources, (), (const, override));
     MOCK_METHOD(std::optional<DisplayViewport>, getAssociatedViewport, (), (const));
+    MOCK_METHOD(KeyboardType, getKeyboardType, (), (const, override));
     MOCK_METHOD(bool, isEnabled, (), ());
+    bool isExternal() override { return mIsExternal; }
 
     MOCK_METHOD(void, dump, (std::string& dump, const std::string& eventHubDevStr), ());
     MOCK_METHOD(void, addEmptyEventHubDevice, (int32_t eventHubId), ());
@@ -246,11 +258,7 @@ public:
     MOCK_METHOD(std::optional<int32_t>, getLightPlayerId, (int32_t lightId), ());
 
     MOCK_METHOD(int32_t, getMetaState, (), ());
-    MOCK_METHOD(void, updateMetaState, (int32_t keyCode), ());
-
     MOCK_METHOD(void, setKeyboardType, (KeyboardType keyboardType), ());
-
-    MOCK_METHOD(void, bumpGeneration, (), ());
 
     MOCK_METHOD(const PropertyMap&, getConfiguration, (), (const, override));
 
@@ -261,5 +269,12 @@ public:
     MOCK_METHOD(void, updateLedState, (bool reset), ());
 
     MOCK_METHOD(size_t, getMapperCount, (), ());
+
+    virtual int32_t getGeneration() const override { return mGeneration; }
+    virtual void bumpGeneration() override { mGeneration++; }
+
+private:
+    int32_t mGeneration = 0;
+    const bool mIsExternal;
 };
 } // namespace android

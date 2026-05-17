@@ -45,12 +45,21 @@ public:
         return args;
     }
 
-    static LayerCreationArgs createDisplayMirrorArgs(uint32_t id,
-                                                     ui::LayerStack layerStackToMirror) {
+    static LayerCreationArgs createDisplayMirrorArgs(uint32_t id, ui::LayerStack layerStackToMirror,
+                                                     uint32_t stopLayerId = UNASSIGNED_LAYER_ID) {
         LayerCreationArgs args(std::make_optional(id));
         args.name = "testlayer";
         args.addToRoot = true;
         args.layerStackToMirror = layerStackToMirror;
+        args.stopLayerId = stopLayerId;
+        return args;
+    }
+
+    static LayerCreationArgs createLayerMirrorArgs(uint32_t id, uint32_t layerIdToMirror) {
+        LayerCreationArgs args(std::make_optional(id));
+        args.name = "testlayer";
+        args.addToRoot = true;
+        args.layerIdToMirror = layerIdToMirror;
         return args;
     }
 
@@ -66,8 +75,8 @@ public:
                                                                 /*mirror=*/UNASSIGNED_LAYER_ID));
     }
 
-    static std::vector<TransactionState> setZTransaction(uint32_t id, int32_t z) {
-        std::vector<TransactionState> transactions;
+    static std::vector<QueuedTransactionState> setZTransaction(uint32_t id, int32_t z) {
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -94,10 +103,18 @@ public:
         mLifecycleManager.addLayers(std::move(layers));
     }
 
-    void createDisplayMirrorLayer(uint32_t id, ui::LayerStack layerStack) {
+    void createDisplayMirrorLayer(uint32_t id, ui::LayerStack layerStack,
+                                  uint32_t stopLayerId = UNASSIGNED_LAYER_ID) {
         std::vector<std::unique_ptr<RequestedLayerState>> layers;
         layers.emplace_back(std::make_unique<RequestedLayerState>(
-                createDisplayMirrorArgs(/*id=*/id, layerStack)));
+                createDisplayMirrorArgs(/*id=*/id, layerStack, stopLayerId)));
+        mLifecycleManager.addLayers(std::move(layers));
+    }
+
+    void createLayerMirrorLayer(uint32_t id, uint32_t idToMirror) {
+        std::vector<std::unique_ptr<RequestedLayerState>> layers;
+        layers.emplace_back(
+                std::make_unique<RequestedLayerState>(createLayerMirrorArgs(id, idToMirror)));
         mLifecycleManager.addLayers(std::move(layers));
     }
 
@@ -109,8 +126,9 @@ public:
         mLifecycleManager.addLayers(std::move(layers));
     }
 
-    std::vector<TransactionState> reparentLayerTransaction(uint32_t id, uint32_t newParentId) {
-        std::vector<TransactionState> transactions;
+    std::vector<QueuedTransactionState> reparentLayerTransaction(uint32_t id,
+                                                                 uint32_t newParentId) {
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
         transactions.back().states.front().parentId = newParentId;
@@ -124,8 +142,9 @@ public:
         mLifecycleManager.applyTransactions(reparentLayerTransaction(id, newParentId));
     }
 
-    std::vector<TransactionState> relativeLayerTransaction(uint32_t id, uint32_t relativeParentId) {
-        std::vector<TransactionState> transactions;
+    std::vector<QueuedTransactionState> relativeLayerTransaction(uint32_t id,
+                                                                 uint32_t relativeParentId) {
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
         transactions.back().states.front().relativeParentId = relativeParentId;
@@ -139,7 +158,7 @@ public:
     }
 
     void removeRelativeZ(uint32_t id) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
         transactions.back().states.front().state.what = layer_state_t::eLayerChanged;
@@ -148,7 +167,7 @@ public:
     }
 
     void setPosition(uint32_t id, float x, float y) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
         transactions.back().states.front().state.what = layer_state_t::ePositionChanged;
@@ -167,7 +186,7 @@ public:
     }
 
     void updateBackgroundColor(uint32_t id, half alpha) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
         transactions.back().states.front().state.what = layer_state_t::eBackgroundColorChanged;
@@ -182,8 +201,8 @@ public:
         mLifecycleManager.applyTransactions(setZTransaction(id, z));
     }
 
-    void setCrop(uint32_t id, const Rect& crop) {
-        std::vector<TransactionState> transactions;
+    void setCrop(uint32_t id, const FloatRect& crop) {
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -193,8 +212,10 @@ public:
         mLifecycleManager.applyTransactions(transactions);
     }
 
+    void setCrop(uint32_t id, const Rect& crop) { setCrop(id, crop.toFloatRect()); }
+
     void setFlags(uint32_t id, uint32_t mask, uint32_t flags) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -206,13 +227,24 @@ public:
     }
 
     void setAlpha(uint32_t id, float alpha) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
         transactions.back().states.front().state.what = layer_state_t::eAlphaChanged;
         transactions.back().states.front().layerId = id;
         transactions.back().states.front().state.color.a = static_cast<half>(alpha);
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
+    void setAutoRefresh(uint32_t id, bool autoRefresh) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what = layer_state_t::eAutoRefreshChanged;
+        transactions.back().states.front().layerId = id;
+        transactions.back().states.front().state.autoRefresh = autoRefresh;
         mLifecycleManager.applyTransactions(transactions);
     }
 
@@ -223,7 +255,7 @@ public:
     void showLayer(uint32_t id) { setFlags(id, layer_state_t::eLayerHidden, 0); }
 
     void setColor(uint32_t id, half3 rgb = half3(1._hf, 1._hf, 1._hf)) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
         transactions.back().states.front().state.what = layer_state_t::eColorChanged;
@@ -233,7 +265,7 @@ public:
     }
 
     void setLayerStack(uint32_t id, int32_t layerStack) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -244,30 +276,28 @@ public:
     }
 
     void setTouchableRegion(uint32_t id, Region region) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
         transactions.back().states.front().state.what = layer_state_t::eInputInfoChanged;
         transactions.back().states.front().layerId = id;
-        transactions.back().states.front().state.windowInfoHandle =
-                sp<gui::WindowInfoHandle>::make();
-        auto inputInfo = transactions.back().states.front().state.windowInfoHandle->editInfo();
+        auto inputInfo = transactions.back().states.front().state.editWindowInfo();
+        *inputInfo = {};
         inputInfo->touchableRegion = region;
         inputInfo->token = sp<BBinder>::make();
         mLifecycleManager.applyTransactions(transactions);
     }
 
     void setInputInfo(uint32_t id, std::function<void(gui::WindowInfo&)> configureInput) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
         transactions.back().states.front().state.what = layer_state_t::eInputInfoChanged;
         transactions.back().states.front().layerId = id;
-        transactions.back().states.front().state.windowInfoHandle =
-                sp<gui::WindowInfoHandle>::make();
-        auto inputInfo = transactions.back().states.front().state.windowInfoHandle->editInfo();
+        auto inputInfo = transactions.back().states.front().state.editWindowInfo();
+        *inputInfo = {};
         if (!inputInfo->token) {
             inputInfo->token = sp<BBinder>::make();
         }
@@ -278,15 +308,14 @@ public:
 
     void setTouchableRegionCrop(uint32_t id, Region region, uint32_t touchCropId,
                                 bool replaceTouchableRegionWithCrop) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
         transactions.back().states.front().state.what = layer_state_t::eInputInfoChanged;
         transactions.back().states.front().layerId = id;
-        transactions.back().states.front().state.windowInfoHandle =
-                sp<gui::WindowInfoHandle>::make();
-        auto inputInfo = transactions.back().states.front().state.windowInfoHandle->editInfo();
+        auto inputInfo = transactions.back().states.front().state.editWindowInfo();
+        *inputInfo = {};
         inputInfo->touchableRegion = region;
         inputInfo->replaceTouchableRegionWithCrop = replaceTouchableRegionWithCrop;
         transactions.back().states.front().touchCropId = touchCropId;
@@ -296,7 +325,7 @@ public:
     }
 
     void setBackgroundBlurRadius(uint32_t id, uint32_t backgroundBlurRadius) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -306,8 +335,19 @@ public:
         mLifecycleManager.applyTransactions(transactions);
     }
 
+    void setBackgroundBlurScale(uint32_t id, float backgroundBlurScale) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what = layer_state_t::eBackgroundBlurScaleChanged;
+        transactions.back().states.front().layerId = id;
+        transactions.back().states.front().state.backgroundBlurScale = backgroundBlurScale;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
     void setFrameRateSelectionPriority(uint32_t id, int32_t priority) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -319,7 +359,7 @@ public:
 
     void setFrameRate(uint32_t id, float frameRate, int8_t compatibility,
                       int8_t changeFrameRateStrategy) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -332,7 +372,7 @@ public:
     }
 
     void setFrameRate(uint32_t id, Layer::FrameRate framerate) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -345,7 +385,7 @@ public:
     }
 
     void setFrameRateCategory(uint32_t id, int8_t frameRateCategory) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -356,7 +396,7 @@ public:
     }
 
     void setFrameRateSelectionStrategy(uint32_t id, int8_t strategy) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -368,7 +408,7 @@ public:
     }
 
     void setDefaultFrameRateCompatibility(uint32_t id, int8_t defaultFrameRateCompatibility) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -381,18 +421,31 @@ public:
     }
 
     void setRoundedCorners(uint32_t id, float radius) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
         transactions.back().states.front().state.what = layer_state_t::eCornerRadiusChanged;
         transactions.back().states.front().layerId = id;
-        transactions.back().states.front().state.cornerRadius = radius;
+        android::gui::CornerRadii radii(radius);
+        transactions.back().states.front().state.cornerRadii = radii;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
+    void setRoundedCorners(uint32_t id, float tl, float tr, float bl, float br) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what = layer_state_t::eCornerRadiusChanged;
+        transactions.back().states.front().layerId = id;
+        android::gui::CornerRadii radii(tl, tr, bl, br);
+        transactions.back().states.front().state.cornerRadii = radii;
         mLifecycleManager.applyTransactions(transactions);
     }
 
     void setBuffer(uint32_t id, std::shared_ptr<renderengine::ExternalTexture> texture) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -425,7 +478,7 @@ public:
     }
 
     void setBufferCrop(uint32_t id, const Rect& bufferCrop) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -436,18 +489,17 @@ public:
     }
 
     void setDamageRegion(uint32_t id, const Region& damageRegion) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
-        transactions.back().states.front().state.what = layer_state_t::eSurfaceDamageRegionChanged;
         transactions.back().states.front().layerId = id;
-        transactions.back().states.front().state.surfaceDamageRegion = damageRegion;
+        transactions.back().states.front().state.updateSurfaceDamageRegion(damageRegion);
         mLifecycleManager.applyTransactions(transactions);
     }
 
     void setDataspace(uint32_t id, ui::Dataspace dataspace) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -460,7 +512,7 @@ public:
     void setMatrix(uint32_t id, float dsdx, float dtdx, float dtdy, float dsdy) {
         layer_state_t::matrix22_t matrix{dsdx, dtdx, dtdy, dsdy};
 
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -470,8 +522,38 @@ public:
         mLifecycleManager.applyTransactions(transactions);
     }
 
+    void setClientDrawnCornerRadius(uint32_t id, float clientDrawnCornerRadius,
+                                    const FloatRect& crop) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what =
+                layer_state_t::eClientDrawnCornerRadiusChanged;
+        transactions.back().states.front().layerId = id;
+        android::gui::CornerRadii radii(clientDrawnCornerRadius);
+        transactions.back().states.front().state.clientDrawnCornerRadii = radii;
+        transactions.back().states.front().state.clientDrawnCornerRadiusCrop = crop;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
+    void setClientDrawnCornerRadius(uint32_t id, float tl, float tr, float bl, float br,
+                                    const FloatRect& crop) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what =
+                layer_state_t::eClientDrawnCornerRadiusChanged;
+        transactions.back().states.front().layerId = id;
+        android::gui::CornerRadii radii(tl, tr, bl, br);
+        transactions.back().states.front().state.clientDrawnCornerRadii = radii;
+        transactions.back().states.front().state.clientDrawnCornerRadiusCrop = crop;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
     void setShadowRadius(uint32_t id, float shadowRadius) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -481,8 +563,30 @@ public:
         mLifecycleManager.applyTransactions(transactions);
     }
 
+    void setBorderSettings(uint32_t id, gui::BorderSettings settings) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what = layer_state_t::eBorderSettingsChanged;
+        transactions.back().states.front().layerId = id;
+        transactions.back().states.front().state.borderSettings = settings;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
+    void setBoxShadowSettings(uint32_t id, gui::BoxShadowSettings settings) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what = layer_state_t::eBoxShadowSettingsChanged;
+        transactions.back().states.front().layerId = id;
+        transactions.back().states.front().state.boxShadowSettings = settings;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
     void setTrustedOverlay(uint32_t id, gui::TrustedOverlay trustedOverlay) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -493,7 +597,7 @@ public:
     }
 
     void setDropInputMode(uint32_t id, gui::DropInputMode dropInputMode) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -504,7 +608,7 @@ public:
     }
 
     void setGameMode(uint32_t id, gui::GameMode gameMode) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
         transactions.back().states.front().state.what = layer_state_t::eMetadataChanged;
@@ -516,7 +620,7 @@ public:
     }
 
     void setEdgeExtensionEffect(uint32_t id, int edge) {
-        std::vector<TransactionState> transactions;
+        std::vector<QueuedTransactionState> transactions;
         transactions.emplace_back();
         transactions.back().states.push_back({});
 
@@ -529,6 +633,29 @@ public:
         transactions.back().states.front().state.edgeExtensionParameters.extendTop = edge & TOP;
         transactions.back().states.front().state.edgeExtensionParameters.extendBottom =
                 edge & BOTTOM;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
+    void setStopLayer(uint32_t id, uint32_t stopLayerId) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.emplace_back();
+        transactions.back().states.back().layerId = id;
+        transactions.back().states.back().state.what = layer_state_t::eStopLayerChanged;
+        transactions.back().states.back().stopLayerId = stopLayerId;
+        mLifecycleManager.applyTransactions(transactions);
+    }
+
+    void setSystemContentPriority(uint32_t id, int32_t priority) {
+        std::vector<QueuedTransactionState> transactions;
+        transactions.emplace_back();
+        transactions.back().states.push_back({});
+
+        transactions.back().states.front().state.what =
+                layer_state_t::eSystemContentPriorityChanged;
+        transactions.back().states.front().layerId = id;
+        transactions.back().states.front().state.systemContentPriority = priority;
+
         mLifecycleManager.applyTransactions(transactions);
     }
 

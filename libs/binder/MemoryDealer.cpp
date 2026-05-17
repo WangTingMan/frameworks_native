@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "MemoryDealer"
+#define LOG_TAG "libbinder.MemoryDealer"
 
 #include <binder/MemoryDealer.h>
 #include <binder/IPCThreadState.h>
@@ -382,6 +382,7 @@ ssize_t SimpleBestFitAllocator::alloc(size_t size, uint32_t flags)
         }
         return (free_chunk->start)*kMemoryAlign;
     }
+    ALOGE("%s: no free chunk", __FUNCTION__);
     return NO_MEMORY;
 }
 

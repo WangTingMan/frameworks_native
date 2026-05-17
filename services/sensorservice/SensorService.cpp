@@ -2049,9 +2049,10 @@ status_t SensorService::enable(const sp<SensorEventConnection>& connection,
     }
 
     ConnectionSafeAutolock connLock = mConnectionHolder.lock(mLock);
-    if (mCurrentOperatingMode != NORMAL && mCurrentOperatingMode != REPLAY_DATA_INJECTION &&
-           !isAllowListedPackage(connection->getPackageName())) {
-        return INVALID_OPERATION;
+    if (mCurrentOperatingMode != NORMAL &&
+        !isInjectionMode(mCurrentOperatingMode) &&
+        !isAllowListedPackage(connection->getPackageName())) {
+      return INVALID_OPERATION;
     }
 
     SensorRecord* rec = mActiveSensors.valueFor(handle);
@@ -2569,10 +2570,7 @@ void SensorService::UidPolicy::onUidActive(uid_t uid) {
         Mutex::Autolock _l(mUidLock);
         mActiveUids.insert(uid);
     }
-    sp<SensorService> service = mService.promote();
-    if (service != nullptr) {
-        service->onUidStateChanged(uid, UID_STATE_ACTIVE);
-    }
+    postUidStateChanged(uid, UID_STATE_ACTIVE);
 }
 
 void SensorService::UidPolicy::onUidIdle(uid_t uid, __unused bool disabled) {
@@ -2584,10 +2582,7 @@ void SensorService::UidPolicy::onUidIdle(uid_t uid, __unused bool disabled) {
         }
     }
     if (deleted) {
-        sp<SensorService> service = mService.promote();
-        if (service != nullptr) {
-            service->onUidStateChanged(uid, UID_STATE_IDLE);
-        }
+        postUidStateChanged(uid, UID_STATE_IDLE);
     }
 }
 
@@ -2612,9 +2607,18 @@ void SensorService::UidPolicy::updateOverrideUid(uid_t uid, bool active, bool in
         isActive = isUidActiveLocked(uid);
     }
     if (wasActive != isActive) {
-        sp<SensorService> service = mService.promote();
-        if (service != nullptr) {
-            service->onUidStateChanged(uid, isActive ? UID_STATE_ACTIVE : UID_STATE_IDLE);
+        postUidStateChanged(uid, isActive ? UID_STATE_ACTIVE : UID_STATE_IDLE);
+    }
+}
+
+void SensorService::UidPolicy::postUidStateChanged(uid_t uid, UidState state) {
+    sp<MessageHandler> handler = new UidStateChangeHandler(mService, uid, state);
+    sp<SensorService> service = mService.promote();
+    if (service != nullptr) {
+        if (sensorservice_flags::use_looper_for_uid_state_change()) {
+            service->mLooper->sendMessage(handler, Message(0));
+        } else {
+            service->onUidStateChanged(uid, state);
         }
     }
 }

@@ -112,6 +112,7 @@ public:
     // Stop the current recording.
     LIBBINDER_EXPORTED status_t stopRecordingBinder();
 
+    // Note: This class is not thread safe so protect uses of it when necessary
     class ObjectManager {
     public:
         ObjectManager();
@@ -123,8 +124,6 @@ public:
         void* detach(const void* objectID);
         sp<IBinder> lookupOrCreateWeak(const void* objectID, IBinder::object_make_func make,
                                        const void* makeArgs);
-
-        void kill();
 
     private:
         ObjectManager(const ObjectManager&);
@@ -176,6 +175,9 @@ public:
         const sp<RpcSession>& rpcSession() const { return mBinder->rpcSession(); }
 
         void onFrozenStateChanged(bool isFrozen) { mMutableBinder->onFrozenStateChanged(isFrozen); }
+        void onFrozenStateChangeListenerRemoved() {
+            mMutableBinder->onFrozenStateChangeListenerRemoved();
+        }
         const BpBinder* mBinder;
         BpBinder* mMutableBinder;
     };
@@ -249,6 +251,7 @@ private:
     };
 
     void onFrozenStateChanged(bool isFrozen);
+    void onFrozenStateChangeListenerRemoved();
 
 #ifdef _MSC_VER
    std::atomic_uint32_t         mDiedCallbackId{ 0 };
@@ -258,17 +261,19 @@ private:
         bool isFrozen = false;
         Vector<wp<FrozenStateChangeCallback>> callbacks;
         bool initialStateReceived = false;
+        bool isPendingClear = false;
     };
 
     void reportOneDeath(const Obituary& obit);
     bool isDescriptorCached() const;
+    bool isDescriptorCachedLocked() const;
 
     mutable RpcMutex mLock;
     volatile int32_t mAlive;
     volatile int32_t mObitsSent;
     Vector<Obituary>* mObituaries;
     std::unique_ptr<FrozenStateChange> mFrozen;
-    ObjectManager mObjects;
+    ObjectManager mObjectMgr;
     mutable String16 mDescriptorCache;
     int32_t mTrackedUid;
 

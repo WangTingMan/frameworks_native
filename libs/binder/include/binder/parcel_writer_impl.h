@@ -39,11 +39,6 @@ public:
         return m_detail.writeInplace( len );
     }
 
-    status_t            writeUnpadded( const void* data, size_t len )
-    {
-        return m_detail.writeUnpadded( data, len );
-    }
-
     status_t            writeInt32( int32_t val )
     {
         return m_detail.writeInt32( val );
@@ -488,11 +483,6 @@ public: // reading APIs
      void                releaseObjects()
      {
          return m_detail.releaseObjects();
-     }
-
-     void                acquireObjects()
-     {
-         return m_detail.acquireObjects();
      }
 
      status_t            growData( size_t len )

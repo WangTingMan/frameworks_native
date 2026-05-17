@@ -23,7 +23,7 @@
 #include "Scheduler/LayerInfo.h"
 
 #include "LayerCreationArgs.h"
-#include "TransactionState.h"
+#include "QueuedTransactionState.h"
 
 namespace android::surfaceflinger::frontend {
 using namespace ftl::flag_operators;
@@ -79,7 +79,7 @@ struct RequestedLayerState : layer_state_t {
     bool isHiddenByPolicy() const;
     half4 getColor() const;
     Rect getBufferSize(uint32_t displayRotationFlags) const;
-    Rect getCroppedBufferSize(const Rect& bufferSize) const;
+    FloatRect getCroppedBufferSize(const Rect& bufferSize) const;
     Rect getBufferCrop() const;
     std::string getDebugString() const;
     std::string getDebugStringShort() const;
@@ -88,6 +88,8 @@ struct RequestedLayerState : layer_state_t {
     bool hasValidRelativeParent() const;
     bool hasInputInfo() const;
     bool needsInputInfo() const;
+    bool hasBufferOrSidebandStream() const;
+    bool fillsColor() const;
     bool hasBlur() const;
     bool hasFrameUpdate() const;
     bool hasReadyFrame() const;
@@ -113,24 +115,26 @@ struct RequestedLayerState : layer_state_t {
     const gui::Pid ownerPid;
     bool dataspaceRequested;
     bool hasColorTransform;
+    bool transformIsValid = true;
     bool premultipliedAlpha{true};
     // This layer can be a cursor on some displays.
     bool potentialCursor{false};
     bool protectedByApp{false}; // application requires protected path to external sink
     ui::Transform requestedTransform;
-    std::shared_ptr<FenceTime> acquireFenceTime;
     std::shared_ptr<renderengine::ExternalTexture> externalTexture;
     gui::GameMode gameMode;
     scheduler::LayerInfo::FrameRate requestedFrameRate;
     uint32_t parentId = UNASSIGNED_LAYER_ID;
     uint32_t relativeParentId = UNASSIGNED_LAYER_ID;
     uint32_t layerIdToMirror = UNASSIGNED_LAYER_ID;
-    ui::LayerStack layerStackToMirror = ui::INVALID_LAYER_STACK;
+    uint32_t stopLayerId = UNASSIGNED_LAYER_ID;
+    ui::LayerStack layerStackToMirror = ui::UNASSIGNED_LAYER_STACK;
     uint32_t touchCropId = UNASSIGNED_LAYER_ID;
     uint32_t bgColorLayerId = UNASSIGNED_LAYER_ID;
     uint64_t barrierFrameNumber = 0;
     uint32_t barrierProducerId = 0;
     std::string debugName;
+    std::atomic<int32_t>* pendingBuffers = 0;
 
     // book keeping states
     bool handleAlive = true;

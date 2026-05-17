@@ -13,14 +13,13 @@ cc_defaults {
     defaults: [
         "aconfig_lib_cc_static_link.defaults",
         "android.hardware.graphics.composer3-ndk_shared",
-        "android.hardware.power-ndk_shared",
         "librenderengine_deps",
         "libtimestats_deps",
         "surfaceflinger_defaults",
         "libsurfaceflinger_proto_deps",
+        "poweradvisor_deps",
     ],
     cflags: [
-        "-DLOG_TAG=\"CompositionEngine\"",
         "-DATRACE_TAG=ATRACE_TAG_GRAPHICS",
     ],
     shared_libs: [
@@ -42,6 +41,7 @@ cc_defaults {
         "libutils",
     ],
     static_libs: [
+        "libguiflags",
         "libmath",
         "librenderengine",
         "libtimestats",
@@ -57,7 +57,7 @@ cc_defaults {
         "android.hardware.graphics.composer@2.3-command-buffer",
         "android.hardware.graphics.composer@2.4-command-buffer",
         "android.hardware.graphics.composer3-command-buffer",
-        "libsurfaceflinger_headers",
+        "libsurfaceflinger_backend_headers",
     ],
 }
 
@@ -139,6 +139,8 @@ cc_test {
     ],
     srcs: [
         ":libcompositionengine_sources",
+        ":libsurfaceflinger_backend_mock_sources",
+        ":libsurfaceflinger_backend_sources",
         "tests/planner/CachedSetTest.cpp",
         "tests/planner/FlattenerTest.cpp",
         "tests/planner/LayerStateTest.cpp",
@@ -149,22 +151,24 @@ cc_test {
         "tests/DisplayTest.cpp",
         "tests/HwcAsyncWorkerTest.cpp",
         "tests/HwcBufferCacheTest.cpp",
-        "tests/MockHWC2.cpp",
-        "tests/MockHWComposer.cpp",
-        "tests/MockPowerAdvisor.cpp",
         "tests/OutputLayerTest.cpp",
         "tests/OutputTest.cpp",
         "tests/ProjectionSpaceTest.cpp",
         "tests/RenderSurfaceTest.cpp",
     ],
+    header_libs: [
+        "libsurfaceflinger_backend_mock_headers",
+    ],
     static_libs: [
         "libcompositionengine_mocks",
-        "libgui_mocks",
-        "librenderengine_mocks",
+        "libflagtest",
         "libgmock",
         "libgtest",
+        "libgui_mocks",
+        "librenderengine_mocks",
     ],
     shared_libs: [
+        "libbinder_ndk",
         // For some reason, libvulkan isn't picked up from librenderengine
         // Probably ASAN related?
         "libvulkan",

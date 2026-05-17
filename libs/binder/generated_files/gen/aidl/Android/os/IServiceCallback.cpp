@@ -1,3 +1,11 @@
+/*
+ * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl-cpp -dout/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/IServiceCallback.cpp.d --ninja -t --min_sdk_version=platform_apis -Iframeworks/native/libs/binder/aidl/ frameworks/native/libs/binder/aidl/android/os/IServiceCallback.aidl out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/IServiceCallback.cpp
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
+ */
 #include <android/os/IServiceCallback.h>
 #include <android/os/BpServiceCallback.h>
 namespace android {
@@ -8,12 +16,6 @@ DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(ServiceCallback, "android.os.ISe
 #include <android/os/BpServiceCallback.h>
 #include <android/os/BnServiceCallback.h>
 #include <binder/Parcel.h>
-#include <android-base/macros.h>
-
-#ifdef _MSC_VER
-#include <binder_driver/ipc_connection_token.h>
-#include <binder/ProcessState.h>
-#endif
 
 namespace android {
 namespace os {
@@ -25,10 +27,9 @@ BpServiceCallback::BpServiceCallback(const ::android::sp<::android::IBinder>& _a
 ::android::binder::Status BpServiceCallback::onRegistration(const ::std::string& name, const ::android::sp<::android::IBinder>& binder) {
   ::android::Parcel _aidl_data;
   _aidl_data.markForBinder(remoteStrong());
-  ::android::Parcel _aidl_reply;
   ::android::status_t _aidl_ret_status = ::android::OK;
   ::android::binder::Status _aidl_status;
-  ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IServiceCallback::onRegistration::cppClient" );
+  ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceCallback::onRegistration::cppClient");
   _aidl_ret_status = _aidl_data.writeInterfaceToken(getInterfaceDescriptor());
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
@@ -37,30 +38,11 @@ BpServiceCallback::BpServiceCallback(const ::android::sp<::android::IBinder>& _a
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
   }
-#ifdef _MSC_VER
-  {
-      std::string connection_name;
-      std::string binder_listen_addr;
-      int r = ipc_connection_token_mgr::get_instance()
-          .find_remote_service_by_service_name( name, connection_name, binder_listen_addr );
-      if( r == 0 )
-      {
-          _aidl_data.writeUint32( ::android::OK );
-      }
-      else
-      {
-          _aidl_data.writeUint32( ::android::DEAD_OBJECT );
-      }
-      _aidl_data.writeUtf8AsUtf16( connection_name );
-      _aidl_data.writeUtf8AsUtf16( binder_listen_addr );
-  }
-#else
   _aidl_ret_status = _aidl_data.writeStrongBinder(binder);
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
   }
-#endif
-  _aidl_ret_status = remote()->transact(BnServiceCallback::TRANSACTION_onRegistration, _aidl_data, &_aidl_reply, ::android::IBinder::FLAG_ONEWAY);
+  _aidl_ret_status = remote()->transact(BnServiceCallback::TRANSACTION_onRegistration, _aidl_data, nullptr, ::android::IBinder::FLAG_ONEWAY);
   if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IServiceCallback::getDefaultImpl()) [[unlikely]] {
      return IServiceCallback::getDefaultImpl()->onRegistration(name, binder);
   }
@@ -97,30 +79,15 @@ BnServiceCallback::BnServiceCallback()
       _aidl_ret_status = ::android::BAD_TYPE;
       break;
     }
-    ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IServiceCallback::onRegistration::cppServer" );
+    ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IServiceCallback::onRegistration::cppServer");
     _aidl_ret_status = _aidl_data.readUtf8FromUtf16(&in_name);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;
     }
-#ifdef _MSC_VER
-    std::string connection_name;
-    std::string binder_listen_addr;
-    uint32_t status = ::android::OK;
-    _aidl_ret_status = _aidl_data.readUint32( &status );
-    _aidl_ret_status = _aidl_data.readUtf8FromUtf16( &connection_name );
-    _aidl_ret_status = _aidl_data.readUtf8FromUtf16( &binder_listen_addr );
-    if( status == ::android::OK )
-    {
-        int id = ipc_connection_token_mgr::get_instance()
-            .add_remote_service( in_name, connection_name, binder_listen_addr );
-        in_binder = ProcessState::self()->getStrongProxyForHandle( id );
-    }
-#else
     _aidl_ret_status = _aidl_data.readStrongBinder(&in_binder);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;
     }
-#endif
     if (auto st = _aidl_data.enforceNoDataAvail(); !st.isOk()) {
       _aidl_ret_status = st.writeToParcel(_aidl_reply);
       break;

@@ -16,6 +16,11 @@
 
 #pragma once
 
+#include <ftl/optional.h>
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include <compositionengine/CompositionEngine.h>
 #include <compositionengine/LayerFECompositionState.h>
 #include <compositionengine/Output.h>
@@ -28,10 +33,6 @@
 #include <renderengine/DisplaySettings.h>
 #include <renderengine/LayerSettings.h>
 
-#include <memory>
-#include <utility>
-#include <vector>
-
 namespace android::compositionengine::impl {
 
 // The implementation class contains the common implementation, but does not
@@ -43,7 +44,8 @@ public:
 
     // compositionengine::Output overrides
     bool isValid() const override;
-    std::optional<DisplayId> getDisplayId() const override;
+    ftl::Optional<DisplayId> getDisplayId() const override;
+    ftl::Optional<DisplayIdVariant> getDisplayIdVariant() const override;
     void setCompositionEnabled(bool) override;
     void setLayerCachingEnabled(bool) override;
     void setLayerCachingTexturePoolEnabled(bool) override;
@@ -51,7 +53,7 @@ public:
                        const Rect& orientedDisplaySpaceRect) override;
     void setNextBrightness(float brightness) override;
     void setDisplaySize(const ui::Size&) override;
-    void setLayerFilter(ui::LayerFilter) override;
+    void setLayerFilter(LayerFilter) override;
     ui::Transform::RotationFlags getTransformHint() const override;
 
     void setColorTransform(const compositionengine::CompositionRefreshArgs&) override;
@@ -72,8 +74,9 @@ public:
 
     Region getDirtyRegion() const override;
 
-    bool includesLayer(ui::LayerFilter) const override;
+    bool includesLayer(LayerFilter) const override;
     bool includesLayer(const sp<LayerFE>&) const override;
+    bool includesLayer(LayerFE*) const override;
 
     compositionengine::OutputLayer* getOutputLayerForLayer(const sp<LayerFE>&) const override;
 
@@ -84,13 +87,14 @@ public:
     bool supportsOffloadPresent() const override { return false; }
     void offloadPresentNextFrame() override;
 
-    void uncacheBuffers(const std::vector<uint64_t>& bufferIdsToUncache) override;
     void rebuildLayerStacks(const CompositionRefreshArgs&, LayerFESet&) override;
     void collectVisibleLayers(const CompositionRefreshArgs&,
                               compositionengine::Output::CoverageState&) override;
     void ensureOutputLayerIfVisible(sp<compositionengine::LayerFE>&,
                                     compositionengine::Output::CoverageState&) override;
     void setReleasedLayers(const compositionengine::CompositionRefreshArgs&) override;
+    void uncacheBuffers(const std::vector<uint64_t>& bufferIdsToUncache) override;
+    void commitPictureProfilesToCompositionState();
 
     void updateCompositionState(const compositionengine::CompositionRefreshArgs&) override;
     void planComposition() override;
@@ -115,7 +119,9 @@ public:
     const ReleasedLayers& getReleasedLayersForTest() const;
     void setDisplayColorProfileForTest(std::unique_ptr<compositionengine::DisplayColorProfile>);
     void setRenderSurfaceForTest(std::unique_ptr<compositionengine::RenderSurface>);
+
     bool plannerEnabled() const { return mPlanner != nullptr; }
+    bool plannerTexturePoolEnabled() const override;
     virtual bool anyLayersRequireClientComposition() const;
     virtual void updateProtectedContentState();
     virtual bool dequeueRenderBuffer(base::unique_fd*,
@@ -151,6 +157,9 @@ protected:
     void setHintSessionRequiresRenderEngine(bool requiresRenderEngine) override;
     bool isPowerHintSessionEnabled() override;
     bool isPowerHintSessionGpuReportingEnabled() override;
+    bool hasPictureProcessing() const override;
+    int32_t getMaxLayerPictureProfiles() const override;
+    void applyPictureProfile() override;
     void dumpBase(std::string&) const;
 
     // Implemented by the final implementation for the final state it uses.
@@ -164,10 +173,13 @@ protected:
     bool mustRecompose() const;
 
     const std::string& getNamePlusId() const { return mNamePlusId; }
+    const aidl::android::hardware::graphics::composer3::OverlayProperties* getOverlaySupport()
+            override;
 
 private:
     void dirtyEntireOutput();
     compositionengine::OutputLayer* findLayerRequestingBackgroundComposition() const;
+    void sanitizeOutputLayers() const;
     void finishPrepareFrame();
     ui::Dataspace getBestDataspace(ui::Dataspace*, bool*) const;
     compositionengine::Output::ColorProfile pickColorProfile(

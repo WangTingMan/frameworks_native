@@ -35,6 +35,9 @@ namespace android {
 namespace surfaceflinger {
 class LayerProtoHelper {
 public:
+    static void writeCornerRadiiToProto(
+            float tl, float tr, float bl, float br,
+            const std::function<perfetto::protos::CornerRadiiProto*()>& getCornerRadiiProto);
     static void writePositionToProto(
             const float x, const float y,
             std::function<perfetto::protos::PositionProto*()> getPositionProto);
@@ -44,6 +47,7 @@ public:
                              std::function<perfetto::protos::RectProto*()> getRectProto);
     static void writeToProto(const Rect& rect, perfetto::protos::RectProto* rectProto);
     static void readFromProto(const perfetto::protos::RectProto& proto, Rect& outRect);
+    static void readFromProto(const perfetto::protos::RectProto& proto, FloatRect& outRect);
     static void writeToProto(const FloatRect& rect,
                              std::function<perfetto::protos::FloatRectProto*()> getFloatRectProto);
     static void writeToProto(const Region& region,
@@ -97,8 +101,8 @@ public:
 
 private:
     void writeHierarchyToProto(const frontend::LayerHierarchy& root,
-                               frontend::LayerHierarchy::TraversalPath& path);
-    frontend::LayerSnapshot* getSnapshot(frontend::LayerHierarchy::TraversalPath& path,
+                               const frontend::LayerHierarchy::TraversalPath& path);
+    frontend::LayerSnapshot* getSnapshot(const frontend::LayerHierarchy::TraversalPath& path,
                                          const frontend::RequestedLayerState& layer);
 
     const frontend::LayerSnapshotBuilder& mSnapshotBuilder;

@@ -18,9 +18,11 @@
 
 #include <android-base/properties.h>
 #include <android-base/thread_annotations.h>
+#include <android/os/PointerCaptureMode.h>
 #include <gtest/gtest.h>
 
 #include "TestConstants.h"
+#include "input/Input.h"
 #include "ui/Rotation.h"
 
 namespace android {
@@ -30,6 +32,30 @@ namespace {
 static const int HW_TIMEOUT_MULTIPLIER = base::GetIntProperty("ro.hw_timeout_multiplier", 1);
 
 } // namespace
+
+DisplayViewport createViewport(ui::LogicalDisplayId displayId, int32_t width, int32_t height,
+                               ui::Rotation orientation, bool isActive, const std::string& uniqueId,
+                               std::optional<uint8_t> physicalPort, ViewportType type) {
+    const bool isRotated = orientation == ui::ROTATION_90 || orientation == ui::ROTATION_270;
+    DisplayViewport v;
+    v.displayId = displayId;
+    v.orientation = orientation;
+    v.logicalLeft = 0;
+    v.logicalTop = 0;
+    v.logicalRight = isRotated ? height : width;
+    v.logicalBottom = isRotated ? width : height;
+    v.physicalLeft = 0;
+    v.physicalTop = 0;
+    v.physicalRight = isRotated ? height : width;
+    v.physicalBottom = isRotated ? width : height;
+    v.deviceWidth = isRotated ? height : width;
+    v.deviceHeight = isRotated ? width : height;
+    v.isActive = isActive;
+    v.uniqueId = uniqueId;
+    v.physicalPort = physicalPort;
+    v.type = type;
+    return v;
+};
 
 void FakeInputReaderPolicy::assertInputDevicesChanged() {
     waitForInputDevices(
@@ -51,7 +77,7 @@ void FakeInputReaderPolicy::assertInputDevicesNotChanged() {
             INPUT_DEVICES_DIDNT_CHANGE_TIMEOUT);
 }
 
-void FakeInputReaderPolicy::assertStylusGestureNotified(int32_t deviceId) {
+void FakeInputReaderPolicy::assertStylusGestureNotified(DeviceId deviceId) {
     std::unique_lock lock(mLock);
     base::ScopedLockAssertion assumeLocked(mLock);
 
@@ -80,6 +106,17 @@ void FakeInputReaderPolicy::assertTouchpadHardwareStateNotified() {
     ASSERT_TRUE(success) << "Timed out waiting for hardware state to be notified";
 }
 
+void FakeInputReaderPolicy::assertTouchpadThreeFingerTapNotified() {
+    std::unique_lock lock(mLock);
+    base::ScopedLockAssertion assumeLocked(mLock);
+
+    const bool success =
+            mTouchpadThreeFingerTapNotified.wait_for(lock, WAIT_TIMEOUT, [this]() REQUIRES(mLock) {
+                return mTouchpadThreeFingerTapHasBeenReported;
+            });
+    ASSERT_TRUE(success) << "Timed out waiting for three-finger tap to be notified";
+}
+
 void FakeInputReaderPolicy::clearViewports() {
     mViewports.clear();
     mConfig.setDisplayViewports(mViewports);
@@ -102,33 +139,6 @@ std::optional<DisplayViewport> FakeInputReaderPolicy::getDisplayViewportByPort(
 void FakeInputReaderPolicy::addDisplayViewport(DisplayViewport viewport) {
     mViewports.push_back(std::move(viewport));
     mConfig.setDisplayViewports(mViewports);
-}
-
-void FakeInputReaderPolicy::addDisplayViewport(ui::LogicalDisplayId displayId, int32_t width,
-                                               int32_t height, ui::Rotation orientation,
-                                               bool isActive, const std::string& uniqueId,
-                                               std::optional<uint8_t> physicalPort,
-                                               ViewportType type) {
-    const bool isRotated = orientation == ui::ROTATION_90 || orientation == ui::ROTATION_270;
-    DisplayViewport v;
-    v.displayId = displayId;
-    v.orientation = orientation;
-    v.logicalLeft = 0;
-    v.logicalTop = 0;
-    v.logicalRight = isRotated ? height : width;
-    v.logicalBottom = isRotated ? width : height;
-    v.physicalLeft = 0;
-    v.physicalTop = 0;
-    v.physicalRight = isRotated ? height : width;
-    v.physicalBottom = isRotated ? width : height;
-    v.deviceWidth = isRotated ? height : width;
-    v.deviceHeight = isRotated ? width : height;
-    v.isActive = isActive;
-    v.uniqueId = uniqueId;
-    v.physicalPort = physicalPort;
-    v.type = type;
-
-    addDisplayViewport(v);
 }
 
 bool FakeInputReaderPolicy::updateViewport(const DisplayViewport& viewport) {
@@ -164,16 +174,30 @@ void FakeInputReaderPolicy::addInputUniqueIdAssociation(const std::string& input
     mConfig.inputPortToDisplayUniqueIdAssociations.insert({inputUniqueId, displayUniqueId});
 }
 
-void FakeInputReaderPolicy::addKeyboardLayoutAssociation(const std::string& inputUniqueId,
-                                                         const KeyboardLayoutInfo& layoutInfo) {
-    mConfig.keyboardLayoutAssociations.insert({inputUniqueId, layoutInfo});
+void FakeInputReaderPolicy::addDeviceDescriptorToDisplayUniqueIdAssociation(
+        const std::string& inputDeviceDescriptor, const std::string& displayUniqueId) {
+    mConfig.inputDeviceDescriptorToDisplayUniqueIdAssociations.insert(
+            {inputDeviceDescriptor, displayUniqueId});
 }
 
-void FakeInputReaderPolicy::addDisabledDevice(int32_t deviceId) {
+void FakeInputReaderPolicy::addKeyboardLayoutAssociation(const std::string& inputPort,
+                                                         const KeyboardLayoutInfo& layoutInfo) {
+    mConfig.keyboardLayoutAssociations.insert({inputPort, layoutInfo});
+}
+
+void FakeInputReaderPolicy::addVirtualDevice(const std::string& inputPort) {
+    mConfig.virtualDevicePorts.insert(inputPort);
+}
+
+void FakeInputReaderPolicy::removeVirtualDevice(const std::string& inputPort) {
+    mConfig.virtualDevicePorts.erase(inputPort);
+}
+
+void FakeInputReaderPolicy::addDisabledDevice(DeviceId deviceId) {
     mConfig.disabledDevices.insert(deviceId);
 }
 
-void FakeInputReaderPolicy::removeDisabledDevice(int32_t deviceId) {
+void FakeInputReaderPolicy::removeDisabledDevice(DeviceId deviceId) {
     mConfig.disabledDevices.erase(deviceId);
 }
 
@@ -195,8 +219,9 @@ void FakeInputReaderPolicy::setTouchAffineTransformation(const TouchAffineTransf
     transform = t;
 }
 
-PointerCaptureRequest FakeInputReaderPolicy::setPointerCapture(const sp<IBinder>& window) {
-    mConfig.pointerCaptureRequest = {window, mNextPointerCaptureSequenceNumber++};
+PointerCaptureRequest FakeInputReaderPolicy::setPointerCapture(PointerCaptureMode mode,
+                                                               const sp<IBinder>& window) {
+    mConfig.pointerCaptureRequest = {mode, window, mNextPointerCaptureSequenceNumber++};
     return mConfig.pointerCaptureRequest;
 }
 
@@ -208,16 +233,7 @@ void FakeInputReaderPolicy::setPointerGestureEnabled(bool enabled) {
     mConfig.pointerGesturesEnabled = enabled;
 }
 
-float FakeInputReaderPolicy::getPointerGestureMovementSpeedRatio() {
-    return mConfig.pointerGestureMovementSpeedRatio;
-}
-
-float FakeInputReaderPolicy::getPointerGestureZoomSpeedRatio() {
-    return mConfig.pointerGestureZoomSpeedRatio;
-}
-
 void FakeInputReaderPolicy::setVelocityControlParams(const VelocityControlParameters& params) {
-    mConfig.pointerVelocityControlParameters = params;
     mConfig.wheelVelocityControlParameters = params;
 }
 
@@ -260,6 +276,12 @@ void FakeInputReaderPolicy::notifyTouchpadGestureInfo(GestureType type, int32_t 
     std::scoped_lock lock(mLock);
 }
 
+void FakeInputReaderPolicy::notifyTouchpadThreeFingerTap() {
+    std::scoped_lock lock(mLock);
+    mTouchpadThreeFingerTapHasBeenReported = true;
+    mTouchpadThreeFingerTapNotified.notify_all();
+}
+
 std::shared_ptr<KeyCharacterMap> FakeInputReaderPolicy::getKeyboardLayoutOverlay(
         const InputDeviceIdentifier&, const std::optional<KeyboardLayoutInfo>) {
     return nullptr;
@@ -283,7 +305,7 @@ void FakeInputReaderPolicy::waitForInputDevices(std::function<void(bool)> proces
     mInputDevicesChanged = false;
 }
 
-void FakeInputReaderPolicy::notifyStylusGestureStarted(int32_t deviceId, nsecs_t eventTime) {
+void FakeInputReaderPolicy::notifyStylusGestureStarted(DeviceId deviceId, nsecs_t eventTime) {
     std::scoped_lock lock(mLock);
     mDeviceIdOfNotifiedStylusGesture = deviceId;
     mStylusGestureNotifiedCondition.notify_all();

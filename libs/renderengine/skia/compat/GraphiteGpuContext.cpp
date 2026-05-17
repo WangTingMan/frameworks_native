@@ -20,10 +20,14 @@
 #include <include/core/SkSurface.h>
 #include <include/core/SkTraceMemoryDump.h>
 #include <include/gpu/graphite/GraphiteTypes.h>
+#include <include/gpu/graphite/ContextOptions.h>
 #include <include/gpu/graphite/Surface.h>
 #include <include/gpu/graphite/vk/VulkanGraphiteUtils.h>
 
 #include "GpuTypes.h"
+#include "SkRefCnt.h"
+#include "graphite/Image.h"
+#include "graphite/ImageProvider.h"
 #include "skia/compat/GraphiteBackendTexture.h"
 
 #include <android-base/macros.h>
@@ -38,6 +42,22 @@ static skgpu::graphite::ContextOptions graphiteOptions() {
     options.fDisableDriverCorrectnessWorkarounds = true;
     return options;
 }
+
+// Custom image provider, as some RenderEngine effects need to sample data from CPU buffers,
+// but these buffers needs to be converted to a graphite-backed texture
+class GraphiteImageProvider : public skgpu::graphite::ImageProvider {
+public:
+    sk_sp<SkImage> findOrCreate(skgpu::graphite::Recorder* recorder, const SkImage* image,
+                                SkImage::RequiredProperties requiredProps) override {
+        if (image->isTextureBacked()) {
+            return sk_ref_sp(image);
+        }
+
+        // No caching 🙅
+        return SkImages::TextureFromImage(recorder, image);
+    }
+};
+
 } // namespace
 
 std::unique_ptr<SkiaGpuContext> SkiaGpuContext::MakeVulkan_Graphite(
@@ -58,6 +78,7 @@ GraphiteGpuContext::GraphiteGpuContext(std::unique_ptr<skgpu::graphite::Context>
     // TODO: b/293371537 - Iterate on default cache limits (the Recorder should have the majority of
     // the budget, and the Context should be given a smaller fraction.)
     skgpu::graphite::RecorderOptions recorderOptions = skgpu::graphite::RecorderOptions();
+    recorderOptions.fImageProvider = sk_make_sp<GraphiteImageProvider>();
     this->mRecorder = mContext->makeRecorder(recorderOptions);
     LOG_ALWAYS_FATAL_IF(mRecorder.get() == nullptr, "graphite::Recorder creation failed");
 }
@@ -110,8 +131,40 @@ bool GraphiteGpuContext::isAbandonedOrDeviceLost() {
     return mContext->isDeviceLost();
 }
 
+void GraphiteGpuContext::setResourceCacheLimit(size_t maxResourceBytes) {
+    // Graphite has a separate budget for its Context and its Recorder. For now the majority of
+    // memory that Graphite will allocate will be on the Recorder and minimal amount on the Context.
+    // The main allocations on the Context are MSAA buffers (not often, if ever used in
+    // RenderEngine) and stencil buffers. However, both of these should be "memoryless" in Vulkan on
+    // tiled GPUs, so they don't actually use GPU memory. However, in Vulkan there are scenarios
+    // where Vulkan could end up using real memory for them. Skia will regularly query the device to
+    // get the real memory usage and update the budgeted appropriately. Though for all real usage
+    // patterns we don't expect to ever trigger the device to allocate real memory.
+    //
+    // Therefore, we set the full maxResourceBytes budget on the Recorder. However, in the rare
+    // chance that the devcies does allocate real memory we don't want to immediately kill device
+    // performance by constantly trashing allocations on the Context. Thus we set the Context's
+    // budget to be 50% of the total budget to make sure we allow the MSAA or Stencil buffers to be
+    // allocated in Skia and not immediately discarded. But even with this extra 50% budget, as
+    // described above, this shouldn't result in actual GPU memory usage.
+    //
+    // TODO: We will need to revise this strategy for GLES which does not have the same memoryless
+    // textures.
+    // TODO: Work in Graphite has started to move a lot more of its scratch resources to be owned
+    // by the Context and not on Recorders. This will mean most memory is actually owned by the
+    // Context and thus the budgeting here will need to be updated.
+    mContext->setMaxBudgetedBytes(maxResourceBytes / 2);
+    mRecorder->setMaxBudgetedBytes(maxResourceBytes);
+}
+
+void GraphiteGpuContext::purgeUnlockedScratchResources() {
+    mContext->freeGpuResources();
+    mRecorder->freeGpuResources();
+}
+
 void GraphiteGpuContext::dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const {
     mContext->dumpMemoryStatistics(traceMemoryDump);
+    mRecorder->dumpMemoryStatistics(traceMemoryDump);
 }
 
 } // namespace android::renderengine::skia

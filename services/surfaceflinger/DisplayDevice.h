@@ -23,12 +23,14 @@
 #include <android-base/thread_annotations.h>
 #include <android/native_window.h>
 #include <binder/IBinder.h>
+#include <common/LayerFilter.h>
+#include <compositionengine/Display.h>
+#include <compositionengine/DisplaySurface.h>
 #include <gui/LayerState.h>
 #include <math/mat4.h>
 #include <renderengine/RenderEngine.h>
 #include <system/window.h>
 #include <ui/DisplayId.h>
-#include <ui/DisplayIdentification.h>
 #include <ui/DisplayState.h>
 #include <ui/GraphicTypes.h>
 #include <ui/HdrCapabilities.h>
@@ -42,7 +44,6 @@
 
 #include "DisplayHardware/DisplayMode.h"
 #include "DisplayHardware/Hal.h"
-#include "DisplayHardware/PowerAdvisor.h"
 #include "FrontEnd/DisplayInfo.h"
 #include "Scheduler/RefreshRateSelector.h"
 #include "ThreadContext.h"
@@ -62,14 +63,20 @@ class SurfaceFlinger;
 struct CompositionInfo;
 struct DisplayDeviceCreationArgs;
 
-namespace compositionengine {
-class Display;
-class DisplaySurface;
-} // namespace compositionengine
-
 namespace display {
 class DisplaySnapshot;
 } // namespace display
+
+namespace gui {
+inline const char* to_string(ISurfaceComposer::OptimizationPolicy optimizationPolicy) {
+    switch (optimizationPolicy) {
+        case ISurfaceComposer::OptimizationPolicy::optimizeForPower:
+            return "optimizeForPower";
+        case ISurfaceComposer::OptimizationPolicy::optimizeForPerformance:
+            return "optimizeForPerformance";
+    }
+}
+} // namespace gui
 
 class DisplayDevice : public RefBase {
 public:
@@ -86,20 +93,28 @@ public:
         return mCompositionDisplay;
     }
 
-    bool isVirtual() const { return getId().isVirtual(); }
+    bool isVirtual() const;
     bool isPrimary() const { return mIsPrimary; }
+    bool isGpuVirtualDisplay() const {
+        return std::holds_alternative<GpuVirtualDisplayId>(getDisplayIdVariant());
+    }
 
     // isSecure indicates whether this display can be trusted to display
     // secure surfaces.
     bool isSecure() const;
     void setSecure(bool secure);
 
+    // The optimization policy influences whether this display is optimized for power or
+    // performance.
+    gui::ISurfaceComposer::OptimizationPolicy getOptimizationPolicy() const;
+    void setOptimizationPolicy(gui::ISurfaceComposer::OptimizationPolicy optimizationPolicy);
+
     int getWidth() const;
     int getHeight() const;
     ui::Size getSize() const { return {getWidth(), getHeight()}; }
 
-    void setLayerFilter(ui::LayerFilter);
-    void setDisplaySize(int width, int height);
+    void setLayerFilter(LayerFilter);
+    void setDisplaySize(ui::Size);
     void setProjection(ui::Rotation orientation, Rect viewport, Rect frame);
     void stageBrightness(float brightness) REQUIRES(kMainThreadContext);
     void persistBrightness(bool needsComposite) REQUIRES(kMainThreadContext);
@@ -119,17 +134,30 @@ public:
 
     DisplayId getId() const;
 
+    DisplayIdVariant getDisplayIdVariant() const {
+        const auto idVariant = mCompositionDisplay->getDisplayIdVariant();
+        LOG_FATAL_IF(!idVariant);
+        return *idVariant;
+    }
+
+    std::optional<VirtualDisplayIdVariant> getVirtualDisplayIdVariant() const {
+        return ftl::match(
+                getDisplayIdVariant(),
+                [](PhysicalDisplayId) { return std::optional<VirtualDisplayIdVariant>(); },
+                [](auto id) { return std::optional<VirtualDisplayIdVariant>(id); });
+    }
+
     // Shorthand to upcast the ID of a display whose type is known as a precondition.
     PhysicalDisplayId getPhysicalId() const {
-        const auto id = PhysicalDisplayId::tryCast(getId());
-        LOG_FATAL_IF(!id);
-        return *id;
+        const auto physicalDisplayId = asPhysicalDisplayId(getDisplayIdVariant());
+        LOG_FATAL_IF(!physicalDisplayId);
+        return *physicalDisplayId;
     }
 
     VirtualDisplayId getVirtualId() const {
-        const auto id = VirtualDisplayId::tryCast(getId());
-        LOG_FATAL_IF(!id);
-        return *id;
+        const auto virtualDisplayId = asVirtualDisplayId(getDisplayIdVariant());
+        LOG_FATAL_IF(!virtualDisplayId);
+        return *virtualDisplayId;
     }
 
     const wp<IBinder>& getDisplayToken() const { return mDisplayToken; }
@@ -173,6 +201,7 @@ public:
     hardware::graphics::composer::hal::PowerMode getPowerMode() const;
     void setPowerMode(hardware::graphics::composer::hal::PowerMode);
     bool isPoweredOn() const;
+    bool isRefreshable() const;
     void tracePowerMode();
 
     // Enables layer caching on this DisplayDevice
@@ -194,7 +223,8 @@ public:
             REQUIRES(kMainThreadContext);
     void updateRefreshRateOverlayRate(Fps refreshRate, Fps renderFps, bool setByHwc = false);
     bool isRefreshRateOverlayEnabled() const { return mRefreshRateOverlay != nullptr; }
-    void animateOverlay();
+    void animateRefreshRateOverlay();
+    void animateHdrSdrRatioOverlay();
     bool onKernelTimerChanged(std::optional<DisplayModeId>, bool timerExpired);
     void onVrrIdle(bool idle);
 
@@ -236,6 +266,9 @@ private:
     // TODO(b/182939859): Remove special cases for primary display.
     const bool mIsPrimary;
 
+    gui::ISurfaceComposer::OptimizationPolicy mOptimizationPolicy =
+            gui::ISurfaceComposer::OptimizationPolicy::optimizeForPerformance;
+
     uint32_t mFlags = 0;
 
     // Requested refresh rate in fps, supported only for virtual displays.
@@ -260,6 +293,7 @@ struct DisplayDeviceState {
     struct Physical {
         PhysicalDisplayId id;
         hardware::graphics::composer::hal::HWDisplayId hwcDisplayId;
+        uint8_t port;
         DisplayModePtr activeMode;
 
         bool operator==(const Physical& other) const {
@@ -282,9 +316,14 @@ struct DisplayDeviceState {
     std::string displayName;
     std::string uniqueId;
     bool isSecure = false;
+
+    gui::ISurfaceComposer::OptimizationPolicy optimizationPolicy =
+            gui::ISurfaceComposer::OptimizationPolicy::optimizeForPerformance;
     bool isProtected = false;
     // Refer to DisplayDevice::mRequestedRefreshRate, for virtual display only
     Fps requestedRefreshRate;
+    hardware::graphics::composer::hal::PowerMode initialPowerMode{
+            hardware::graphics::composer::hal::PowerMode::OFF};
 
 private:
     static std::atomic<int32_t> sNextSequenceId;

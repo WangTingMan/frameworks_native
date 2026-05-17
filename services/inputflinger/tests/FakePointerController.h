@@ -38,9 +38,11 @@ public:
     void setBounds(float minX, float minY, float maxX, float maxY);
     void clearBounds();
     const std::map<ui::LogicalDisplayId, std::vector<int32_t>>& getSpots();
+    void setTransform(ui::Transform transform);
 
     void setPosition(float x, float y) override;
-    FloatPoint getPosition() const override;
+    vec2 getPosition() const override;
+    vec2 getPositionInLogicalDisplay() const override;
     ui::LogicalDisplayId getDisplayId() const override;
     void setDisplayViewport(const DisplayViewport& viewport) override;
     void updatePointerIcon(PointerIconStyle iconId) override;
@@ -48,6 +50,7 @@ public:
     void setSkipScreenshotFlagForDisplay(ui::LogicalDisplayId displayId) override;
     void clearSkipScreenshotFlags() override;
     void fade(Transition) override;
+    ui::Transform getDisplayTransform() const override;
 
     void assertViewportSet(ui::LogicalDisplayId displayId);
     void assertViewportNotSet();
@@ -65,7 +68,7 @@ public:
 
 private:
     std::string dump() override { return ""; }
-    void move(float deltaX, float deltaY) override;
+    vec2 move(float deltaX, float deltaY) override;
     void unfade(Transition) override;
     void setPresentation(Presentation) override {}
     void setSpots(const PointerCoords*, const uint32_t*, BitSet32 spotIdBits,
@@ -80,6 +83,7 @@ private:
     bool mIsPointerShown{false};
     std::optional<PointerIconStyle> mIconStyle;
     std::optional<PointerIconStyle> mCustomIconStyle;
+    ui::Transform mTransform{};
 
     std::map<ui::LogicalDisplayId, std::vector<int32_t>> mSpotsByDisplay;
     std::unordered_set<ui::LogicalDisplayId> mDisplaysToSkipScreenshot;

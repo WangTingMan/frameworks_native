@@ -22,6 +22,8 @@
 #include <SkSurface.h>
 #include "BlurFilter.h"
 
+#include "RuntimeEffectManager.h"
+
 namespace android {
 namespace renderengine {
 namespace skia {
@@ -33,7 +35,7 @@ namespace skia {
  */
 class KawaseBlurDualFilter : public BlurFilter {
 public:
-    explicit KawaseBlurDualFilter();
+    explicit KawaseBlurDualFilter(RuntimeEffectManager& effectManager);
     virtual ~KawaseBlurDualFilter() {}
 
     // Execute blur, saving it to a texture
@@ -41,13 +43,14 @@ public:
                             const sk_sp<SkImage> blurInput, const SkRect& blurRect) const override;
 
 private:
-    sk_sp<SkRuntimeEffect> mBlurEffect;
+    sk_sp<SkRuntimeEffect> mLowSampleBlurEffect;
+    sk_sp<SkRuntimeEffect> mHighSampleBlurEffect;
 
     void blurInto(const sk_sp<SkSurface>& drawSurface, const sk_sp<SkImage>& readImage,
-                  const float radius, const float alpha) const;
+                  const float radius, const float alpha, const sk_sp<SkRuntimeEffect>&) const;
 
     void blurInto(const sk_sp<SkSurface>& drawSurface, const sk_sp<SkShader> input,
-                  const float inverseScale, const float radius, const float alpha) const;
+                  const float radius, const float alpha, const sk_sp<SkRuntimeEffect>&) const;
 };
 
 } // namespace skia

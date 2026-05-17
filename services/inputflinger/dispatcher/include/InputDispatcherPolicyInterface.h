@@ -20,12 +20,14 @@
 
 #include <android-base/properties.h>
 #include <binder/IBinder.h>
+#include <dispatcher/Entry.h>
 #include <gui/InputApplication.h>
 #include <gui/PidUid.h>
 #include <input/Input.h>
 #include <input/InputDevice.h>
 #include <utils/RefBase.h>
 #include <set>
+#include <variant>
 
 namespace android {
 
@@ -66,12 +68,12 @@ public:
     /* Notifies the system that an input channel is unrecoverably broken. */
     virtual void notifyInputChannelBroken(const sp<IBinder>& token) = 0;
     virtual void notifyFocusChanged(const sp<IBinder>& oldToken, const sp<IBinder>& newToken) = 0;
-    virtual void notifySensorEvent(int32_t deviceId, InputDeviceSensorType sensorType,
+    virtual void notifySensorEvent(DeviceId deviceId, InputDeviceSensorType sensorType,
                                    InputDeviceSensorAccuracy accuracy, nsecs_t timestamp,
                                    const std::vector<float>& values) = 0;
-    virtual void notifySensorAccuracy(int32_t deviceId, InputDeviceSensorType sensorType,
+    virtual void notifySensorAccuracy(DeviceId deviceId, InputDeviceSensorType sensorType,
                                       InputDeviceSensorAccuracy accuracy) = 0;
-    virtual void notifyVibratorState(int32_t deviceId, bool isOn) = 0;
+    virtual void notifyVibratorState(DeviceId deviceId, bool isOn) = 0;
 
     /*
      * Notifies the system that focused display has changed.
@@ -106,9 +108,9 @@ public:
                                                uint32_t& policyFlags) = 0;
 
     /* Allows the policy a chance to intercept a key before dispatching. */
-    virtual nsecs_t interceptKeyBeforeDispatching(const sp<IBinder>& token,
-                                                  const KeyEvent& keyEvent,
-                                                  uint32_t policyFlags) = 0;
+    virtual std::variant<nsecs_t, inputdispatcher::KeyEntry::InterceptKeyResult>
+    interceptKeyBeforeDispatching(const sp<IBinder>& token, const KeyEvent& keyEvent,
+                                  uint32_t policyFlags) = 0;
 
     /* Allows the policy a chance to perform default processing for an unhandled key.
      * Returns an alternate key event to redispatch as a fallback, if needed. */

@@ -1,6 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl-cpp -dout/soong/.temp/sbox/7b5f55ceac8667b805b9fc05527c05040d45a287/out/android/os/IAccessor.cpp.d --ninja -t --min_sdk_version=platform_apis -Iframeworks/native/libs/binder/aidl/ frameworks/native/libs/binder/aidl/android/os/IAccessor.aidl out/soong/.temp/sbox/7b5f55ceac8667b805b9fc05527c05040d45a287/out out/soong/.temp/sbox/7b5f55ceac8667b805b9fc05527c05040d45a287/out/android/os/IAccessor.cpp
+ * Using: out/host/linux-x86/bin/aidl-cpp -dout/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/IAccessor.cpp.d --ninja -t --min_sdk_version=platform_apis -Iframeworks/native/libs/binder/aidl/ frameworks/native/libs/binder/aidl/android/os/IAccessor.aidl out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/IAccessor.cpp
  *
  * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
  * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
@@ -12,11 +12,11 @@
 #include <android/os/IAccessor.h>
 #include <android/os/BnAccessor.h>
 #include <binder/Delegate.h>
-
+#include <binder/libbinder_export.h>
 
 namespace android {
 namespace os {
-class LIBBINDER_EXPORTED BnAccessor : public ::android::BnInterface<IAccessor> {
+class LIBBINDER_EXPORT BnAccessor : public ::android::BnInterface<IAccessor> {
 public:
   static constexpr uint32_t TRANSACTION_addConnection = ::android::IBinder::FIRST_CALL_TRANSACTION + 0;
   static constexpr uint32_t TRANSACTION_getInstanceName = ::android::IBinder::FIRST_CALL_TRANSACTION + 1;
@@ -24,7 +24,7 @@ public:
   ::android::status_t onTransact(uint32_t _aidl_code, const ::android::Parcel& _aidl_data, ::android::Parcel* _aidl_reply, uint32_t _aidl_flags) override;
 };  // class BnAccessor
 
-class LIBBINDER_EXPORTED IAccessorDelegator : public BnAccessor {
+class LIBBINDER_EXPORT IAccessorDelegator : public BnAccessor {
 public:
   explicit IAccessorDelegator(const ::android::sp<IAccessor> &impl) : _aidl_delegate(impl) {}
 

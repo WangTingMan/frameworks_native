@@ -352,6 +352,8 @@ public:
     typedef sp<IBinder> (*object_make_func)(const void* makeArgs);
     sp<IBinder> lookupOrCreateWeak(const void* objectID, object_make_func make,
                                    const void* makeArgs);
+    void setMinRpcThreads(uint16_t min);
+    uint16_t getMinRpcThreads();
 
 protected:
     virtual          ~IBinder();

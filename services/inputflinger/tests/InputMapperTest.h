@@ -32,18 +32,20 @@
 #include "InterfaceMocks.h"
 #include "TestConstants.h"
 #include "TestInputListener.h"
+#include "input/Input.h"
 #include "input/PropertyMap.h"
 
 namespace android {
 
 class InputMapperUnitTest : public testing::Test {
 protected:
-    static constexpr int32_t EVENTHUB_ID = 1;
-    static constexpr int32_t DEVICE_ID = END_RESERVED_ID + 1000;
-    virtual void SetUp() override { SetUpWithBus(0); }
-    virtual void SetUpWithBus(int bus);
+    static constexpr RawDeviceId EVENTHUB_ID = 1;
+    static constexpr DeviceId DEVICE_ID = END_RESERVED_ID + 1000;
+    virtual void SetUp() override { SetUp(/*bus=*/0, /*isExternal=*/false); }
+    virtual void SetUp(int bus, bool isExternal);
 
-    void setupAxis(int axis, bool valid, int32_t min, int32_t max, int32_t resolution);
+    void setupAxis(int axis, bool valid, int32_t min, int32_t max, int32_t resolution,
+                   int32_t flat = 0, int32_t fuzz = 0);
 
     void expectScanCodes(bool present, std::set<int> scanCodes);
 
@@ -55,6 +57,8 @@ protected:
 
     std::list<NotifyArgs> process(int32_t type, int32_t code, int32_t value);
     std::list<NotifyArgs> process(nsecs_t when, int32_t type, int32_t code, int32_t value);
+    std::list<NotifyArgs> process(nsecs_t when, nsecs_t readTime, int32_t type, int32_t code,
+                                  int32_t value);
 
     InputDeviceIdentifier mIdentifier;
     MockEventHubInterface mMockEventHub;
@@ -76,11 +80,11 @@ class InputMapperTest : public testing::Test {
 protected:
     static const char* DEVICE_NAME;
     static const char* DEVICE_LOCATION;
-    static constexpr int32_t DEVICE_ID = END_RESERVED_ID + 1000;
+    static constexpr DeviceId DEVICE_ID = END_RESERVED_ID + 1000;
     static constexpr int32_t DEVICE_GENERATION = 2;
     static constexpr int32_t DEVICE_CONTROLLER_NUMBER = 0;
     static const ftl::Flags<InputDeviceClass> DEVICE_CLASSES;
-    static constexpr int32_t EVENTHUB_ID = 1;
+    static constexpr RawDeviceId EVENTHUB_ID = 1;
 
     std::shared_ptr<FakeEventHub> mFakeEventHub;
     sp<FakeInputReaderPolicy> mFakePolicy;

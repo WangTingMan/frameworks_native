@@ -102,6 +102,10 @@ public:
         // Returns true if the node is a clone.
         bool isClone() const { return !mirrorRootIds.empty(); }
 
+        TraversalPath getClonedFrom() const { return {.id = id, .variant = variant}; }
+
+        TraversalPath makeChild(uint32_t layerId, LayerHierarchy::Variant variant) const;
+
         bool operator==(const TraversalPath& other) const {
             return id == other.id && mirrorRootIds == other.mirrorRootIds;
         }
@@ -120,18 +124,6 @@ public:
         }
     };
 
-    // Helper class to add nodes to an existing traversal id and removes the
-    // node when it goes out of scope.
-    class ScopedAddToTraversalPath {
-    public:
-        ScopedAddToTraversalPath(TraversalPath& traversalPath, uint32_t layerId,
-                                 LayerHierarchy::Variant variantArg);
-        ~ScopedAddToTraversalPath();
-
-    private:
-        TraversalPath& mTraversalPath;
-        TraversalPath mParentPath;
-    };
     LayerHierarchy(RequestedLayerState* layer);
 
     // Visitor function that provides the hierarchy node and a traversal id which uniquely
@@ -180,6 +172,10 @@ public:
     // Traverse the hierarchy and return true if loops are found. The outInvalidRelativeRoot
     // will contain the first relative root that was visited twice in a traversal.
     bool hasRelZLoop(uint32_t& outInvalidRelativeRoot) const;
+
+    // Checks if a cycle exists at any point from the current layer. This cycle detection
+    // works for offscreen layers as well, which do not get updated in the relZLoop.
+    bool hasLayerCycle() const;
     std::vector<std::pair<LayerHierarchy*, Variant>> mChildren;
 
 private:
@@ -189,9 +185,11 @@ private:
     void removeChild(LayerHierarchy*);
     void sortChildrenByZOrder();
     void updateChild(LayerHierarchy*, LayerHierarchy::Variant);
-    void traverseInZOrder(const Visitor& visitor, LayerHierarchy::TraversalPath& parent) const;
-    void traverse(const Visitor& visitor, LayerHierarchy::TraversalPath& parent,
+    void traverseInZOrder(const Visitor& visitor,
+                          const LayerHierarchy::TraversalPath& parent) const;
+    void traverse(const Visitor& visitor, const LayerHierarchy::TraversalPath& parent,
                   uint32_t depth = 0) const;
+    bool hasLayerCycle(std::unordered_set<uint32_t>& unvisited) const;
     void dump(std::ostream& out, const std::string& prefix, LayerHierarchy::Variant variant,
               bool isLastChild, bool includeMirroredHierarchy) const;
 

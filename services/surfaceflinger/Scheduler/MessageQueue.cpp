@@ -75,7 +75,7 @@ void MessageQueue::vsyncCallback(nsecs_t vsyncTime, nsecs_t targetWakeupTime, ns
 }
 
 void MessageQueue::initVsyncInternal(std::shared_ptr<scheduler::VSyncDispatch> dispatch,
-                                     frametimeline::TokenManager& tokenManager,
+                                     scheduler::TokenManager& tokenManager,
                                      std::chrono::nanoseconds workDuration) {
     std::unique_ptr<scheduler::VSyncCallbackRegistration> oldRegistration;
     {
@@ -208,6 +208,10 @@ std::optional<scheduler::ScheduleResult> MessageQueue::getScheduledFrameResult()
         return scheduledFrameTimeline;
     }
     return std::nullopt;
+}
+
+void MessageQueue::scheduleImmediateFrame() {
+    mHandler->dispatchFrame(VsyncId(), TimePoint::now());
 }
 
 } // namespace android::impl

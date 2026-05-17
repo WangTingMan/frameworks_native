@@ -20,7 +20,7 @@
 #ifndef _MSC_VER
 #include <sys/socket.h>
 #endif
-#define LOG_TAG "ServiceManagerCppClient"
+#define LOG_TAG "libbinder.ServiceManagerCppClient"
 
 #include <binder/IServiceManager.h>
 #include <binder/IServiceManagerUnitTestHelper.h>
@@ -51,7 +51,11 @@
 #include <binder/IPermissionController.h>
 #endif
 
-#ifdef __ANDROID__
+#if !(defined(__ANDROID__) || defined(__FUCHSIA))
+#define BINDER_SERVICEMANAGEMENT_DELEGATION_SUPPORT
+#endif
+
+#if !defined(BINDER_SERVICEMANAGEMENT_DELEGATION_SUPPORT)
 #include <cutils/properties.h>
 #else
 #include "ServiceManagerHost.h"
@@ -139,6 +143,9 @@ public:
     IBinder* onAsBinder() override { return IInterface::asBinder(mUnifiedServiceManager).get(); }
 
     void enableAddServiceCache(bool value) { mUnifiedServiceManager->enableAddServiceCache(value); }
+
+    bool checkServiceAccess(const String16& callerSid, pid_t callerDebugPid, uid_t callerUid,
+                            const String16& name, const String16& permission) override;
 
 protected:
     sp<BackendUnifiedServiceManager> mUnifiedServiceManager;
@@ -315,6 +322,25 @@ android::binder::Status getInjectedAccessor(const std::string& name,
     return android::binder::Status::ok();
 }
 
+void appendInjectedAccessorServices(std::vector<std::string>* list) {
+    LOG_ALWAYS_FATAL_IF(list == nullptr,
+                        "Attempted to get list of services from Accessors with nullptr");
+    std::lock_guard<std::mutex> lock(gAccessorProvidersMutex);
+    for (const auto& entry : gAccessorProviders) {
+        list->insert(list->end(), entry.mProvider->instances().begin(),
+                     entry.mProvider->instances().end());
+    }
+}
+
+void forEachInjectedAccessorService(const std::function<void(const std::string&)>& f) {
+    std::lock_guard<std::mutex> lock(gAccessorProvidersMutex);
+    for (const auto& entry : gAccessorProviders) {
+        for (const auto& instance : entry.mProvider->instances()) {
+            f(instance);
+        }
+    }
+}
+
 sp<IServiceManager> defaultServiceManager()
 {
     std::call_once(gSmOnce, []() {
@@ -467,7 +493,7 @@ bool checkCallingPermission(const String16& permission)
     return checkCallingPermission(permission, nullptr, nullptr);
 }
 
-static StaticString16 _permission(u"permission");
+[[clang::no_destroy]] static StaticString16 _permission(u"permission");
 
 bool checkCallingPermission(const String16& permission, int32_t* outPid, int32_t* outUid)
 {
@@ -480,8 +506,8 @@ bool checkCallingPermission(const String16& permission, int32_t* outPid, int32_t
 }
 
 bool checkPermission(const String16& permission, pid_t pid, uid_t uid, bool logPermissionFailure) {
-    static std::mutex gPermissionControllerLock;
-    static sp<IPermissionController> gPermissionController;
+    [[clang::no_destroy]] static std::mutex gPermissionControllerLock;
+    [[clang::no_destroy]] static sp<IPermissionController> gPermissionController;
 
     sp<IPermissionController> pc;
     gPermissionControllerLock.lock();
@@ -575,8 +601,7 @@ CppBackendShim::CppBackendShim(const sp<BackendUnifiedServiceManager>& impl)
 sp<IBinder> CppBackendShim::getService(const String16& name) const {
     static bool gSystemBootCompleted = false;
 
-    sp<IBinder> svc = checkService(name);
-    if (svc != nullptr) return svc;
+    if (sp<IBinder> svc = checkService(name); svc != nullptr) return svc;
 
     sp<ProcessState> self = ProcessState::selfOrNull();
     const bool isVendorService =
@@ -897,7 +922,27 @@ std::vector<IServiceManager::ServiceDebugInfo> CppBackendShim::getServiceDebugIn
     return ret;
 }
 
-#ifndef __ANDROID__
+bool CppBackendShim::checkServiceAccess(const String16& callerSid, pid_t callerDebugPid,
+                                        uid_t callerUid, const String16& name,
+                                        const String16& permission) {
+    bool res = false;
+    os::IServiceManager::CallerContext callerCtx;
+    callerCtx.sidName = String8(callerSid).c_str();
+    callerCtx.debugPid = callerDebugPid;
+    callerCtx.uid = callerUid;
+
+    if (Status status =
+                mUnifiedServiceManager->checkServiceAccess(callerCtx, String8(name).c_str(),
+                                                           String8(permission).c_str(), &res);
+        !status.isOk()) {
+        ALOGW("%s Failed to check callers access to service %s for permission %s", __FUNCTION__,
+              String8(name).c_str(), String8(permission).c_str());
+        return false;
+    }
+    return res;
+}
+
+#if defined(BINDER_SERVICEMANAGEMENT_DELEGATION_SUPPORT)
 // CppBackendShim for host. Implements the old libbinder android::IServiceManager API.
 // The internal implementation of the AIDL interface android::os::IServiceManager calls into
 // on-device service manager.

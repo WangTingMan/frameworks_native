@@ -17,7 +17,8 @@
 #undef LOG_TAG
 #define LOG_TAG "PowerAdvisorTest"
 
-#include <DisplayHardware/PowerAdvisor.h>
+#include "PowerAdvisor/PowerAdvisor.h"
+
 #include <android_os.h>
 #include <binder/Status.h>
 #include <com_android_graphics_surfaceflinger_flags.h>
@@ -29,18 +30,18 @@
 #include <ui/DisplayId.h>
 #include <chrono>
 #include <future>
-#include "TestableSurfaceFlinger.h"
-#include "mock/DisplayHardware/MockPowerHalController.h"
-#include "mock/DisplayHardware/MockPowerHintSessionWrapper.h"
+#include "mock/PowerAdvisor/MockPowerHalController.h"
+#include "mock/PowerAdvisor/MockPowerHintSessionWrapper.h"
 
 using namespace android;
-using namespace android::Hwc2::mock;
+using namespace android::adpf::mock;
 using namespace android::hardware::power;
 using namespace std::chrono_literals;
 using namespace testing;
 using namespace android::power;
+using namespace ftl::flag_operators;
 
-namespace android::Hwc2::impl {
+namespace android::adpf::impl {
 
 class PowerAdvisorTest : public testing::Test {
 public:
@@ -54,6 +55,8 @@ public:
     void setTimingTestingMode(bool testinMode);
     void allowReportActualToAcquireMutex();
     bool sessionExists();
+    ftl::Flags<Workload> getCommittedWorkload() const;
+    ftl::Flags<Workload> getQueuedWorkload() const;
     int64_t toNanos(Duration d);
 
     struct GpuTestConfig {
@@ -73,7 +76,6 @@ public:
     void testGpuScenario(GpuTestConfig& config, WorkDuration& ret);
 
 protected:
-    TestableSurfaceFlinger mFlinger;
     std::unique_ptr<PowerAdvisor> mPowerAdvisor;
     MockPowerHalController* mMockPowerHalController;
     std::shared_ptr<MockPowerHintSessionWrapper> mMockPowerHintSession;
@@ -97,7 +99,7 @@ int64_t PowerAdvisorTest::toNanos(Duration d) {
 }
 
 void PowerAdvisorTest::SetUp() {
-    mPowerAdvisor = std::make_unique<impl::PowerAdvisor>(*mFlinger.flinger());
+    mPowerAdvisor = std::make_unique<impl::PowerAdvisor>([]() {}, 80ms);
     mPowerAdvisor->mPowerHal = std::make_unique<NiceMock<MockPowerHalController>>();
     mMockPowerHalController =
             reinterpret_cast<MockPowerHalController*>(mPowerAdvisor->mPowerHal.get());
@@ -312,6 +314,14 @@ Duration PowerAdvisorTest::getFenceWaitDelayDuration(bool skipValidate) {
 
 Duration PowerAdvisorTest::getErrorMargin() {
     return mPowerAdvisor->sTargetSafetyMargin;
+}
+
+ftl::Flags<Workload> PowerAdvisorTest::getCommittedWorkload() const {
+    return mPowerAdvisor->mCommittedWorkload;
+}
+
+ftl::Flags<Workload> PowerAdvisorTest::getQueuedWorkload() const {
+    return ftl::Flags<Workload>{mPowerAdvisor->mQueuedWorkload.load()};
 }
 
 namespace {
@@ -838,5 +848,32 @@ TEST_F(PowerAdvisorTest, fmq_sendHint_queueFull) {
     ASSERT_EQ(hint, SessionHint::CPU_LOAD_UP);
 }
 
+TEST_F(PowerAdvisorTest, trackQueuedWorkloads) {
+    mPowerAdvisor->setQueuedWorkload(ftl::Flags<Workload>());
+    ASSERT_EQ(getQueuedWorkload(), ftl::Flags<Workload>());
+
+    // verify workloads are queued
+    mPowerAdvisor->setQueuedWorkload(ftl::Flags<Workload>(Workload::VISIBLE_REGION));
+    ASSERT_EQ(getQueuedWorkload(), ftl::Flags<Workload>(Workload::VISIBLE_REGION));
+
+    mPowerAdvisor->setQueuedWorkload(ftl::Flags<Workload>(Workload::EFFECTS));
+    ASSERT_EQ(getQueuedWorkload(), Workload::VISIBLE_REGION | Workload::EFFECTS);
+
+    // verify queued workloads are cleared after commit
+    mPowerAdvisor->setCommittedWorkload(ftl::Flags<Workload>());
+    ASSERT_EQ(getQueuedWorkload(), ftl::Flags<Workload>());
+}
+
+TEST_F(PowerAdvisorTest, trackCommittedWorkloads) {
+    // verify queued workloads are cleared after commit
+    mPowerAdvisor->setCommittedWorkload(Workload::SCREENSHOT | Workload::VISIBLE_REGION);
+    ASSERT_EQ(getCommittedWorkload(), Workload::SCREENSHOT | Workload::VISIBLE_REGION);
+
+    // on composite, verify we update the committed workload so we track workload increases for the
+    // next frame accurately
+    mPowerAdvisor->setCompositedWorkload(Workload::VISIBLE_REGION | Workload::DISPLAY_CHANGES);
+    ASSERT_EQ(getCommittedWorkload(), Workload::VISIBLE_REGION | Workload::DISPLAY_CHANGES);
+}
+
 } // namespace
-} // namespace android::Hwc2::impl
+} // namespace android::adpf::impl

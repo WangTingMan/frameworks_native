@@ -35,6 +35,13 @@
 namespace android {
 namespace SafeInterface {
 
+/**
+ * WARNING: Prefer to use AIDL-generated interfaces. Using SafeInterface to generate interfaces
+ * does not support tracing, and many other AIDL features out of the box. The general direction
+ * we should go is to migrate safe interface users to AIDL and then remove this so that there
+ * is only one thing to learn/use/test/integrate, not this as well.
+ */
+
 // ParcelHandler is responsible for writing/reading various types to/from a Parcel in a generic way
 class LIBBINDER_EXPORT ParcelHandler {
 public:
@@ -73,7 +80,7 @@ public:
     template <typename T>
     typename std::enable_if<std::is_base_of<Flattenable<T>, T>::value, status_t>::type read(
             const Parcel& parcel, sp<T>* t) const {
-        *t = new T{};
+        *t = sp<T>::make();
         return callParcel("read(sp<Flattenable>)", [&]() { return parcel.read(*(t->get())); });
     }
     template <typename T>

@@ -8,6 +8,11 @@ package {
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
+cc_aconfig_library {
+    name: "libegl_flags_c_lib",
+    aconfig_declarations: "graphicsenv_flags",
+}
+
 cc_library {
     name: "libETC1",
     srcs: ["ETC1/etc1.cpp"],
@@ -61,6 +66,18 @@ ndk_library {
     symbol_file: "libGLESv3.map.txt",
     first_version: "18",
     unversioned_until: "current",
+}
+
+aconfig_declarations {
+    name: "egl_flags",
+    package: "com.android.graphics.egl.flags",
+    container: "system",
+    srcs: ["EGL/egl_flags.aconfig"],
+}
+
+cc_aconfig_library {
+    name: "libegl_flags",
+    aconfig_declarations: "egl_flags",
 }
 
 cc_defaults {
@@ -136,13 +153,17 @@ cc_library_static {
     ],
     export_include_dirs: ["EGL"],
     shared_libs: [
+        "libegl_flags",
         "libz",
     ],
 }
 
 cc_library_shared {
     name: "libEGL",
-    defaults: ["egl_libs_defaults"],
+    defaults: [
+        "aconfig_lib_cc_static_link.defaults",
+        "egl_libs_defaults",
+    ],
     llndk: {
         symbol_file: "libEGL.map.txt",
         export_llndk_headers: ["gl_headers"],
@@ -162,10 +183,12 @@ cc_library_shared {
         "EGL/egl_angle_platform.cpp",
     ],
     shared_libs: [
+        "libapexsupport",
         "libvndksupport",
         "android.hardware.configstore@1.0",
         "android.hardware.configstore-utils",
         "libbase",
+        "libegl_flags",
         "libhidlbase",
         "libnativebridge_lazy",
         "libnativeloader_lazy",
@@ -177,6 +200,7 @@ cc_library_shared {
     static_libs: [
         "libEGL_getProcAddress",
         "libEGL_blobCache",
+        "libegl_flags_c_lib",
     ],
     ldflags: [
         "-Wl,--exclude-libs=libEGL_getProcAddress.a",
@@ -202,6 +226,7 @@ cc_test {
         "EGL/MultifileBlobCache_test.cpp",
     ],
     shared_libs: [
+        "libegl_flags",
         "libutils",
         "libz",
     ],

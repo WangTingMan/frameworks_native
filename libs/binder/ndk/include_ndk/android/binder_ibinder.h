@@ -274,9 +274,9 @@ LIBBINDER_NDK_EXPORT void AIBinder_Class_setOnDump(AIBinder_Class* clazz, AIBind
  * You can use nullptr if certain transaction codes are not used. Lifetime should be same as clazz.
  * \param length number of elements in the transactionCodeToFunctionMap
  */
-LIBBINDER_NDK_EXPORT void AIBinder_Class_setTransactionCodeToFunctionNameMap(AIBinder_Class* clazz,
-                                                        const char** transactionCodeToFunctionMap,
-                                                        size_t length) __INTRODUCED_IN(36);
+LIBBINDER_NDK_EXPORT void AIBinder_Class_setTransactionCodeToFunctionNameMap(
+        AIBinder_Class* clazz, const char* const* transactionCodeToFunctionMap, size_t length)
+        __INTRODUCED_IN(36);
 
 /**
  * Get function name associated with transaction code for given class
@@ -472,6 +472,9 @@ LIBBINDER_NDK_EXPORT binder_status_t AIBinder_unlinkToDeath(AIBinder* binder,
  *
  * This can be used with higher-level system services to determine the caller's identity and check
  * permissions.
+ *
+ * Warning do not use this as a security identifier! PID is unreliable as it may be re-used. This
+ * should mostly be used for debugging.
  *
  * Available since API level 29.
  *
@@ -933,6 +936,23 @@ LIBBINDER_NDK_EXPORT AIBinder_Weak* AIBinder_Weak_clone(const AIBinder_Weak* wea
  * \return whether "lhs < rhs" is true
  */
 LIBBINDER_NDK_EXPORT bool AIBinder_Weak_lt(const AIBinder_Weak* lhs, const AIBinder_Weak* rhs) __INTRODUCED_IN(31);
+
+/**
+ * Set the minimum number of RPC threads required to service this binder.
+ *
+ * This value is used to ensure there are enough threads for the RPC binder
+ * connections.
+ *
+ * This is not related to the ProcessState binder threadpool.
+ *
+ * \param binder the local AIBinder (ABBinder) to set this minimum on.
+ * \param min number of threads required to service the binder, must be at least 1
+ *
+ * \return STATUS_UNEXPECTED_NULL if binder is nullptr
+ *         STATUS_BAD_VALUE if min is 0
+ *         STATUS_OK otherwise
+ */
+binder_status_t AIBinder_setMinRpcThreads(AIBinder* binder, uint16_t min) __INTRODUCED_IN(37);
 
 __END_DECLS
 

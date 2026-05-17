@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "RpcSession"
+#define LOG_TAG "libbinder.RpcSession"
 
 #include <binder/RpcSession.h>
 
 #ifndef _MSC_VER
-#include <dlfcn.h>
 #include <inttypes.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -42,17 +41,15 @@
 
 #include "BuildFlags.h"
 #include "FdTrigger.h"
+#if defined(__ANDROID__) && !defined(__ANDROID_RECOVERY__)
+#include "JvmUtils.h"
+#endif
 #include "OS.h"
 #include "RpcSocketAddress.h"
 #include "RpcState.h"
 #include "RpcTransportUtils.h"
 #include "RpcWireFormat.h"
 #include "Utils.h"
-
-#if defined(__ANDROID__) && !defined(__ANDROID_RECOVERY__)
-#include <jni.h>
-extern "C" JavaVM* AndroidRuntimeGetJavaVM();
-#endif
 
 namespace android {
 
@@ -151,6 +148,8 @@ status_t RpcSession::setupUnixDomainClient(const char* path) {
 }
 
 status_t RpcSession::setupUnixDomainSocketBootstrapClient(unique_fd bootstrapFd) {
+    if (status_t res = binder::os::setNonBlocking(bootstrapFd); res != OK) return res;
+
     mBootstrapTransport =
             mCtx->newTransport(RpcTransportFd(std::move(bootstrapFd)), mShutdownTrigger.get());
     return setupClient([&](const std::vector<uint8_t>& sessionId, bool incoming) {
@@ -196,7 +195,9 @@ status_t RpcSession::setupInetClient(const char* addr, unsigned int port) {
 }
 
 status_t RpcSession::setupPreconnectedClient(unique_fd fd, std::function<unique_fd()>&& request) {
-    return setupClient([&](const std::vector<uint8_t>& sessionId, bool incoming) -> status_t {
+    return setupClient([&, fd = std::move(fd),
+                        request = std::move(request)](const std::vector<uint8_t>& sessionId,
+                                                      bool incoming) mutable -> status_t {
         if (!fd.ok()) {
             fd = request();
             if (!fd.ok()) return BAD_VALUE;
@@ -335,7 +336,7 @@ void RpcSession::WaitForShutdownListener::onSessionIncomingThreadEnded() {
 void RpcSession::WaitForShutdownListener::waitForShutdown(RpcMutexUniqueLock& lock,
                                                           const sp<RpcSession>& session) {
     while (mShutdownCount < session->mConnections.mMaxIncoming) {
-        if (std::cv_status::timeout == mCv.wait_for(lock, std::chrono::seconds(1))) {
+        if (mCv.wait_for(lock, std::chrono::seconds(1)) == RpcCvStatus::timeout) {
             ALOGE("Waiting for RpcSession to shut down (1s w/o progress): %zu incoming connections "
                   "still %zu/%zu fully shutdown.",
                   session->mConnections.mIncoming.size(), mShutdownCount.load(),
@@ -425,13 +426,6 @@ private:
     void operator=(const JavaThreadAttacher&) = delete;
 
     bool mAttached = false;
-
-    static JavaVM* getJavaVM() {
-        static auto fn = reinterpret_cast<decltype(&AndroidRuntimeGetJavaVM)>(
-                dlsym(RTLD_DEFAULT, "AndroidRuntimeGetJavaVM"));
-        if (fn == nullptr) return nullptr;
-        return fn();
-    }
 };
 #endif
 } // namespace
@@ -452,8 +446,9 @@ void RpcSession::join(sp<RpcSession>&& session, PreJoinSetupResult&& setupResult
             }
         }
     } else {
-        ALOGE("Connection failed to init, closing with status %s",
+        ALOGE("Connection failed to init, closing with status %s. Terminating!",
               statusToString(setupResult.status).c_str());
+        (void)session->shutdownAndWait(false);
     }
 
     sp<RpcSession::EventListener> listener;
@@ -473,6 +468,12 @@ void RpcSession::join(sp<RpcSession>&& session, PreJoinSetupResult&& setupResult
                             "bad state: connection object guaranteed to be in list");
     }
 
+    // If you are hitting this, it's likely because whatever caused the thread to exit
+    // in getAndExecuteCommand did not terminate the thread. We abort here, to make
+    // this discoverable instead of potentially causing a deadlock.
+    LOG_ALWAYS_FATAL_IF(!session->mShutdownTrigger->isTriggered(),
+                        "If a thread exits, we only support shutting down the entire RpcSession.");
+
     session = nullptr;
 
     if (listener != nullptr) {
@@ -489,8 +490,10 @@ sp<RpcServer> RpcSession::server() {
     return server;
 }
 
-status_t RpcSession::setupClient(const std::function<status_t(const std::vector<uint8_t>& sessionId,
-                                                              bool incoming)>& connectAndInit) {
+template <typename Fn,
+          typename /* = std::enable_if_t<std::is_invocable_r_v<
+                      status_t, Fn, const std::vector<uint8_t>&, bool>> */>
+status_t RpcSession::setupClient(Fn&& connectAndInit) {
     {
         RpcMutexLockGuard _l(mMutex);
         LOG_ALWAYS_FATAL_IF(mStartedSetup, "Must only setup session once");

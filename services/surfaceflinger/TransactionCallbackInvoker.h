@@ -24,7 +24,9 @@
 #include <binder/IBinder.h>
 #include <ftl/future.h>
 #include <gui/BufferReleaseChannel.h>
+#include <gui/CornerRadii.h>
 #include <gui/ITransactionCompletedListener.h>
+#include <renderengine/ExternalTexture.h>
 #include <ui/Fence.h>
 #include <ui/FenceResult.h>
 
@@ -43,11 +45,11 @@ public:
     std::string name;
     sp<Fence> previousReleaseFence;
     std::vector<ftl::Future<FenceResult>> previousReleaseFences;
-    std::vector<ftl::SharedFuture<FenceResult>> previousSharedReleaseFences;
     std::variant<nsecs_t, sp<Fence>> acquireTimeOrFence = -1;
     nsecs_t latchTime = -1;
     std::optional<uint32_t> transformHint = std::nullopt;
     uint32_t currentMaxAcquiredBufferCount = 0;
+    std::optional<gui::CornerRadii> cornerRadii = std::nullopt;
     std::shared_ptr<FenceTime> gpuCompositionDoneFence{FenceTime::NO_FENCE};
     CompositorTiming compositorTiming;
     nsecs_t refreshStartTime = 0;
@@ -56,6 +58,7 @@ public:
     uint64_t previousFrameNumber = 0;
     ReleaseCallbackId previousReleaseCallbackId = ReleaseCallbackId::INVALID_ID;
     std::shared_ptr<gui::BufferReleaseChannel::ProducerEndpoint> bufferReleaseChannel;
+    std::weak_ptr<renderengine::ExternalTexture> previousBuffer;
 };
 
 class TransactionCallbackInvoker {
@@ -84,6 +87,7 @@ private:
         mCompletedTransactions;
 
     struct BufferRelease {
+        std::string layerName;
         std::shared_ptr<gui::BufferReleaseChannel::ProducerEndpoint> channel;
         ReleaseCallbackId callbackId;
         sp<Fence> fence;

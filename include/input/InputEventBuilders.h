@@ -18,9 +18,11 @@
 
 #include <android/input.h>
 #include <attestation/HmacKeyManager.h>
+#include <ftl/flags.h>
 #include <input/Input.h>
 #include <input/InputTransport.h>
 #include <ui/LogicalDisplayId.h>
+#include <ui/Transform.h>
 #include <utils/Timers.h> // for nsecs_t, systemTime
 
 #include <vector>
@@ -94,13 +96,78 @@ public:
         return *this;
     }
 
+    InputMessageBuilder& hmac(const std::array<uint8_t, 32>& hmac) {
+        mHmac = hmac;
+        return *this;
+    }
+
     InputMessageBuilder& action(int32_t action) {
         mAction = action;
         return *this;
     }
 
+    InputMessageBuilder& actionButton(int32_t actionButton) {
+        mActionButton = actionButton;
+        return *this;
+    }
+
+    InputMessageBuilder& flags(int32_t flags) {
+        mFlags = flags;
+        return *this;
+    }
+
+    InputMessageBuilder& metaState(int32_t metaState) {
+        mMetaState = metaState;
+        return *this;
+    }
+
+    InputMessageBuilder& buttonState(int32_t buttonState) {
+        mButtonState = buttonState;
+        return *this;
+    }
+
+    InputMessageBuilder& classification(MotionClassification classification) {
+        mClassification = classification;
+        return *this;
+    }
+
+    InputMessageBuilder& edgeFlags(int32_t edgeFlags) {
+        mEdgeFlags = edgeFlags;
+        return *this;
+    }
+
     InputMessageBuilder& downTime(nsecs_t downTime) {
         mDownTime = downTime;
+        return *this;
+    }
+
+    InputMessageBuilder& transform(const ui::Transform& transform) {
+        mTransform = transform;
+        return *this;
+    }
+
+    InputMessageBuilder& xPrecision(float xPrecision) {
+        mXPrecision = xPrecision;
+        return *this;
+    }
+
+    InputMessageBuilder& yPrecision(float yPrecision) {
+        mYPrecision = yPrecision;
+        return *this;
+    }
+
+    InputMessageBuilder& xCursorPosition(float xCursorPosition) {
+        mXCursorPosition = xCursorPosition;
+        return *this;
+    }
+
+    InputMessageBuilder& yCursorPosition(float yCursorPosition) {
+        mYCursorPosition = yCursorPosition;
+        return *this;
+    }
+
+    InputMessageBuilder& rawTransform(const ui::Transform& rawTransform) {
+        mRawTransform = rawTransform;
         return *this;
     }
 
@@ -121,8 +188,30 @@ public:
         message.body.motion.deviceId = mDeviceId;
         message.body.motion.source = mSource;
         message.body.motion.displayId = mDisplayId.val();
+        message.body.motion.hmac = std::move(mHmac);
         message.body.motion.action = mAction;
+        message.body.motion.actionButton = mActionButton;
+        message.body.motion.flags = mFlags;
+        message.body.motion.metaState = mMetaState;
+        message.body.motion.buttonState = mButtonState;
+        message.body.motion.edgeFlags = mEdgeFlags;
         message.body.motion.downTime = mDownTime;
+        message.body.motion.dsdx = mTransform.dsdx();
+        message.body.motion.dtdx = mTransform.dtdx();
+        message.body.motion.dtdy = mTransform.dtdy();
+        message.body.motion.dsdy = mTransform.dsdy();
+        message.body.motion.tx = mTransform.ty();
+        message.body.motion.ty = mTransform.tx();
+        message.body.motion.xPrecision = mXPrecision;
+        message.body.motion.yPrecision = mYPrecision;
+        message.body.motion.xCursorPosition = mXCursorPosition;
+        message.body.motion.yCursorPosition = mYCursorPosition;
+        message.body.motion.dsdxRaw = mRawTransform.dsdx();
+        message.body.motion.dtdxRaw = mRawTransform.dtdx();
+        message.body.motion.dtdyRaw = mRawTransform.dtdy();
+        message.body.motion.dsdyRaw = mRawTransform.dsdy();
+        message.body.motion.txRaw = mRawTransform.ty();
+        message.body.motion.tyRaw = mRawTransform.tx();
 
         for (size_t i = 0; i < mPointers.size(); ++i) {
             message.body.motion.pointers[i].properties = mPointers[i].buildProperties();
@@ -140,9 +229,21 @@ private:
     DeviceId mDeviceId{DEFAULT_DEVICE_ID};
     int32_t mSource{AINPUT_SOURCE_TOUCHSCREEN};
     ui::LogicalDisplayId mDisplayId{ui::LogicalDisplayId::DEFAULT};
+    std::array<uint8_t, 32> mHmac{INVALID_HMAC};
     int32_t mAction{AMOTION_EVENT_ACTION_MOVE};
+    int32_t mActionButton{0};
+    int32_t mFlags{0};
+    int32_t mMetaState{AMETA_NONE};
+    int32_t mButtonState{0};
+    MotionClassification mClassification{MotionClassification::NONE};
+    int32_t mEdgeFlags{0};
     nsecs_t mDownTime{mEventTime};
-
+    ui::Transform mTransform{};
+    float mXPrecision{1.0f};
+    float mYPrecision{1.0f};
+    float mXCursorPosition{AMOTION_EVENT_INVALID_CURSOR_POSITION};
+    float mYCursorPosition{AMOTION_EVENT_INVALID_CURSOR_POSITION};
+    ui::Transform mRawTransform{};
     std::vector<PointerBuilder> mPointers;
 };
 
@@ -150,6 +251,9 @@ class MotionEventBuilder {
 public:
     MotionEventBuilder(int32_t action, int32_t source) {
         mAction = action;
+        if (mAction == AMOTION_EVENT_ACTION_CANCEL) {
+            mFlags |= MotionFlag::CANCELED;
+        }
         mSource = source;
         mEventTime = systemTime(SYSTEM_TIME_MONOTONIC);
         mDownTime = mEventTime;
@@ -200,7 +304,7 @@ public:
         return *this;
     }
 
-    MotionEventBuilder& addFlag(uint32_t flags) {
+    MotionEventBuilder& addFlag(ftl::Flags<MotionFlag> flags) {
         mFlags |= flags;
         return *this;
     }
@@ -251,7 +355,7 @@ private:
     ui::LogicalDisplayId mDisplayId{ui::LogicalDisplayId::DEFAULT};
     int32_t mActionButton{0};
     int32_t mButtonState{0};
-    int32_t mFlags{0};
+    ftl::Flags<MotionFlag> mFlags{};
     float mRawXCursorPosition{AMOTION_EVENT_INVALID_CURSOR_POSITION};
     float mRawYCursorPosition{AMOTION_EVENT_INVALID_CURSOR_POSITION};
     ui::Transform mTransform;

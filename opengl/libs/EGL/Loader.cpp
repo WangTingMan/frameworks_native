@@ -20,6 +20,7 @@
 #include "EGL/Loader.h"
 
 #include <android-base/properties.h>
+#include <android/apexsupport.h>
 #include <android/dlext.h>
 #include <cutils/properties.h>
 #include <dirent.h>
@@ -502,6 +503,22 @@ static void* load_system_driver(const char* kind, const char* suffix, const bool
     void* dso = nullptr;
 
     const bool isSuffixAngle = suffix != nullptr && strcmp(suffix, ANGLE_SUFFIX_VALUE) == 0;
+
+    // When ro.egl.apex is set, load the driver from the APEX.
+    std::string eglApex = android::base::GetProperty("ro.egl.apex", "");
+    if (eglApex != "") {
+        libraryName = libraryName + ".so";
+        dso = AApexSupport_loadLibrary(libraryName.c_str(), eglApex.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (dso == nullptr) {
+            const char* err = dlerror();
+            ALOGE("load_driver(%s) from %s: %s", libraryName.c_str(), eglApex.c_str(),
+                  err ? err : "unknown");
+        } else {
+            ALOGV("loaded %s from %s", libraryName.c_str(), eglApex.c_str());
+        }
+        return dso;
+    }
+
     const std::string absolutePath =
             findLibrary(libraryName, isSuffixAngle ? SYSTEM_LIB_PATH : VENDOR_LIB_EGL_DIR, exact);
     if (absolutePath.empty()) {
@@ -603,6 +620,9 @@ Loader::driver_t* Loader::attempt_to_load_angle(egl_connection_t* cnx) {
     driver_t* hnd = nullptr;
 
     // ANGLE doesn't ship with GLES library, and thus we skip GLES driver.
+    // b/370113081: if there is no libEGL_angle.so in namespace ns, libEGL_angle.so in system
+    // partition will be loaded instead. If there is no libEGL_angle.so in system partition, no
+    // angle libs are loaded, and app that sets to use ANGLE will crash.
     void* dso = load_angle("EGL", ns);
     if (dso) {
         initialize_api(dso, cnx, EGL);

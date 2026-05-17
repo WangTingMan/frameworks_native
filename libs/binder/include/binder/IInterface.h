@@ -103,7 +103,7 @@ public:                                                                         
     static const ::android::sp<I##INTERFACE>& getDefaultImpl();                                   \
                                                                                                   \
 private:                                                                                          \
-    static ::android::sp<I##INTERFACE> default_impl;                                              \
+    [[clang::no_destroy]] static ::android::sp<I##INTERFACE> default_impl;                        \
                                                                                                   \
 public:
 
@@ -158,10 +158,11 @@ public:
     ITYPE::~INAME() {}
 
 // Macro for an interface type.
-#define DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(INTERFACE, NAME)                        \
-    const ::android::StaticString16 I##INTERFACE##_descriptor_static_str16(                     \
-            __IINTF_CONCAT(u, NAME));                                                           \
-    const ::android::String16 I##INTERFACE::descriptor(I##INTERFACE##_descriptor_static_str16); \
+#define DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(INTERFACE, NAME)                          \
+    [[clang::no_destroy]] const ::android::StaticString16 I##INTERFACE##_descriptor_static_str16( \
+            __IINTF_CONCAT(u, NAME));                                                             \
+    [[clang::no_destroy]] const ::android::String16 I##INTERFACE::descriptor(                     \
+            I##INTERFACE##_descriptor_static_str16);                                              \
     DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE0(I##INTERFACE, I##INTERFACE, Bp##INTERFACE)
 
 // Macro for "nested" interface type.
@@ -244,7 +245,6 @@ constexpr const char* const kManualInterfaces[] = {
         "android.media.IMediaHTTPService",
         "android.media.IMediaLogService",
         "android.media.IMediaMetadataRetriever",
-        "android.media.IMediaMetricsService",
         "android.media.IMediaPlayer",
         "android.media.IMediaPlayerClient",
         "android.media.IMediaPlayerService",
@@ -255,7 +255,6 @@ constexpr const char* const kManualInterfaces[] = {
         "android.media.IRemoteDisplay",
         "android.media.IRemoteDisplayClient",
         "android.os.IPermissionController",
-        "android.os.IProcessInfoService",
         "android.os.ISchedulingPolicyService",
         "android.os.storage.IObbActionListener",
         "android.os.storage.IStorageEventListener",
@@ -265,7 +264,6 @@ constexpr const char* const kManualInterfaces[] = {
         "android.utils.IMemory",
         "android.utils.IMemoryHeap",
         "com.android.car.procfsinspector.IProcfsInspector",
-        "com.android.internal.app.IAppOpsCallback",
         "com.android.internal.app.IAppOpsService",
         "com.android.internal.app.IBatteryStats",
         "com.android.internal.os.IResultReceiver",

@@ -18,6 +18,7 @@
 #define SF_RENDERENGINE_H_
 
 #include <android-base/unique_fd.h>
+#include <ftl/enum.h>
 #include <ftl/future.h>
 #include <math/mat4.h>
 #include <renderengine/DisplaySettings.h>
@@ -36,6 +37,22 @@
  * Allows to override the RenderEngine backend.
  */
 #define PROPERTY_DEBUG_RENDERENGINE_BACKEND "debug.renderengine.backend"
+
+/**
+ * Allows opting particular devices into an initial preview rollout of RenderEngine on Graphite.
+ *
+ * Only applicable within SurfaceFlinger, and if relevant aconfig flags are enabled.
+ */
+#define PROPERTY_DEBUG_RENDERENGINE_GRAPHITE_PREVIEW_OPTIN \
+    "debug.renderengine.graphite_preview_optin"
+
+/**
+ * Allows opting desktop devices into a rollout of RenderEngine on Graphite.
+ *
+ * Only applicable within SurfaceFlinger, and if relevant aconfig flags are enabled.
+ */
+#define PROPERTY_DEBUG_RENDERENGINE_GRAPHITE_DESKTOP_OPTIN \
+    "debug.renderengine.graphite_desktop_optin"
 
 /**
  * Turns on recording of skia commands in SkiaGL version of the RE. This property
@@ -84,8 +101,10 @@ class ExternalTexture;
 }
 
 enum class Protection {
-    UNPROTECTED = 1,
-    PROTECTED = 2,
+    Unprotected,
+    Protected,
+
+    ftl_last = Protected
 };
 
 // Toggles for skipping or enabling priming of particular shaders.
@@ -107,32 +126,43 @@ struct PrimeCacheConfig {
 class RenderEngine {
 public:
     enum class ContextPriority {
-        LOW = 1,
-        MEDIUM = 2,
-        HIGH = 3,
-        REALTIME = 4,
+        Low,
+        Medium,
+        High,
+        Realtime,
+
+        ftl_last = Realtime
     };
 
     enum class Threaded {
-        NO,
-        YES,
+        No,
+        Yes,
+
+        ftl_last = Yes
     };
 
     enum class GraphicsApi {
         GL,
-        VK,
+        Vk,
+
+        ftl_last = Vk
     };
 
     enum class SkiaBackend {
-        GANESH,
-        GRAPHITE,
+        Ganesh,
+        Graphite,
+
+        ftl_last = Graphite
     };
 
     enum class BlurAlgorithm {
-        NONE,
-        GAUSSIAN,
-        KAWASE,
-        KAWASE_DUAL_FILTER,
+        None,
+        Gaussian,
+        Kawase,
+        KawaseDualFilter,
+        KawaseDualFilterV2,
+
+        ftl_last = KawaseDualFilterV2
     };
 
     static std::unique_ptr<RenderEngine> create(const RenderEngineCreationArgs& args);
@@ -209,12 +239,17 @@ public:
                                                 const std::shared_ptr<ExternalTexture>& buffer,
                                                 base::unique_fd&& bufferFence);
 
-    virtual ftl::Future<FenceResult> drawGainmap(const std::shared_ptr<ExternalTexture>& sdr,
-                                                 base::borrowed_fd&& sdrFence,
-                                                 const std::shared_ptr<ExternalTexture>& hdr,
-                                                 base::borrowed_fd&& hdrFence, float hdrSdrRatio,
-                                                 ui::Dataspace dataspace,
-                                                 const std::shared_ptr<ExternalTexture>& gainmap);
+    // Tonemaps an HDR input image and draws an SDR rendition, plus a gainmap
+    // describing how to recover the HDR image.
+    //
+    // The HDR input image is ALWAYS encoded with an sRGB transfer function and
+    // is a floating point format. Accordingly, the hdrSdrRatio describes the
+    // max luminance in the HDR input image above SDR, and the dataspace
+    // describes the input primaries.
+    virtual ftl::Future<FenceResult> tonemapAndDrawGainmap(
+            const std::shared_ptr<ExternalTexture>& hdr, base::borrowed_fd&& hdrFence,
+            float hdrSdrRatio, ui::Dataspace dataspace, const std::shared_ptr<ExternalTexture>& sdr,
+            const std::shared_ptr<ExternalTexture>& gainmap);
 
     // Clean-up method that should be called on the main thread after the
     // drawFence returned by drawLayers fires. This method will free up
@@ -240,7 +275,7 @@ public:
 
     // TODO(b/180767535): This is only implemented to allow for backend-specific behavior, which
     // we should not allow in general, so remove this.
-    bool isThreaded() const { return mThreaded == Threaded::YES; }
+    bool isThreaded() const { return mThreaded == Threaded::Yes; }
 
     static void validateInputBufferUsage(const sp<GraphicBuffer>&);
     static void validateOutputBufferUsage(const sp<GraphicBuffer>&);
@@ -251,8 +286,10 @@ public:
 
     virtual void setEnableTracing(bool /*tracingEnabled*/) {}
 
+    virtual void rdocCaptureNextFrame() {};
+
 protected:
-    RenderEngine() : RenderEngine(Threaded::NO) {}
+    RenderEngine() : RenderEngine(Threaded::No) {}
 
     RenderEngine(Threaded threaded) : mThreaded(threaded) {}
 
@@ -302,11 +339,10 @@ protected:
             const DisplaySettings& display, const std::vector<LayerSettings>& layers,
             const std::shared_ptr<ExternalTexture>& buffer, base::unique_fd&& bufferFence) = 0;
 
-    virtual void drawGainmapInternal(
+    virtual void tonemapAndDrawGainmapInternal(
             const std::shared_ptr<std::promise<FenceResult>>&& resultPromise,
-            const std::shared_ptr<ExternalTexture>& sdr, base::borrowed_fd&& sdrFence,
             const std::shared_ptr<ExternalTexture>& hdr, base::borrowed_fd&& hdrFence,
-            float hdrSdrRatio, ui::Dataspace dataspace,
+            float hdrSdrRatio, ui::Dataspace dataspace, const std::shared_ptr<ExternalTexture>& sdr,
             const std::shared_ptr<ExternalTexture>& gainmap) = 0;
 };
 
@@ -396,11 +432,11 @@ private:
     uint32_t imageCacheSize = 0;
     bool enableProtectedContext = false;
     bool precacheToneMapperShaderOnly = false;
-    RenderEngine::BlurAlgorithm blurAlgorithm = RenderEngine::BlurAlgorithm::NONE;
-    RenderEngine::ContextPriority contextPriority = RenderEngine::ContextPriority::MEDIUM;
-    RenderEngine::Threaded threaded = RenderEngine::Threaded::YES;
+    RenderEngine::BlurAlgorithm blurAlgorithm = RenderEngine::BlurAlgorithm::None;
+    RenderEngine::ContextPriority contextPriority = RenderEngine::ContextPriority::Medium;
+    RenderEngine::Threaded threaded = RenderEngine::Threaded::Yes;
     RenderEngine::GraphicsApi graphicsApi = RenderEngine::GraphicsApi::GL;
-    RenderEngine::SkiaBackend skiaBackend = RenderEngine::SkiaBackend::GANESH;
+    RenderEngine::SkiaBackend skiaBackend = RenderEngine::SkiaBackend::Ganesh;
 };
 
 } // namespace renderengine

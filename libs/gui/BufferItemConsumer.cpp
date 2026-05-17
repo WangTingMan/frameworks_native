@@ -17,6 +17,7 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "BufferItemConsumer"
 //#define ATRACE_TAG ATRACE_TAG_GRAPHICS
+#include <utils/Errors.h>
 #include <utils/Log.h>
 
 #include <inttypes.h>
@@ -24,6 +25,7 @@
 #include <com_android_graphics_libgui_flags.h>
 #include <gui/BufferItem.h>
 #include <gui/BufferItemConsumer.h>
+#include <gui/Surface.h>
 #include <ui/BufferQueueDefs.h>
 #include <ui/GraphicBuffer.h>
 
@@ -35,37 +37,55 @@
 
 namespace android {
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+std::tuple<sp<BufferItemConsumer>, sp<Surface>> BufferItemConsumer::create(
+        uint64_t consumerUsage, int bufferCount, bool controlledByApp,
+        bool isConsumerSurfaceFlinger) {
+    sp<BufferItemConsumer> bufferItemConsumer =
+            sp<BufferItemConsumer>::make(consumerUsage, bufferCount, controlledByApp,
+                                         isConsumerSurfaceFlinger);
+    return {bufferItemConsumer, bufferItemConsumer->getSurface()};
+}
+
+sp<BufferItemConsumer> BufferItemConsumer::create(const sp<IGraphicBufferConsumer>& consumer,
+                                                  uint64_t consumerUsage, int bufferCount,
+                                                  bool controlledByApp) {
+    return sp<BufferItemConsumer>::make(consumer, consumerUsage, bufferCount, controlledByApp);
+}
+
 BufferItemConsumer::BufferItemConsumer(uint64_t consumerUsage, int bufferCount,
                                        bool controlledByApp, bool isConsumerSurfaceFlinger)
-      : ConsumerBase(controlledByApp, isConsumerSurfaceFlinger) {
-    initialize(consumerUsage, bufferCount);
-}
+      : ConsumerBase(controlledByApp, isConsumerSurfaceFlinger),
+        mConsumerUsage(consumerUsage),
+        mBufferCount(bufferCount) {}
 
 BufferItemConsumer::BufferItemConsumer(const sp<IGraphicBufferProducer>& producer,
                                        const sp<IGraphicBufferConsumer>& consumer,
                                        uint64_t consumerUsage, int bufferCount,
                                        bool controlledByApp)
-      : ConsumerBase(producer, consumer, controlledByApp) {
-    initialize(consumerUsage, bufferCount);
-}
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+      : ConsumerBase(producer, consumer, controlledByApp),
+        mConsumerUsage(consumerUsage),
+        mBufferCount(bufferCount) {}
 
-BufferItemConsumer::BufferItemConsumer(
-        const sp<IGraphicBufferConsumer>& consumer, uint64_t consumerUsage,
-        int bufferCount, bool controlledByApp) :
-    ConsumerBase(consumer, controlledByApp)
-{
-    initialize(consumerUsage, bufferCount);
+BufferItemConsumer::BufferItemConsumer(const sp<IGraphicBufferConsumer>& consumer,
+                                       uint64_t consumerUsage, int bufferCount,
+                                       bool controlledByApp)
+      : ConsumerBase(consumer, controlledByApp),
+        mConsumerUsage(consumerUsage),
+        mBufferCount(bufferCount) {}
+
+void BufferItemConsumer::onFirstRef() {
+    ConsumerBase::onFirstRef();
+    initializeConsumer();
 }
 
-void BufferItemConsumer::initialize(uint64_t consumerUsage, int bufferCount) {
-    status_t err = mConsumer->setConsumerUsageBits(consumerUsage);
-    LOG_ALWAYS_FATAL_IF(err != OK, "Failed to set consumer usage bits to %#" PRIx64, consumerUsage);
-    if (bufferCount != DEFAULT_MAX_BUFFERS) {
-        err = mConsumer->setMaxAcquiredBufferCount(bufferCount);
+void BufferItemConsumer::initializeConsumer() {
+    status_t err = mConsumer->setConsumerUsageBits(mConsumerUsage);
+    LOG_ALWAYS_FATAL_IF(err != OK, "Failed to set consumer usage bits to %#" PRIx64,
+                        mConsumerUsage);
+    if (mBufferCount != DEFAULT_MAX_BUFFERS) {
+        err = mConsumer->setMaxAcquiredBufferCount(mBufferCount);
         LOG_ALWAYS_FATAL_IF(err != OK, "Failed to set max acquired buffer count to %d",
-                            bufferCount);
+                            mBufferCount);
     }
 }
 
@@ -107,13 +127,36 @@ status_t BufferItemConsumer::acquireBuffer(BufferItem *item,
     return OK;
 }
 
+status_t BufferItemConsumer::attachBuffer(const sp<GraphicBuffer>& buffer) {
+    if (!buffer) {
+        BI_LOGE("BufferItemConsumer::attachBuffer no input buffer specified.");
+        return BAD_VALUE;
+    }
+
+    Mutex::Autolock _l(mMutex);
+
+    int slot = INVALID_BUFFER_SLOT;
+    status_t status = mConsumer->attachBuffer(&slot, buffer);
+    if (status != OK) {
+        BI_LOGE("BufferItemConsumer::attachBuffer unable to attach buffer %d", status);
+        return status;
+    }
+
+    mSlots[slot] = {
+            .mGraphicBuffer = buffer,
+            .mFence = nullptr,
+            .mFrameNumber = 0,
+    };
+
+    return OK;
+}
+
 status_t BufferItemConsumer::releaseBuffer(const BufferItem &item,
         const sp<Fence>& releaseFence) {
     Mutex::Autolock _l(mMutex);
     return releaseBufferSlotLocked(item.mSlot, item.mGraphicBuffer, releaseFence);
 }
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
 status_t BufferItemConsumer::releaseBuffer(const sp<GraphicBuffer>& buffer,
                                            const sp<Fence>& releaseFence) {
     Mutex::Autolock _l(mMutex);
@@ -129,7 +172,6 @@ status_t BufferItemConsumer::releaseBuffer(const sp<GraphicBuffer>& buffer,
 
     return releaseBufferSlotLocked(slotIndex, buffer, releaseFence);
 }
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
 
 status_t BufferItemConsumer::releaseBufferSlotLocked(int slotIndex, const sp<GraphicBuffer>& buffer,
                                                      const sp<Fence>& releaseFence) {
@@ -140,7 +182,7 @@ status_t BufferItemConsumer::releaseBufferSlotLocked(int slotIndex, const sp<Gra
         BI_LOGE("Failed to addReleaseFenceLocked");
     }
 
-    err = releaseBufferLocked(slotIndex, buffer, EGL_NO_DISPLAY, EGL_NO_SYNC_KHR);
+    err = releaseBufferLocked(slotIndex, buffer);
     if (err != OK && err != IGraphicBufferConsumer::STALE_BUFFER_SLOT) {
         BI_LOGE("Failed to release buffer: %s (%d)",
                 strerror(-err), err);

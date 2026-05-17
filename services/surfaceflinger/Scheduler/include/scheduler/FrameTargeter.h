@@ -24,6 +24,7 @@
 #include <ui/DisplayId.h>
 #include <ui/Fence.h>
 #include <ui/FenceTime.h>
+#include <ui/RingBuffer.h>
 
 #include <scheduler/Features.h>
 #include <scheduler/FrameTime.h>
@@ -34,7 +35,6 @@
 // TODO(b/185536303): Pull to FTL.
 #include "../../../TracedOrdinal.h"
 #include "../../../Utils/Dumper.h"
-#include "../../../Utils/RingBuffer.h"
 
 namespace android::scheduler {
 
@@ -52,6 +52,8 @@ public:
     Duration expectedFrameDuration() const { return mExpectedPresentTime - mFrameBeginTime; }
 
     TimePoint expectedPresentTime() const { return mExpectedPresentTime; }
+
+    std::optional<TimePoint> debugPresentDelay() const { return mDebugPresentTimeDelay; }
 
     std::optional<TimePoint> earliestPresentTime() const { return mEarliestPresentTime; }
 
@@ -84,6 +86,7 @@ protected:
     TimePoint mFrameBeginTime;
     TimePoint mExpectedPresentTime;
     std::optional<TimePoint> mEarliestPresentTime;
+    std::optional<TimePoint> mDebugPresentTimeDelay;
 
     TracedOrdinal<bool> mFramePending;
     TracedOrdinal<bool> mFrameMissed;
@@ -104,8 +107,7 @@ protected:
     // signaled by now (unless that frame missed).
     std::pair<bool /* wouldBackpressure */, PresentFence> expectedSignaledPresentFence(
             Period vsyncPeriod, Period minFramePeriod) const;
-    std::array<PresentFence, 2> mPresentFencesLegacy;
-    utils::RingBuffer<PresentFence, 5> mPresentFences;
+    ui::RingBuffer<PresentFence, 5> mPresentFences;
 
     FrameTime mLastSignaledFrameTime;
 
@@ -135,6 +137,7 @@ public:
         TimePoint expectedVsyncTime;
         Duration sfWorkDuration;
         Duration hwcMinWorkDuration;
+        std::optional<TimePoint> debugPresentTimeDelay; // used to introduce jank for testing
     };
 
     void beginFrame(const BeginFrameArgs&, const IVsyncSource&);
@@ -147,10 +150,15 @@ public:
 
     void endFrame(const CompositeResult&);
 
+    // Returns the number of fences that are or were pending at |time|. |time| must not be in
+    // the future.
+    size_t countPresentFencesPendingAt(TimePoint time) const;
+
     void dump(utils::Dumper&) const;
 
 private:
     friend class FrameTargeterTestBase;
+    friend class TestableScheduler;
 
     // For tests.
     using IsFencePendingFuncPtr = bool (*)(const FenceTimePtr&, int graceTimeMs);

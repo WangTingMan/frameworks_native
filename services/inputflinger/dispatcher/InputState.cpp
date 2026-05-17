@@ -15,7 +15,9 @@
  */
 
 #include "DebugConfig.h"
+#include "input/Input.h"
 #include "input/InputDevice.h"
+#include "input/InputFlags.h"
 
 #include "InputState.h"
 
@@ -89,7 +91,7 @@ bool InputState::trackKey(const KeyEntry& entry, int32_t flags) {
  *  true if the incoming event was correctly tracked,
  *  false if the incoming event should be dropped.
  */
-bool InputState::trackMotion(const MotionEntry& entry, int32_t flags) {
+bool InputState::trackMotion(const MotionEntry& entry, ftl::Flags<MotionFlag> flags) {
     // Don't track non-pointer events
     if (!isFromSource(entry.source, AINPUT_SOURCE_CLASS_POINTER)) {
         // This is a focus-dispatched event; we don't track its state.
@@ -221,10 +223,15 @@ ssize_t InputState::findKeyMemento(const KeyEntry& entry) const {
 }
 
 ssize_t InputState::findMotionMemento(const MotionEntry& entry, bool hovering) const {
+    // If we have connected displays a mouse can move between displays and displayId may change
+    // while a gesture is in-progress.
+    const bool skipDisplayCheck =
+            InputFlags::connectedDisplaysCursorEnabled() && isMouseOrTouchpad(entry.source);
     for (size_t i = 0; i < mMotionMementos.size(); i++) {
         const MotionMemento& memento = mMotionMementos[i];
         if (memento.deviceId == entry.deviceId && memento.source == entry.source &&
-            memento.displayId == entry.displayId && memento.hovering == hovering) {
+            memento.hovering == hovering &&
+            (skipDisplayCheck || memento.displayId == entry.displayId)) {
             return i;
         }
     }
@@ -245,7 +252,8 @@ void InputState::addKeyMemento(const KeyEntry& entry, int32_t flags) {
     mKeyMementos.push_back(memento);
 }
 
-void InputState::addMotionMemento(const MotionEntry& entry, int32_t flags, bool hovering) {
+void InputState::addMotionMemento(const MotionEntry& entry, ftl::Flags<MotionFlag> flags,
+                                  bool hovering) {
     MotionMemento memento;
     memento.deviceId = entry.deviceId;
     memento.source = entry.source;
@@ -338,7 +346,10 @@ bool InputState::shouldCancelPreviousStream(const MotionEntry& motionEntry) cons
         // would receive different events from each display. Since the TouchStates are per-display,
         // it's unlikely that those two streams would be consistent with each other. Therefore,
         // cancel the previous gesture if the display id changes.
-        if (motionEntry.displayId != lastMemento.displayId) {
+        // Except when we have connected-displays where a mouse may move across display boundaries.
+        const bool skipDisplayCheck = (InputFlags::connectedDisplaysCursorEnabled() &&
+                                       isMouseOrTouchpad(motionEntry.source));
+        if (!skipDisplayCheck && motionEntry.displayId != lastMemento.displayId) {
             LOG(INFO) << "Canceling stream: last displayId was " << lastMemento.displayId
                       << " and new event is " << motionEntry;
             return true;
@@ -394,19 +405,19 @@ std::unique_ptr<MotionEntry> InputState::createCancelEntryForMemento(const Motio
                                                                      nsecs_t eventTime) const {
     const int32_t action =
             memento.hovering ? AMOTION_EVENT_ACTION_HOVER_EXIT : AMOTION_EVENT_ACTION_CANCEL;
-    int32_t flags = memento.flags;
+    ftl::Flags<MotionFlag> flags = memento.flags;
     if (action == AMOTION_EVENT_ACTION_CANCEL) {
-        flags |= AMOTION_EVENT_FLAG_CANCELED;
+        flags |= MotionFlag::CANCELED;
     }
     return std::make_unique<MotionEntry>(mIdGenerator.nextId(), /*injectionState=*/nullptr,
                                          eventTime, memento.deviceId, memento.source,
                                          memento.displayId, memento.policyFlags, action,
                                          /*actionButton=*/0, flags, AMETA_NONE,
                                          /*buttonState=*/0, MotionClassification::NONE,
-                                         AMOTION_EVENT_EDGE_FLAG_NONE, memento.xPrecision,
-                                         memento.yPrecision, memento.xCursorPosition,
-                                         memento.yCursorPosition, memento.downTime,
-                                         memento.pointerProperties, memento.pointerCoords);
+                                         memento.xPrecision, memento.yPrecision,
+                                         memento.xCursorPosition, memento.yCursorPosition,
+                                         memento.downTime, memento.pointerProperties,
+                                         memento.pointerCoords);
 }
 
 std::vector<std::unique_ptr<EventEntry>> InputState::synthesizeCancelationEvents(
@@ -482,10 +493,10 @@ std::vector<std::unique_ptr<EventEntry>> InputState::synthesizePointerDownEvents
                                                   memento.displayId, memento.policyFlags, action,
                                                   /*actionButton=*/0, memento.flags, AMETA_NONE,
                                                   /*buttonState=*/0, MotionClassification::NONE,
-                                                  AMOTION_EVENT_EDGE_FLAG_NONE, memento.xPrecision,
-                                                  memento.yPrecision, memento.xCursorPosition,
-                                                  memento.yCursorPosition, memento.downTime,
-                                                  pointerProperties, pointerCoords));
+                                                  memento.xPrecision, memento.yPrecision,
+                                                  memento.xCursorPosition, memento.yCursorPosition,
+                                                  memento.downTime, pointerProperties,
+                                                  pointerCoords));
         }
 
         memento.firstNewPointerIdx = INVALID_POINTER_INDEX;
@@ -535,13 +546,11 @@ std::vector<std::unique_ptr<MotionEntry>> InputState::synthesizeCancelationEvent
                                               currentTime, memento.deviceId, memento.source,
                                               memento.displayId, memento.policyFlags, action,
                                               /*actionButton=*/0,
-                                              memento.flags | AMOTION_EVENT_FLAG_CANCELED,
-                                              AMETA_NONE, /*buttonState=*/0,
-                                              MotionClassification::NONE,
-                                              AMOTION_EVENT_EDGE_FLAG_NONE, memento.xPrecision,
-                                              memento.yPrecision, memento.xCursorPosition,
-                                              memento.yCursorPosition, memento.downTime,
-                                              pointerProperties, pointerCoords));
+                                              memento.flags | MotionFlag::CANCELED, AMETA_NONE,
+                                              /*buttonState=*/0, MotionClassification::NONE,
+                                              memento.xPrecision, memento.yPrecision,
+                                              memento.xCursorPosition, memento.yCursorPosition,
+                                              memento.downTime, pointerProperties, pointerCoords));
 
         // Cleanup pointer information
         pointerProperties.erase(pointerProperties.begin() + pointerIdx);
@@ -651,7 +660,7 @@ std::ostream& operator<<(std::ostream& out, const InputState& state) {
         for (const InputState::MotionMemento& memento : state.mMotionMementos) {
             out << "{deviceId=" << memento.deviceId
                 << ", hovering=" << std::to_string(memento.hovering)
-                << ", downTime=" << memento.downTime << "}, ";
+                << ", downTime=" << memento.downTime << "ns}, ";
         }
     }
     return out;

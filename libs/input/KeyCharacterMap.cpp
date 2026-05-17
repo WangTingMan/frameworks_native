@@ -84,15 +84,15 @@ static String8 toString(const char16_t* chars, size_t numChars) {
 
 KeyCharacterMap::KeyCharacterMap(const std::string& filename) : mLoadFileName(filename) {}
 
-base::Result<std::shared_ptr<KeyCharacterMap>> KeyCharacterMap::load(const std::string& filename,
+base::Result<std::unique_ptr<KeyCharacterMap>> KeyCharacterMap::load(const std::string& filename,
                                                                      Format format) {
     Tokenizer* tokenizer;
     status_t status = Tokenizer::open(String8(filename.c_str()), &tokenizer);
     if (status) {
         return Errorf("Error {} opening key character map file {}.", status, filename.c_str());
     }
-    std::shared_ptr<KeyCharacterMap> map =
-            std::shared_ptr<KeyCharacterMap>(new KeyCharacterMap(filename));
+    std::unique_ptr<KeyCharacterMap> map =
+            std::unique_ptr<KeyCharacterMap>(new KeyCharacterMap(filename));
     if (!map.get()) {
         ALOGE("Error allocating key character map.");
         return Errorf("Error allocating key character map.");
@@ -365,6 +365,17 @@ int32_t KeyCharacterMap::applyKeyRemapping(int32_t fromKeyCode) const {
     return toKeyCode;
 }
 
+std::vector<int32_t> KeyCharacterMap::findKeyCodesMappedToKeyCode(int32_t toKeyCode) const {
+    std::vector<int32_t> fromKeyCodes;
+
+    for (const auto& [from, to] : mKeyRemapping) {
+        if (toKeyCode == to) {
+            fromKeyCodes.push_back(from);
+        }
+    }
+    return fromKeyCodes;
+}
+
 std::pair<int32_t, int32_t> KeyCharacterMap::applyKeyBehavior(int32_t fromKeyCode,
                                                               int32_t fromMetaState) const {
     int32_t toKeyCode = fromKeyCode;
@@ -604,7 +615,7 @@ std::unique_ptr<KeyCharacterMap> KeyCharacterMap::readFromParcel(Parcel* parcel)
         ALOGE("%s: Null parcel", __func__);
         return nullptr;
     }
-    std::string loadFileName = parcel->readCString();
+    std::string loadFileName = parcel->readString8().c_str();
     std::unique_ptr<KeyCharacterMap> map =
             std::make_unique<KeyCharacterMap>(KeyCharacterMap(loadFileName));
     map->mType = static_cast<KeyCharacterMap::KeyboardType>(parcel->readInt32());
@@ -693,7 +704,7 @@ void KeyCharacterMap::writeToParcel(Parcel* parcel) const {
         ALOGE("%s: Null parcel", __func__);
         return;
     }
-    parcel->writeCString(mLoadFileName.c_str());
+    parcel->writeString8(String8(mLoadFileName.c_str()));
     parcel->writeInt32(static_cast<int32_t>(mType));
     parcel->writeBool(mLayoutOverlayApplied);
 

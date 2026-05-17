@@ -16,10 +16,12 @@ rust_library {
         "libdowncast_rs",
         "liblibc",
         "liblog_rust",
+        "libzerocopy",
     ],
     host_supported: true,
     vendor_available: true,
     product_available: true,
+    recovery_available: true,
     target: {
         darwin: {
             enabled: false,
@@ -86,6 +88,7 @@ rust_library {
     host_supported: true,
     vendor_available: true,
     product_available: true,
+    recovery_available: true,
     target: {
         darwin: {
             enabled: false,
@@ -151,6 +154,7 @@ rust_bindgen {
     host_supported: true,
     vendor_available: true,
     product_available: true,
+    recovery_available: true,
 
     // Currently necessary for host builds
     // TODO(b/31559095): bionic on host should define this
@@ -205,6 +209,7 @@ rust_test {
         "libdowncast_rs",
         "liblibc",
         "liblog_rust",
+        "libzerocopy",
     ],
 }
 

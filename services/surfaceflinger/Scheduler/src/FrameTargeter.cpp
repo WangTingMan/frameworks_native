@@ -31,26 +31,34 @@ FrameTarget::FrameTarget(const std::string& displayLabel)
 
 std::pair<bool /* wouldBackpressure */, FrameTarget::PresentFence>
 FrameTarget::expectedSignaledPresentFence(Period vsyncPeriod, Period minFramePeriod) const {
-    if (!FlagManager::getInstance().allow_n_vsyncs_in_targeter()) {
-        const size_t i = static_cast<size_t>(targetsVsyncsAhead<2>(minFramePeriod));
-        return {true, mPresentFencesLegacy[i]};
-    }
+    SFTRACE_CALL();
 
     bool wouldBackpressure = true;
     auto expectedPresentTime = mExpectedPresentTime;
     for (size_t i = mPresentFences.size(); i != 0; --i) {
         const auto& fence = mPresentFences[i - 1];
+        SFTRACE_FORMAT_INSTANT("fence at idx: %zu expectedPresentTime in %.2f", i - 1,
+                               ticks<std::milli, float>(fence.expectedPresentTime -
+                                                        TimePoint::now()));
 
         if (fence.expectedPresentTime + minFramePeriod < expectedPresentTime - vsyncPeriod / 2) {
+            SFTRACE_FORMAT_INSTANT("would not backpressure");
             wouldBackpressure = false;
         }
 
         if (fence.expectedPresentTime <= mFrameBeginTime) {
+            SFTRACE_FORMAT_INSTANT("fence at idx: %zu is %.2f before frame begin "
+                                   "(wouldBackpressure=%s)",
+                                   i - 1,
+                                   ticks<std::milli, float>(mFrameBeginTime -
+                                                            fence.expectedPresentTime),
+                                   wouldBackpressure ? "true" : "false");
             return {wouldBackpressure, fence};
         }
 
         expectedPresentTime = fence.expectedPresentTime;
     }
+    SFTRACE_FORMAT_INSTANT("No fence found");
     return {wouldBackpressure, PresentFence{}};
 }
 
@@ -68,14 +76,20 @@ bool FrameTarget::wouldPresentEarly(Period vsyncPeriod, Period minFramePeriod) c
 }
 
 const FenceTimePtr& FrameTarget::presentFenceForPreviousFrame() const {
-    if (FlagManager::getInstance().allow_n_vsyncs_in_targeter()) {
-        if (mPresentFences.size() > 0) {
-            return mPresentFences.back().fenceTime;
-        }
-        return FenceTime::NO_FENCE;
+    if (mPresentFences.size() > 0) {
+        return mPresentFences.back().fenceTime;
     }
+    return FenceTime::NO_FENCE;
+}
 
-    return mPresentFencesLegacy.front().fenceTime;
+size_t FrameTargeter::countPresentFencesPendingAt(TimePoint time) const {
+    size_t pendingFenceCount = 0;
+    for (ssize_t i = static_cast<ssize_t>(mPresentFences.size() - 1); i >= 0; --i) {
+        if (mPresentFences[static_cast<size_t>(i)].fenceTime->wasPendingAt(time.ns())) {
+            pendingFenceCount++;
+        }
+    }
+    return pendingFenceCount;
 }
 
 void FrameTargeter::beginFrame(const BeginFrameArgs& args, const IVsyncSource& vsyncSource) {
@@ -86,6 +100,7 @@ void FrameTargeter::beginFrame(const BeginFrameArgs& args, const IVsyncSource& v
                                IsFencePendingFuncPtr isFencePendingFuncPtr) {
     mVsyncId = args.vsyncId;
     mFrameBeginTime = args.frameBeginTime;
+    mDebugPresentTimeDelay = args.debugPresentTimeDelay;
 
     // The `expectedVsyncTime`, which was predicted when this frame was scheduled, is normally in
     // the future relative to `frameBeginTime`, but may not be for delayed frames. Adjust
@@ -126,10 +141,6 @@ void FrameTargeter::beginFrame(const BeginFrameArgs& args, const IVsyncSource& v
         const bool considerBackpressure =
                 mBackpressureGpuComposition || !mCompositionCoverage.test(CompositionCoverage::Gpu);
 
-        if (!FlagManager::getInstance().allow_n_vsyncs_in_targeter()) {
-            return static_cast<int>(considerBackpressure);
-        }
-
         if (!wouldBackpressure || !considerBackpressure) {
             return 0;
         }
@@ -153,6 +164,12 @@ void FrameTargeter::beginFrame(const BeginFrameArgs& args, const IVsyncSource& v
         if (pastPresentTime < 0) return false;
         mLastSignaledFrameTime = {.signalTime = TimePoint::fromNs(pastPresentTime),
                                   .expectedPresentTime = fence.expectedPresentTime};
+        SFTRACE_FORMAT_INSTANT("LastSignaledFrameTime expectedPresentTime %.2f ago, signalTime "
+                               "%.2f ago",
+                               ticks<std::milli, float>(mLastSignaledFrameTime.expectedPresentTime -
+                                                        TimePoint::now()),
+                               ticks<std::milli, float>(mLastSignaledFrameTime.signalTime -
+                                                        TimePoint::now()));
         const nsecs_t frameMissedSlop = vsyncPeriod.ns() / 2;
         return lastScheduledPresentTime.ns() < pastPresentTime - frameMissedSlop;
     }();
@@ -186,12 +203,7 @@ FenceTimePtr FrameTargeter::setPresentFence(sp<Fence> presentFence) {
 }
 
 FenceTimePtr FrameTargeter::setPresentFence(sp<Fence> presentFence, FenceTimePtr presentFenceTime) {
-    if (FlagManager::getInstance().allow_n_vsyncs_in_targeter()) {
-        addFence(std::move(presentFence), presentFenceTime, mExpectedPresentTime);
-    } else {
-        mPresentFencesLegacy[1] = mPresentFencesLegacy[0];
-        mPresentFencesLegacy[0] = {std::move(presentFence), presentFenceTime, mExpectedPresentTime};
-    }
+    addFence(std::move(presentFence), presentFenceTime, mExpectedPresentTime);
     return presentFenceTime;
 }
 

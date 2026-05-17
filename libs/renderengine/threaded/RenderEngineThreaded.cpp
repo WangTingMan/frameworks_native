@@ -18,11 +18,14 @@
 
 #include "RenderEngineThreaded.h"
 
+#include "skia/Cache.h"
+
 #include <sched.h>
 #include <chrono>
 #include <future>
 
 #include <android-base/stringprintf.h>
+#include <common/FlagManager.h>
 #include <common/trace.h>
 #include <private/gui/SyncFeatures.h>
 #include <processgroup/processgroup.h>
@@ -38,7 +41,7 @@ std::unique_ptr<RenderEngineThreaded> RenderEngineThreaded::create(CreateInstanc
 }
 
 RenderEngineThreaded::RenderEngineThreaded(CreateInstanceFactory factory)
-      : RenderEngine(Threaded::YES) {
+      : RenderEngine(Threaded::Yes) {
     SFTRACE_CALL();
 
     std::lock_guard lockThread(mThreadMutex);
@@ -60,7 +63,7 @@ status_t RenderEngineThreaded::setSchedFifo(bool enabled) {
 
     struct sched_param param = {0};
     int sched_policy;
-    if (enabled) {
+    if (enabled && !FlagManager::getInstance().disable_sched_fifo_re()) {
         sched_policy = SCHED_FIFO;
         param.sched_priority = kFifoPriority;
     } else {
@@ -86,6 +89,8 @@ void RenderEngineThreaded::threadMain(CreateInstanceFactory factory) NO_THREAD_S
         ALOGW("Couldn't set SCHED_FIFO");
     }
 
+    skia::Cache::initializeDiskCache();
+
     mRenderEngine = factory();
 
     pthread_setname_np(pthread_self(), mThreadName);
@@ -96,20 +101,20 @@ void RenderEngineThreaded::threadMain(CreateInstanceFactory factory) NO_THREAD_S
     }
     mInitializedCondition.notify_all();
 
+    const auto getNextTask = [this]() -> std::optional<Work> {
+        std::scoped_lock lock(mThreadMutex);
+        if (!mFunctionCalls.empty()) {
+            Work& task = mFunctionCalls.front();
+            auto optionalTask = std::make_optional<Work>(std::move(task));
+            mFunctionCalls.pop();
+            return optionalTask;
+        }
+        return std::nullopt;
+    };
+
+    // process any tasks until shutdown
     while (mRunning) {
-        const auto getNextTask = [this]() -> std::optional<Work> {
-            std::scoped_lock lock(mThreadMutex);
-            if (!mFunctionCalls.empty()) {
-                Work task = mFunctionCalls.front();
-                mFunctionCalls.pop();
-                return std::make_optional<Work>(task);
-            }
-            return std::nullopt;
-        };
-
-        const auto task = getNextTask();
-
-        if (task) {
+        if (const auto task = getNextTask(); task) {
             (*task)(*mRenderEngine);
         }
 
@@ -117,6 +122,14 @@ void RenderEngineThreaded::threadMain(CreateInstanceFactory factory) NO_THREAD_S
         mCondition.wait(lock, [this]() REQUIRES(mThreadMutex) {
             return !mRunning || !mFunctionCalls.empty();
         });
+    }
+
+    // RenderEngine is only shutdown gracefully during tests / benchmarks, where cleanup tasks (e.g.
+    // unmapExternalTextureBuffer) need to be processed before destroying RE's GPU contexts, but
+    // those tasks may race against the main loop above exiting during shutdown. Processing any
+    // remaining tasks here ensures cleanup tasks are properly handled.
+    while (auto task = getNextTask()) {
+        (*task)(*mRenderEngine);
     }
 
     // we must release the RenderEngine on the thread that created it
@@ -249,11 +262,10 @@ void RenderEngineThreaded::drawLayersInternal(
     return;
 }
 
-void RenderEngineThreaded::drawGainmapInternal(
+void RenderEngineThreaded::tonemapAndDrawGainmapInternal(
         const std::shared_ptr<std::promise<FenceResult>>&& resultPromise,
-        const std::shared_ptr<ExternalTexture>& sdr, base::borrowed_fd&& sdrFence,
         const std::shared_ptr<ExternalTexture>& hdr, base::borrowed_fd&& hdrFence,
-        float hdrSdrRatio, ui::Dataspace dataspace,
+        float hdrSdrRatio, ui::Dataspace dataspace, const std::shared_ptr<ExternalTexture>& sdr,
         const std::shared_ptr<ExternalTexture>& gainmap) {
     resultPromise->set_value(Fence::NO_FENCE);
     return;
@@ -281,10 +293,9 @@ ftl::Future<FenceResult> RenderEngineThreaded::drawLayers(
     return resultFuture;
 }
 
-ftl::Future<FenceResult> RenderEngineThreaded::drawGainmap(
-        const std::shared_ptr<ExternalTexture>& sdr, base::borrowed_fd&& sdrFence,
+ftl::Future<FenceResult> RenderEngineThreaded::tonemapAndDrawGainmap(
         const std::shared_ptr<ExternalTexture>& hdr, base::borrowed_fd&& hdrFence,
-        float hdrSdrRatio, ui::Dataspace dataspace,
+        float hdrSdrRatio, ui::Dataspace dataspace, const std::shared_ptr<ExternalTexture>& sdr,
         const std::shared_ptr<ExternalTexture>& gainmap) {
     SFTRACE_CALL();
     const auto resultPromise = std::make_shared<std::promise<FenceResult>>();
@@ -292,13 +303,14 @@ ftl::Future<FenceResult> RenderEngineThreaded::drawGainmap(
     {
         std::lock_guard lock(mThreadMutex);
         mNeedsPostRenderCleanup = true;
-        mFunctionCalls.push([resultPromise, sdr, sdrFence = std::move(sdrFence), hdr,
-                             hdrFence = std::move(hdrFence), hdrSdrRatio, dataspace,
+        mFunctionCalls.push([resultPromise, hdr, hdrFence = std::move(hdrFence), hdrSdrRatio,
+                             dataspace, sdr,
                              gainmap](renderengine::RenderEngine& instance) mutable {
-            SFTRACE_NAME("REThreaded::drawGainmap");
-            instance.updateProtectedContext({}, {sdr.get(), hdr.get(), gainmap.get()});
-            instance.drawGainmapInternal(std::move(resultPromise), sdr, std::move(sdrFence), hdr,
-                                         std::move(hdrFence), hdrSdrRatio, dataspace, gainmap);
+            SFTRACE_NAME("REThreaded::tonemapAndDrawGainmap");
+            instance.updateProtectedContext({}, {hdr.get(), sdr.get(), gainmap.get()});
+            instance.tonemapAndDrawGainmapInternal(std::move(resultPromise), hdr,
+                                                   std::move(hdrFence), hdrSdrRatio, dataspace, sdr,
+                                                   gainmap);
         });
     }
     mCondition.notify_one();

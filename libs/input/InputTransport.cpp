@@ -25,6 +25,7 @@
 #include <utils/Trace.h>
 
 #include <com_android_input_flags.h>
+#include <input/Input.h>
 #include <input/InputTransport.h>
 #include <input/PrintTools.h>
 #include <input/TraceTools.h>
@@ -327,8 +328,8 @@ std::unique_ptr<InputChannel> InputChannel::create(const std::string& name,
                                                    android::base::unique_fd fd, sp<IBinder> token) {
     const int result = fcntl(fd, F_SETFL, O_NONBLOCK);
     if (result != 0) {
-        LOG_ALWAYS_FATAL("channel '%s' ~ Could not make socket non-blocking: %s", name.c_str(),
-                         strerror(errno));
+        LOG_ALWAYS_FATAL("channel '%s' ~ Could not make socket (%d) non-blocking: %s", name.c_str(),
+                         fd.get(), strerror(errno));
         return nullptr;
     }
     // using 'new' to access a non-public constructor
@@ -436,16 +437,29 @@ android::base::Result<InputMessage> InputChannel::receiveMessage() {
         if (error == EAGAIN || error == EWOULDBLOCK) {
             return android::base::Error(WOULD_BLOCK);
         }
-        if (error == EPIPE || error == ENOTCONN || error == ECONNREFUSED) {
-            return android::base::Error(DEAD_OBJECT);
+        if (error == EPIPE) {
+            return android::base::ResultError("Got EPIPE", DEAD_OBJECT);
+        }
+        if (error == ENOTCONN) {
+            return android::base::ResultError("Got ENOTCONN", DEAD_OBJECT);
+        }
+        if (error == ECONNREFUSED) {
+            return android::base::ResultError("Got ECONNREFUSED", DEAD_OBJECT);
+        }
+        if (error == ECONNRESET) {
+            // This means that the client has closed the channel while there was
+            // still some data in the buffer. In most cases, subsequent reads
+            // would result in more data. However, that is not guaranteed, so we
+            // should not return WOULD_BLOCK here to try again.
+            return android::base::ResultError("Got ECONNRESET", DEAD_OBJECT);
         }
         return android::base::Error(-error);
     }
 
     if (nRead == 0) { // check for EOF
-        ALOGD_IF(DEBUG_CHANNEL_MESSAGES,
-                 "channel '%s' ~ receive message failed because peer was closed", name.c_str());
-        return android::base::Error(DEAD_OBJECT);
+        LOG_IF(INFO, DEBUG_CHANNEL_MESSAGES)
+                << "channel '" << name << "' ~ receive message failed because peer was closed";
+        return android::base::ResultError("::recv returned 0", DEAD_OBJECT);
     }
 
     if (!msg.isValid(nRead)) {
@@ -528,7 +542,7 @@ InputPublisher::InputPublisher(const std::shared_ptr<InputChannel>& channel)
 InputPublisher::~InputPublisher() {
 }
 
-status_t InputPublisher::publishKeyEvent(uint32_t seq, int32_t eventId, int32_t deviceId,
+status_t InputPublisher::publishKeyEvent(uint32_t seq, int32_t eventId, DeviceId deviceId,
                                          int32_t source, ui::LogicalDisplayId displayId,
                                          std::array<uint8_t, 32> hmac, int32_t action,
                                          int32_t flags, int32_t keyCode, int32_t scanCode,
@@ -540,8 +554,8 @@ status_t InputPublisher::publishKeyEvent(uint32_t seq, int32_t eventId, int32_t 
                                 KeyEvent::getLabel(keyCode)));
     ALOGD_IF(debugTransportPublisher(),
              "channel '%s' publisher ~ %s: seq=%u, id=%d, deviceId=%d, source=%s, "
-             "action=%s, flags=0x%x, keyCode=%s, scanCode=%d, metaState=0x%x, repeatCount=%d,"
-             "downTime=%" PRId64 ", eventTime=%" PRId64,
+             "action=%s, flags=0x%x, keyCode=%s, scanCode=%d, metaState=0x%x, repeatCount=%d, "
+             "downTime=%" PRId64 "ns, eventTime=%" PRId64 "ns",
              mChannel->getName().c_str(), __func__, seq, eventId, deviceId,
              inputEventSourceToString(source).c_str(), KeyEvent::actionToString(action), flags,
              KeyEvent::getLabel(keyCode), scanCode, metaState, repeatCount, downTime, eventTime);
@@ -571,11 +585,11 @@ status_t InputPublisher::publishKeyEvent(uint32_t seq, int32_t eventId, int32_t 
 }
 
 status_t InputPublisher::publishMotionEvent(
-        uint32_t seq, int32_t eventId, int32_t deviceId, int32_t source,
+        uint32_t seq, int32_t eventId, DeviceId deviceId, int32_t source,
         ui::LogicalDisplayId displayId, std::array<uint8_t, 32> hmac, int32_t action,
-        int32_t actionButton, int32_t flags, int32_t edgeFlags, int32_t metaState,
-        int32_t buttonState, MotionClassification classification, const ui::Transform& transform,
-        float xPrecision, float yPrecision, float xCursorPosition, float yCursorPosition,
+        int32_t actionButton, int32_t flags, int32_t metaState, int32_t buttonState,
+        MotionClassification classification, const ui::Transform& transform, float xPrecision,
+        float yPrecision, float xCursorPosition, float yCursorPosition,
         const ui::Transform& rawTransform, nsecs_t downTime, nsecs_t eventTime,
         uint32_t pointerCount, const PointerProperties* pointerProperties,
         const PointerCoords* pointerCoords) {
@@ -583,29 +597,20 @@ status_t InputPublisher::publishMotionEvent(
                    StringPrintf("publishMotionEvent(inputChannel=%s, action=%s)",
                                 mChannel->getName().c_str(),
                                 MotionEvent::actionToString(action).c_str()));
-    if (verifyEvents()) {
-        Result<void> result =
-                mInputVerifier.processMovement(deviceId, source, action, pointerCount,
-                                               pointerProperties, pointerCoords, flags);
-        if (!result.ok()) {
-            LOG(ERROR) << "Bad stream: " << result.error();
-            return BAD_VALUE;
-        }
-    }
     if (debugTransportPublisher()) {
         std::string transformString;
         transform.dump(transformString, "transform", "        ");
         ALOGD("channel '%s' publisher ~ %s: seq=%u, id=%d, deviceId=%d, source=%s, "
               "displayId=%s, "
-              "action=%s, actionButton=0x%08x, flags=0x%x, edgeFlags=0x%x, "
-              "metaState=0x%x, buttonState=0x%x, classification=%s,"
-              "xPrecision=%f, yPrecision=%f, downTime=%" PRId64 ", eventTime=%" PRId64 ", "
+              "action=%s, actionButton=0x%08x, flags=0x%x, "
+              "metaState=0x%x, buttonState=0x%x, classification=%s, "
+              "xPrecision=%f, yPrecision=%f, downTime=%" PRId64 "ns, eventTime=%" PRId64 "ns, "
               "pointerCount=%" PRIu32 "\n%s",
               mChannel->getName().c_str(), __func__, seq, eventId, deviceId,
               inputEventSourceToString(source).c_str(), displayId.toString().c_str(),
-              MotionEvent::actionToString(action).c_str(), actionButton, flags, edgeFlags,
-              metaState, buttonState, motionClassificationToString(classification), xPrecision,
-              yPrecision, downTime, eventTime, pointerCount, transformString.c_str());
+              MotionEvent::actionToString(action).c_str(), actionButton, flags, metaState,
+              buttonState, motionClassificationToString(classification), xPrecision, yPrecision,
+              downTime, eventTime, pointerCount, transformString.c_str());
     }
 
     if (!seq) {
@@ -630,7 +635,7 @@ status_t InputPublisher::publishMotionEvent(
     msg.body.motion.action = action;
     msg.body.motion.actionButton = actionButton;
     msg.body.motion.flags = flags;
-    msg.body.motion.edgeFlags = edgeFlags;
+    msg.body.motion.edgeFlags = AMOTION_EVENT_EDGE_FLAG_NONE;
     msg.body.motion.metaState = metaState;
     msg.body.motion.buttonState = buttonState;
     msg.body.motion.classification = classification;
@@ -657,8 +662,18 @@ status_t InputPublisher::publishMotionEvent(
         msg.body.motion.pointers[i].properties = pointerProperties[i];
         msg.body.motion.pointers[i].coords = pointerCoords[i];
     }
+    const status_t status = mChannel->sendMessage(&msg);
 
-    return mChannel->sendMessage(&msg);
+    if (status == OK && verifyEvents()) {
+        Result<void> result = mInputVerifier.processMovement(deviceId, source, action, actionButton,
+                                                             pointerCount, pointerProperties,
+                                                             pointerCoords, flags, buttonState);
+        if (!result.ok()) {
+            LOG(ERROR) << "Bad stream: " << result.error();
+            return BAD_VALUE;
+        }
+    }
+    return status;
 }
 
 status_t InputPublisher::publishFocusEvent(uint32_t seq, int32_t eventId, bool hasFocus) {
@@ -763,6 +778,11 @@ android::base::Result<InputPublisher::ConsumerResponse> InputPublisher::receiveC
     ALOGE("channel '%s' publisher ~ Received unexpected %s message from consumer",
           mChannel->getName().c_str(), ftl::enum_string(msg.header.type).c_str());
     return android::base::Error(UNKNOWN_ERROR);
+}
+
+std::ostream& operator<<(std::ostream& out, const InputMessage& msg) {
+    out << ftl::enum_string(msg.header.type);
+    return out;
 }
 
 } // namespace android

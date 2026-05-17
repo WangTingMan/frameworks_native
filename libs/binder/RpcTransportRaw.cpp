@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "RpcRawTransport"
+#define LOG_TAG "libbinder.RpcRawTransport"
 #include <log/log.h>
 #ifndef _MSC_VER
 #include <poll.h>

@@ -53,17 +53,15 @@ class BufferItemConsumer: public ConsumerBase
     // access at the same time.
     // controlledByApp tells whether this consumer is controlled by the
     // application.
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    BufferItemConsumer(uint64_t consumerUsage, int bufferCount = DEFAULT_MAX_BUFFERS,
-                       bool controlledByApp = false, bool isConsumerSurfaceFlinger = false);
-    BufferItemConsumer(const sp<IGraphicBufferConsumer>& consumer, uint64_t consumerUsage,
-                       int bufferCount = DEFAULT_MAX_BUFFERS, bool controlledByApp = false)
-            __attribute((deprecated("Prefer ctors that create their own surface and consumer.")));
-#else
-    BufferItemConsumer(const sp<IGraphicBufferConsumer>& consumer,
+    static std::tuple<sp<BufferItemConsumer>, sp<Surface>> create(
             uint64_t consumerUsage, int bufferCount = DEFAULT_MAX_BUFFERS,
-            bool controlledByApp = false);
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+            bool controlledByApp = false, bool isConsumerSurfaceFlinger = false);
+
+    static sp<BufferItemConsumer> create(const sp<IGraphicBufferConsumer>& consumer,
+                                         uint64_t consumerUsage,
+                                         int bufferCount = DEFAULT_MAX_BUFFERS,
+                                         bool controlledByApp = false)
+            __attribute((deprecated("Prefer ctors that create their own surface and consumer.")));
 
     ~BufferItemConsumer() override;
 
@@ -86,6 +84,14 @@ class BufferItemConsumer: public ConsumerBase
     status_t acquireBuffer(BufferItem* item, nsecs_t presentWhen,
             bool waitForFence = true);
 
+    // Transfer ownership of a buffer to the BufferQueue. On NO_ERROR, the buffer
+    // is considered as if it were acquired. Buffer must not be null.
+    //
+    // Returns
+    //  - BAD_VALUE if buffer is null
+    //  - INVALID_OPERATION if too many buffers have already been acquired
+    status_t attachBuffer(const sp<GraphicBuffer>& buffer);
+
     // Returns an acquired buffer to the queue, allowing it to be reused. Since
     // only a fixed number of buffers may be acquired at a time, old buffers
     // must be released by calling releaseBuffer to ensure new buffers can be
@@ -95,26 +101,35 @@ class BufferItemConsumer: public ConsumerBase
     status_t releaseBuffer(const BufferItem &item,
             const sp<Fence>& releaseFence = Fence::NO_FENCE);
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
     status_t releaseBuffer(const sp<GraphicBuffer>& buffer,
                            const sp<Fence>& releaseFence = Fence::NO_FENCE);
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
+
+    void onFirstRef() override;
 
 protected:
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     // This should only be used by BLASTBufferQueue:
     BufferItemConsumer(const sp<IGraphicBufferProducer>& producer,
                        const sp<IGraphicBufferConsumer>& consumer, uint64_t consumerUsage,
                        int bufferCount = DEFAULT_MAX_BUFFERS, bool controlledByApp = false);
-#endif // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+
+    BufferItemConsumer(uint64_t consumerUsage, int bufferCount = DEFAULT_MAX_BUFFERS,
+                       bool controlledByApp = false, bool isConsumerSurfaceFlinger = false);
+    BufferItemConsumer(const sp<IGraphicBufferConsumer>& consumer, uint64_t consumerUsage,
+                       int bufferCount = DEFAULT_MAX_BUFFERS, bool controlledByApp = false)
+            __attribute((deprecated("Prefer ctors that create their own surface and consumer.")));
 
 private:
-    void initialize(uint64_t consumerUsage, int bufferCount);
+    friend sp<BufferItemConsumer>;
+
+    void initializeConsumer();
 
     status_t releaseBufferSlotLocked(int slotIndex, const sp<GraphicBuffer>& buffer,
                                      const sp<Fence>& releaseFence);
 
     void freeBufferLocked(int slotIndex) override;
+
+    uint64_t mConsumerUsage;
+    int mBufferCount;
 
     // mBufferFreedListener is the listener object that will be called when
     // an old buffer is being freed. If it is not NULL it will be called from

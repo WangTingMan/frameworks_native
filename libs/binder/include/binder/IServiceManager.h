@@ -98,6 +98,14 @@ public:
 
     /**
      * Register a service.
+     *
+     * Note:
+     * This status_t return value may be an exception code from an underlying
+     * Status type that doesn't have a representive error code in
+     * utils/Errors.h.
+     * One example of this is a return value of -7
+     * (Status::Exception::EX_UNSUPPORTED_OPERATION) when the service manager
+     * process is not installed on the device when addService is called.
      */
     // NOLINTNEXTLINE(google-default-arguments)
     virtual status_t addService(const String16& name, const sp<IBinder>& service,
@@ -175,6 +183,24 @@ public:
      */
     virtual void enableAddServiceCache(bool value) = 0;
 
+    /**
+     * Check if this 'callerSid' has access for the 'permission' for a given service 'name'.
+     *
+     * This is useful when a process will be making calls to servicemanager on behalf of another
+     * process (callerCtx).
+     *
+     * @param callerSid - SELinux context of the process that is being checked.
+     * @param callerDebugPid - Debug PID of the process that is being checked.
+     *                         Used for logging denials.
+     * @param callerUid - UID process that is being checked. Used for logging
+     *                    denials
+     * @param name - name of the service that the caller wants to interact with
+     * @param permission - the servicemanager SELinux permission that the process is
+     *                     interested in for the service. This is either "find", "list", or "add".
+     */
+    virtual bool checkServiceAccess(const String16& callererSid, pid_t callererDebugPid,
+                                    uid_t callererUid, const String16& name,
+                                    const String16& permission) = 0;
 };
 
 LIBBINDER_EXPORT sp<IServiceManager> defaultServiceManager();

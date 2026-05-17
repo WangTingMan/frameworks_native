@@ -1,6 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl-cpp -dout/soong/.temp/sbox/7b5f55ceac8667b805b9fc05527c05040d45a287/out/android/os/Service.cpp.d --ninja -t --min_sdk_version=platform_apis -Iframeworks/native/libs/binder/aidl/ frameworks/native/libs/binder/aidl/android/os/Service.aidl out/soong/.temp/sbox/7b5f55ceac8667b805b9fc05527c05040d45a287/out out/soong/.temp/sbox/7b5f55ceac8667b805b9fc05527c05040d45a287/out/android/os/Service.cpp
+ * Using: out/host/linux-x86/bin/aidl-cpp -dout/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/Service.cpp.d --ninja -t --min_sdk_version=platform_apis -Iframeworks/native/libs/binder/aidl/ frameworks/native/libs/binder/aidl/android/os/Service.aidl out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/Service.cpp
  *
  * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
  * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
@@ -22,19 +22,17 @@
 #include <utility>
 #include <utils/String16.h>
 #include <variant>
-
+#include <binder/libbinder_export.h>
 #ifndef __BIONIC__
 #define __assert2(a,b,c,d) ((void)0)
 #endif
-
-#include <binder/libbinder_export.h>
 
 namespace android::os {
 class ServiceWithMetadata;
 }  // namespace android::os
 namespace android {
 namespace os {
-class LIBBINDER_EXPORTED LIBBINDER_EXPORT Service : public ::android::Parcelable {
+class LIBBINDER_EXPORT Service : public ::android::Parcelable {
 public:
   enum class Tag : int32_t {
     serviceWithMetadata = 0,
@@ -114,7 +112,7 @@ public:
   ::android::status_t readFromParcel(const ::android::Parcel* _aidl_parcel) final;
   ::android::status_t writeToParcel(::android::Parcel* _aidl_parcel) const final;
   static const ::android::String16& getParcelableDescriptor() {
-    static const ::android::StaticString16 DESCRIPTOR (u"android.os.Service");
+    [[clang::no_destroy]] static const ::android::StaticString16 DESCRIPTOR (u"android.os.Service");
     return DESCRIPTOR;
   }
   inline std::string toString() const {

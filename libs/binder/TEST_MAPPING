@@ -37,6 +37,9 @@
       "name": "binderStabilityTest"
     },
     {
+      "name": "binderStabilityIntegrationTest"
+    },
+    {
       "name": "binderRpcWireProtocolTest"
     },
     {
@@ -92,6 +95,12 @@
     },
     {
       "name": "binderCacheUnitTest"
+    },
+    {
+      "name": "binderStatsPusherUnitTest"
+    },
+    {
+      "name": "binderObserverConfigUnitTest"
     }
   ],
   "presubmit-large": [
@@ -106,6 +115,9 @@
     },
     {
       "name": "binderRpcTestSingleThreadedNoKernel"
+    },
+    {
+      "name": "binderRpcTestNoLegacy"
     }
   ],
   "hwasan-presubmit": [

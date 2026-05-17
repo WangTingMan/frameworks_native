@@ -46,10 +46,11 @@ filegroup {
         "InputState.cpp",
         "InputTarget.cpp",
         "LatencyAggregator.cpp",
+        "LatencyAggregatorWithHistograms.cpp",
         "LatencyTracker.cpp",
         "Monitor.cpp",
-        "TouchedWindow.cpp",
         "TouchState.cpp",
+        "TouchedWindow.cpp",
         "trace/*.cpp",
     ],
 }
@@ -69,10 +70,10 @@ cc_defaults {
         "libkll",
         "liblog",
         "libprotobuf-cpp-lite",
-        "libstatslog",
-        "libutils",
+        "libstatslog_inputflinger",
         "libstatspull",
         "libstatssocket",
+        "libutils",
         "packagemanager_aidl-cpp",
         "server_configurable_flags",
     ],
@@ -91,6 +92,7 @@ cc_defaults {
     },
     header_libs: [
         "libinputdispatcher_headers",
+        "libinputflinger_headers",
     ],
 }
 
@@ -104,7 +106,6 @@ cc_library_static {
     shared_libs: [
         // This should consist only of dependencies from inputflinger. Other dependencies should be
         // in cc_defaults so that they are included in the tests.
-        "libinputflinger_base",
         "libinputreporter",
     ],
     export_header_lib_headers: [

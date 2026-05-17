@@ -22,6 +22,7 @@
 #include <EventHub.h>
 #include <com_android_input_flags.h>
 #include <gtest/gtest.h>
+#include <input/Input.h>
 #include <linux/input-event-codes.h>
 #include <linux/input.h>
 #include <utils/StrongPointer.h>
@@ -32,8 +33,6 @@
 #include "TestConstants.h"
 #include "TestEventMatchers.h"
 #include "TestInputListener.h"
-
-namespace input_flags = com::android::input::flags;
 
 namespace android {
 
@@ -50,8 +49,6 @@ public:
             mReader(mFakeEventHub, mFakePolicy, mFakeListener),
             mDevice(newDevice()),
             mDeviceContext(*mDevice, EVENTHUB_ID) {
-        input_flags::include_relative_axis_values_for_captured_touchpads(true);
-
         const size_t slotCount = 8;
         mFakeEventHub->addAbsoluteAxis(EVENTHUB_ID, ABS_MT_SLOT, 0, slotCount - 1, 0, 0, 0);
         mAccumulator.configure(mDeviceContext, slotCount, /*usingSlotsProtocol=*/true);
@@ -59,7 +56,7 @@ public:
 
 protected:
     static constexpr int32_t DEVICE_ID = END_RESERVED_ID + 1000;
-    static constexpr int32_t EVENTHUB_ID = 1;
+    static constexpr RawDeviceId EVENTHUB_ID = 1;
 
     std::shared_ptr<InputDevice> newDevice() {
         InputDeviceIdentifier identifier;
@@ -627,7 +624,7 @@ TEST_F(CapturedTouchpadEventConverterTest, FingerAndFingerTurningIntoPalm_partia
                                     AllOf(WithMotionAction(
                                                   AMOTION_EVENT_ACTION_POINTER_UP |
                                                   1 << AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT),
-                                          WithFlags(AMOTION_EVENT_FLAG_CANCELED)))));
+                                          WithFlags(MotionFlag::CANCELED)))));
     EXPECT_THAT(args, Each(VariantWith<NotifyMotionArgs>(WithPointerCount(2u))));
 }
 

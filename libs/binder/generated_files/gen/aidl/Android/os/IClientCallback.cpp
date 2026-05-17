@@ -1,3 +1,11 @@
+/*
+ * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl-cpp -dout/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/IClientCallback.cpp.d --ninja -t --min_sdk_version=platform_apis -Iframeworks/native/libs/binder/aidl/ frameworks/native/libs/binder/aidl/android/os/IClientCallback.aidl out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out out/soong/.temp/sbox/fb56b790b02b12751e2172e614fa9ca72920f5c8/out/android/os/IClientCallback.cpp
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
+ */
 #include <android/os/IClientCallback.h>
 #include <android/os/BpClientCallback.h>
 namespace android {
@@ -8,7 +16,6 @@ DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(ClientCallback, "android.os.ICli
 #include <android/os/BpClientCallback.h>
 #include <android/os/BnClientCallback.h>
 #include <binder/Parcel.h>
-#include <android-base/macros.h>
 
 namespace android {
 namespace os {
@@ -20,7 +27,6 @@ BpClientCallback::BpClientCallback(const ::android::sp<::android::IBinder>& _aid
 ::android::binder::Status BpClientCallback::onClients(const ::android::sp<::android::IBinder>& registered, bool hasClients) {
   ::android::Parcel _aidl_data;
   _aidl_data.markForBinder(remoteStrong());
-  ::android::Parcel _aidl_reply;
   ::android::status_t _aidl_ret_status = ::android::OK;
   ::android::binder::Status _aidl_status;
   ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IClientCallback::onClients::cppClient");
@@ -36,7 +42,7 @@ BpClientCallback::BpClientCallback(const ::android::sp<::android::IBinder>& _aid
   if (((_aidl_ret_status) != (::android::OK))) {
     goto _aidl_error;
   }
-  _aidl_ret_status = remote()->transact(BnClientCallback::TRANSACTION_onClients, _aidl_data, &_aidl_reply, ::android::IBinder::FLAG_ONEWAY);
+  _aidl_ret_status = remote()->transact(BnClientCallback::TRANSACTION_onClients, _aidl_data, nullptr, ::android::IBinder::FLAG_ONEWAY);
   if (_aidl_ret_status == ::android::UNKNOWN_TRANSACTION && IClientCallback::getDefaultImpl()) [[unlikely]] {
      return IClientCallback::getDefaultImpl()->onClients(registered, hasClients);
   }
@@ -73,7 +79,7 @@ BnClientCallback::BnClientCallback()
       _aidl_ret_status = ::android::BAD_TYPE;
       break;
     }
-    ::android::binder::ScopedTrace _aidl_trace( ATRACE_TAG_AIDL, "AIDL::cpp::IClientCallback::onClients::cppServer" );
+    ::android::binder::ScopedTrace _aidl_trace(ATRACE_TAG_AIDL, "AIDL::cpp::IClientCallback::onClients::cppServer");
     _aidl_ret_status = _aidl_data.readStrongBinder(&in_registered);
     if (((_aidl_ret_status) != (::android::OK))) {
       break;

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <PointerControllerInterface.h>
+#include <android/os/PointerCaptureMode.h>
 #include <utils/Timers.h>
 
 #include "CapturedTouchpadEventConverter.h"
@@ -31,10 +32,11 @@
 #include "InputReaderBase.h"
 #include "NotifyArgs.h"
 #include "accumulator/MultiTouchMotionAccumulator.h"
-#include "gestures/GestureConverter.h"
 #include "gestures/HardwareStateConverter.h"
 #include "gestures/PropertyProvider.h"
+#include "gestures/RelativeModeGestureConverter.h"
 #include "gestures/TimerProvider.h"
+#include "gestures/UncapturedGestureConverter.h"
 
 #include "include/gestures.h"
 
@@ -66,9 +68,11 @@ public:
     using MetricsIdentifier = std::tuple<uint16_t /*busId*/, uint16_t /*vendorId*/,
                                          uint16_t /*productId*/, uint16_t /*version*/>;
 
-    std::optional<ui::LogicalDisplayId> getAssociatedDisplayId() override;
+    std::optional<ui::LogicalDisplayId> getAssociatedDisplayId() const override;
 
     std::optional<HardwareProperties> getTouchpadHardwareProperties() override;
+
+    std::optional<GesturesProp> getGesturePropertyForTesting(const std::string& name);
 
 private:
     void resetGestureInterpreter(nsecs_t when);
@@ -92,11 +96,12 @@ private:
     MultiTouchMotionAccumulator mMotionAccumulator;
 
     HardwareStateConverter mStateConverter;
-    GestureConverter mGestureConverter;
+    UncapturedGestureConverter mGestureConverter;
     CapturedTouchpadEventConverter mCapturedEventConverter;
+    RelativeModeGestureConverter mRelativeModeGestureConverter;
     HardwareProperties mHardwareProperties;
 
-    bool mPointerCaptured = false;
+    PointerCaptureMode mCaptureMode = PointerCaptureMode::UNCAPTURED;
     bool mResettingInterpreter = false;
     std::vector<Gesture> mGesturesToProcess;
 

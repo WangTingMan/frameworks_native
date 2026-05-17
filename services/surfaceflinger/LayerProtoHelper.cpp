@@ -29,6 +29,16 @@ using gui::WindowInfo;
 
 namespace surfaceflinger {
 
+void LayerProtoHelper::writeCornerRadiiToProto(
+        float tl, float tr, float bl, float br,
+        const std::function<perfetto::protos::CornerRadiiProto*()>& getCornerRadiiProto) {
+    perfetto::protos::CornerRadiiProto* radii_proto = getCornerRadiiProto();
+    radii_proto->set_tl(tl);
+    radii_proto->set_tr(tr);
+    radii_proto->set_bl(bl);
+    radii_proto->set_br(br);
+}
+
 void LayerProtoHelper::writePositionToProto(
         const float x, const float y,
         std::function<perfetto::protos::PositionProto*()> getPositionProto) {
@@ -100,6 +110,13 @@ void LayerProtoHelper::writeToProto(const Rect& rect, perfetto::protos::RectProt
 }
 
 void LayerProtoHelper::readFromProto(const perfetto::protos::RectProto& proto, Rect& outRect) {
+    outRect.left = proto.left();
+    outRect.top = proto.top();
+    outRect.bottom = proto.bottom();
+    outRect.right = proto.right();
+}
+
+void LayerProtoHelper::readFromProto(const perfetto::protos::RectProto& proto, FloatRect& outRect) {
     outRect.left = proto.left();
     outRect.top = proto.top();
     outRect.bottom = proto.bottom();
@@ -180,10 +197,6 @@ void LayerProtoHelper::writeToProto(
 void LayerProtoHelper::writeToProto(
         const WindowInfo& inputInfo,
         std::function<perfetto::protos::InputWindowInfoProto*()> getInputWindowInfoProto) {
-    if (inputInfo.token == nullptr) {
-        return;
-    }
-
     perfetto::protos::InputWindowInfoProto* proto = getInputWindowInfoProto();
     proto->set_layout_params_flags(inputInfo.layoutParamsFlags.get());
     proto->set_input_config(inputInfo.inputConfig.get());
@@ -275,10 +288,9 @@ LayerProtoFromSnapshotGenerator& LayerProtoFromSnapshotGenerator::with(
             stackIdsToSkip.find(child->getLayer()->layerStack.id) != stackIdsToSkip.end()) {
             continue;
         }
-        frontend::LayerHierarchy::ScopedAddToTraversalPath addChildToPath(path,
-                                                                          child->getLayer()->id,
-                                                                          variant);
-        LayerProtoFromSnapshotGenerator::writeHierarchyToProto(*child, path);
+        LayerProtoFromSnapshotGenerator::writeHierarchyToProto(*child,
+                                                               path.makeChild(child->getLayer()->id,
+                                                                              variant));
     }
 
     // fill in relative and parent info
@@ -335,7 +347,8 @@ LayerProtoFromSnapshotGenerator& LayerProtoFromSnapshotGenerator::withOffscreenL
 }
 
 frontend::LayerSnapshot* LayerProtoFromSnapshotGenerator::getSnapshot(
-        frontend::LayerHierarchy::TraversalPath& path, const frontend::RequestedLayerState& layer) {
+        const frontend::LayerHierarchy::TraversalPath& path,
+        const frontend::RequestedLayerState& layer) {
     frontend::LayerSnapshot* snapshot = mSnapshotBuilder.getSnapshot(path);
     if (snapshot) {
         return snapshot;
@@ -346,23 +359,21 @@ frontend::LayerSnapshot* LayerProtoFromSnapshotGenerator::getSnapshot(
 }
 
 void LayerProtoFromSnapshotGenerator::writeHierarchyToProto(
-        const frontend::LayerHierarchy& root, frontend::LayerHierarchy::TraversalPath& path) {
+        const frontend::LayerHierarchy& root, const frontend::LayerHierarchy::TraversalPath& path) {
     using Variant = frontend::LayerHierarchy::Variant;
-    perfetto::protos::LayerProto* layerProto = mLayersProto.add_layers();
     const frontend::RequestedLayerState& layer = *root.getLayer();
     frontend::LayerSnapshot* snapshot = getSnapshot(path, layer);
     if (mVisitedLayers.find(snapshot->uniqueSequence) != mVisitedLayers.end()) {
         TransactionTraceWriter::getInstance().invoke("DuplicateLayer", /* overwrite= */ false);
         return;
     }
+    perfetto::protos::LayerProto* layerProto = mLayersProto.add_layers();
     mVisitedLayers.insert(snapshot->uniqueSequence);
     LayerProtoHelper::writeSnapshotToProto(layerProto, layer, *snapshot, mTraceFlags);
 
     for (const auto& [child, variant] : root.mChildren) {
-        frontend::LayerHierarchy::ScopedAddToTraversalPath addChildToPath(path,
-                                                                          child->getLayer()->id,
-                                                                          variant);
-        frontend::LayerSnapshot* childSnapshot = getSnapshot(path, layer);
+        frontend::LayerSnapshot* childSnapshot =
+                getSnapshot(path.makeChild(child->getLayer()->id, variant), layer);
         if (variant == Variant::Attached || variant == Variant::Detached ||
             frontend::LayerHierarchy::isMirror(variant)) {
             mChildToParent[childSnapshot->uniqueSequence] = snapshot->uniqueSequence;
@@ -385,10 +396,7 @@ void LayerProtoFromSnapshotGenerator::writeHierarchyToProto(
         if (variant == Variant::Detached) {
             continue;
         }
-        frontend::LayerHierarchy::ScopedAddToTraversalPath addChildToPath(path,
-                                                                          child->getLayer()->id,
-                                                                          variant);
-        writeHierarchyToProto(*child, path);
+        writeHierarchyToProto(*child, path.makeChild(child->getLayer()->id, variant));
     }
 }
 
@@ -408,10 +416,28 @@ void LayerProtoHelper::writeSnapshotToProto(perfetto::protos::LayerProto* layerI
     layerInfo->set_is_protected(snapshot.hasProtectedContent);
     layerInfo->set_dataspace(dataspaceDetails(static_cast<android_dataspace>(snapshot.dataspace)));
     layerInfo->set_curr_frame(requestedState.bufferData->frameNumber);
-    layerInfo->set_requested_corner_radius(requestedState.cornerRadius);
+    layerInfo->set_requested_corner_radius(requestedState.cornerRadii.topLeft.x);
     layerInfo->set_corner_radius(
-            (snapshot.roundedCorner.radius.x + snapshot.roundedCorner.radius.y) / 2.0);
+            (snapshot.roundedCorner.radii.topLeft.x + snapshot.roundedCorner.radii.topLeft.y) /
+            2.0);
     layerInfo->set_background_blur_radius(snapshot.backgroundBlurRadius);
+    LayerProtoHelper::writeCornerRadiiToProto(snapshot.roundedCorner.radii.topLeft.x,
+                                              snapshot.roundedCorner.radii.topRight.x,
+                                              snapshot.roundedCorner.radii.bottomLeft.x,
+                                              snapshot.roundedCorner.radii.bottomRight.x,
+                                              [&]() { return layerInfo->mutable_corner_radii(); });
+    LayerProtoHelper::writeCornerRadiiToProto(snapshot.roundedCorner.requestedRadii.topLeft.x,
+                                              snapshot.roundedCorner.requestedRadii.topRight.x,
+                                              snapshot.roundedCorner.requestedRadii.bottomLeft.x,
+                                              snapshot.roundedCorner.requestedRadii.bottomRight.x,
+                                              [&]() { return
+                                               layerInfo->mutable_requested_corner_radii(); });
+    LayerProtoHelper::writeCornerRadiiToProto(snapshot.roundedCorner.clientDrawnRadii.topLeft.x,
+                                              snapshot.roundedCorner.clientDrawnRadii.topRight.x,
+                                              snapshot.roundedCorner.clientDrawnRadii.bottomLeft.x,
+                                              snapshot.roundedCorner.clientDrawnRadii.bottomRight.x,
+                                              [&]() { return
+                                                layerInfo->mutable_client_drawn_corner_radii(); });
     layerInfo->set_is_trusted_overlay(snapshot.trustedOverlay == gui::TrustedOverlay::ENABLED);
     // TODO(b/339701674) update protos
     LayerProtoHelper::writeToProtoDeprecated(transform, layerInfo->mutable_transform());
@@ -421,13 +447,12 @@ void LayerProtoHelper::writeSnapshotToProto(perfetto::protos::LayerProto* layerI
                                    [&]() { return layerInfo->mutable_bounds(); });
     LayerProtoHelper::writeToProto(snapshot.surfaceDamage,
                                    [&]() { return layerInfo->mutable_damage_region(); });
-
     if (requestedState.hasColorTransform) {
         LayerProtoHelper::writeToProto(snapshot.colorTransform,
                                        layerInfo->mutable_color_transform());
     }
 
-    LayerProtoHelper::writeToProto(snapshot.croppedBufferSize.toFloatRect(),
+    LayerProtoHelper::writeToProto(snapshot.croppedBufferSize,
                                    [&]() { return layerInfo->mutable_source_bounds(); });
     LayerProtoHelper::writeToProto(snapshot.transformedBounds,
                                    [&]() { return layerInfo->mutable_screen_bounds(); });
@@ -444,7 +469,7 @@ void LayerProtoHelper::writeSnapshotToProto(perfetto::protos::LayerProto* layerI
     }
     layerInfo->set_type("Layer");
 
-    LayerProtoHelper::writeToProto(requestedState.transparentRegion,
+    LayerProtoHelper::writeToProto(requestedState.getTransparentRegion(),
                                    [&]() { return layerInfo->mutable_transparent_region(); });
 
     layerInfo->set_layer_stack(snapshot.outputFilter.layerStack.id);
@@ -455,7 +480,7 @@ void LayerProtoHelper::writeSnapshotToProto(perfetto::protos::LayerProto* layerI
         return layerInfo->mutable_requested_position();
     });
 
-    LayerProtoHelper::writeToProto(requestedState.crop,
+    LayerProtoHelper::writeToProto(Rect(requestedState.crop),
                                    [&]() { return layerInfo->mutable_crop(); });
 
     layerInfo->set_is_opaque(snapshot.contentOpaque);
@@ -488,6 +513,7 @@ void LayerProtoHelper::writeSnapshotToProto(perfetto::protos::LayerProto* layerI
 
     LayerProtoHelper::writeToProto(requestedState.destinationFrame,
                                    [&]() { return layerInfo->mutable_destination_frame(); });
+    layerInfo->set_system_content_priority(requestedState.systemContentPriority);
 }
 
 google::protobuf::RepeatedPtrField<perfetto::protos::DisplayProto>

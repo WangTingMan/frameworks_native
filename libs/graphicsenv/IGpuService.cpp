@@ -108,6 +108,18 @@ public:
                            IBinder::FLAG_ONEWAY);
     }
 
+    std::string getPersistGraphicsEgl() override {
+        Parcel data, reply;
+        data.writeInterfaceToken(IGpuService::getInterfaceDescriptor());
+
+        status_t error = remote()->transact(BnGpuService::GET_PERSIST_GRAPHICS_EGL, data, &reply);
+        std::string persistGraphicsEgl;
+        if (error == OK) {
+            error = reply.readUtf8FromUtf16(&persistGraphicsEgl);
+        }
+        return persistGraphicsEgl;
+    }
+
     std::string getUpdatableDriverPath() override {
         Parcel data, reply;
         data.writeInterfaceToken(IGpuService::getInterfaceDescriptor());
@@ -118,6 +130,23 @@ public:
             error = reply.readUtf8FromUtf16(&driverPath);
         }
         return driverPath;
+    }
+
+    void getFeatureOverrides(FeatureOverrides& featureOverrides) override {
+        Parcel data, reply;
+        data.writeInterfaceToken(IGpuService::getInterfaceDescriptor());
+
+        status_t error =
+                remote()->transact(BnGpuService::GET_FEATURE_CONFIG_OVERRIDES, data, &reply);
+        if (error != OK) {
+            return;
+        }
+
+        error = featureOverrides.readFromParcel(&reply);
+        if (error != OK) {
+            ALOGE("Failed to read FeatureOverrides from parcel: error = %d", error);
+            return;
+        }
     }
 };
 
@@ -269,6 +298,21 @@ status_t BnGpuService::onTransact(uint32_t code, const Parcel& data, Parcel* rep
             if ((status = data.readBool(&enableAngleAsSystemDriver)) != OK) return status;
 
             toggleAngleAsSystemDriver(enableAngleAsSystemDriver);
+            return OK;
+        }
+        case GET_PERSIST_GRAPHICS_EGL: {
+            CHECK_INTERFACE(IGpuService, data, reply);
+
+            std::string persistGraphicsEgl = getPersistGraphicsEgl();
+            return reply->writeUtf8AsUtf16(persistGraphicsEgl);
+        }
+        case GET_FEATURE_CONFIG_OVERRIDES: {
+            CHECK_INTERFACE(IGpuService, data, reply);
+
+            // Get the FeatureOverrides from gpuservice, which implements the IGpuService interface
+            // with GpuService::getFeatureOverrides().
+            const FeatureOverrides& featureOverrides = getCachedFeatureOverrides();
+            featureOverrides.writeToParcel(reply);
             return OK;
         }
         default:

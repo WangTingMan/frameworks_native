@@ -19,14 +19,11 @@
 #pragma clang diagnostic ignored "-Wconversion"
 
 // #define LOG_NDEBUG 0
-#undef LOG_TAG
-#define LOG_TAG "DisplayDevice"
 
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
 #include <common/trace.h>
 #include <compositionengine/CompositionEngine.h>
-#include <compositionengine/Display.h>
 #include <compositionengine/DisplayColorProfile.h>
 #include <compositionengine/DisplayColorProfileCreationArgs.h>
 #include <compositionengine/DisplayCreationArgs.h>
@@ -169,8 +166,7 @@ auto DisplayDevice::getFrontEndInfo() const -> frontend::DisplayInfo {
 }
 
 void DisplayDevice::setPowerMode(hal::PowerMode mode) {
-    // TODO(b/241285876): Skip this for virtual displays.
-    if (mode == hal::PowerMode::OFF || mode == hal::PowerMode::ON) {
+    if (!isVirtual() && (mode == hal::PowerMode::OFF || mode == hal::PowerMode::ON)) {
         if (mStagedBrightness && mBrightness != mStagedBrightness) {
             getCompositionDisplay()->setNextBrightness(*mStagedBrightness);
             mBrightness = *mStagedBrightness;
@@ -201,12 +197,19 @@ bool DisplayDevice::isPoweredOn() const {
     return mPowerMode != hal::PowerMode::OFF;
 }
 
+bool DisplayDevice::isRefreshable() const {
+    return mPowerMode == hal::PowerMode::DOZE || mPowerMode == hal::PowerMode::ON;
+}
+
 ui::Dataspace DisplayDevice::getCompositionDataSpace() const {
     return mCompositionDisplay->getState().dataspace;
 }
 
-void DisplayDevice::setLayerFilter(ui::LayerFilter filter) {
+void DisplayDevice::setLayerFilter(LayerFilter filter) {
     mCompositionDisplay->setLayerFilter(filter);
+    if (mRefreshRateSelector) {
+        mRefreshRateSelector->setLayerFilter(filter);
+    }
     if (mRefreshRateOverlay) {
         mRefreshRateOverlay->setLayerStack(filter.layerStack);
     }
@@ -219,9 +222,7 @@ void DisplayDevice::setFlags(uint32_t flags) {
     mFlags = flags;
 }
 
-void DisplayDevice::setDisplaySize(int width, int height) {
-    LOG_FATAL_IF(!isVirtual(), "Changing the display size is supported only for virtual displays.");
-    const auto size = ui::Size(width, height);
+void DisplayDevice::setDisplaySize(ui::Size size) {
     mCompositionDisplay->setDisplaySize(size);
     if (mRefreshRateOverlay) {
         mRefreshRateOverlay->setViewport(size);
@@ -281,6 +282,7 @@ void DisplayDevice::dump(utils::Dumper& dumper) const {
 
     dumper.dump("name"sv, '"' + mDisplayName + '"');
     dumper.dump("powerMode"sv, mPowerMode);
+    dumper.dump("optimizationPolicy"sv, mOptimizationPolicy);
 
     if (mRefreshRateSelector) {
         mRefreshRateSelector->dump(dumper);
@@ -295,12 +297,25 @@ DisplayId DisplayDevice::getId() const {
     return mCompositionDisplay->getId();
 }
 
+bool DisplayDevice::isVirtual() const {
+    return mCompositionDisplay->isVirtual();
+}
+
 bool DisplayDevice::isSecure() const {
     return mCompositionDisplay->isSecure();
 }
 
 void DisplayDevice::setSecure(bool secure) {
     mCompositionDisplay->setSecure(secure);
+}
+
+gui::ISurfaceComposer::OptimizationPolicy DisplayDevice::getOptimizationPolicy() const {
+    return mOptimizationPolicy;
+}
+
+void DisplayDevice::setOptimizationPolicy(
+        gui::ISurfaceComposer::OptimizationPolicy optimizationPolicy) {
+    mOptimizationPolicy = optimizationPolicy;
 }
 
 const Rect DisplayDevice::getBounds() const {
@@ -373,10 +388,12 @@ HdrCapabilities DisplayDevice::getHdrCapabilities() const {
 
 void DisplayDevice::enableHdrSdrRatioOverlay(bool enable) {
     if (!enable) {
+        ALOGD("Disabling HdrSdrRatioOverlay");
         mHdrSdrRatioOverlay.reset();
         return;
     }
 
+    ALOGD("Enabling HdrSdrRatioOverlay");
     mHdrSdrRatioOverlay = HdrSdrRatioOverlay::create();
     if (mHdrSdrRatioOverlay) {
         mHdrSdrRatioOverlay->setLayerStack(getLayerStack());
@@ -397,9 +414,11 @@ void DisplayDevice::enableRefreshRateOverlay(bool enable, bool setByHwc, Fps ref
                                              Fps renderFps, bool showSpinner, bool showRenderRate,
                                              bool showInMiddle) {
     if (!enable) {
+        ALOGD("Disabling RefreshRateOverlay");
         mRefreshRateOverlay.reset();
         return;
     }
+    ALOGD("Enabling RefreshRateOverlay");
 
     ftl::Flags<RefreshRateOverlay::Features> features;
     if (showSpinner) {
@@ -431,7 +450,7 @@ void DisplayDevice::updateRefreshRateOverlayRate(Fps refreshRate, Fps renderFps,
     SFTRACE_CALL();
     if (mRefreshRateOverlay) {
         if (!mRefreshRateOverlay->isSetByHwc() || setByHwc) {
-            if (mRefreshRateSelector->isVrrDevice() && !mRefreshRateOverlay->isSetByHwc()) {
+            if (mRefreshRateSelector->isVrrDisplay() && !mRefreshRateOverlay->isSetByHwc()) {
                 refreshRate = renderFps;
             }
             mRefreshRateOverlay->changeRefreshRate(refreshRate, renderFps);
@@ -461,23 +480,28 @@ void DisplayDevice::onVrrIdle(bool idle) {
     }
 }
 
-void DisplayDevice::animateOverlay() {
+void DisplayDevice::animateRefreshRateOverlay() {
     if (mRefreshRateOverlay) {
         mRefreshRateOverlay->animate();
     }
-    if (mHdrSdrRatioOverlay) {
-        // hdr sdr ratio is designed to be on the top right of the screen,
-        // therefore, we need to re-calculate the display's width and height
-        if (mIsOrientationChanged) {
-            auto width = getWidth();
-            auto height = getHeight();
-            if (mOrientation == ui::ROTATION_90 || mOrientation == ui::ROTATION_270) {
-                std::swap(width, height);
-            }
-            mHdrSdrRatioOverlay->setViewport({width, height});
-        }
-        mHdrSdrRatioOverlay->animate();
+}
+
+void DisplayDevice::animateHdrSdrRatioOverlay() {
+    if (!mHdrSdrRatioOverlay) {
+        return;
     }
+
+    // hdr sdr ratio is designed to be on the top right of the screen,
+    // therefore, we need to re-calculate the display's width and height
+    if (mIsOrientationChanged) {
+        auto width = getWidth();
+        auto height = getHeight();
+        if (mOrientation == ui::ROTATION_90 || mOrientation == ui::ROTATION_270) {
+            std::swap(width, height);
+        }
+        mHdrSdrRatioOverlay->setViewport({width, height});
+    }
+    mHdrSdrRatioOverlay->animate();
 }
 
 void DisplayDevice::adjustRefreshRate(Fps pacesetterDisplayRefreshRate) {

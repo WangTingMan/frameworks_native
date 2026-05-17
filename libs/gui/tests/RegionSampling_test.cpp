@@ -40,7 +40,7 @@ struct ChoreographerSync {
         std::unique_lock<decltype(mutex_)> lk(mutex_);
 
         auto check_event = [](auto const& ev) -> bool {
-            return ev.header.type == DisplayEventReceiver::DISPLAY_EVENT_VSYNC;
+            return ev.header.type == DisplayEventType::DISPLAY_EVENT_VSYNC;
         };
         DisplayEventReceiver::Event ev_;
         int evs = receiver_.getEvents(&ev_, 1);
@@ -180,7 +180,7 @@ protected:
     }
 
     void SetUp() override {
-        mSurfaceComposerClient = new SurfaceComposerClient;
+        mSurfaceComposerClient = sp<SurfaceComposerClient>::make();
         ASSERT_EQ(NO_ERROR, mSurfaceComposerClient->initCheck());
 
         mBackgroundLayer =
@@ -212,6 +212,23 @@ protected:
                 .setPosition(mTopLayer, 0, 0)
                 .show(mBackgroundLayer)
                 .apply();
+
+        // Cache any existing listeners that could impact luma sampling test results
+        sp<gui::ISurfaceComposer> composer = ComposerServiceAIDL::getComposerService();
+        composer->getRegionSamplingListeners(&mExistingListeners);
+        for (const auto& descriptor : mExistingListeners) {
+            composer->removeRegionSamplingListener(descriptor.listener);
+        }
+    }
+
+    void TearDown() override {
+        // Restore device state by re-adding listeners that were present prior to the test run
+        sp<gui::ISurfaceComposer> composer = ComposerServiceAIDL::getComposerService();
+        for (const auto& descriptor : mExistingListeners) {
+            composer->addRegionSamplingListenerWithStopLayerId(descriptor.area,
+                                                               descriptor.stopLayerId,
+                                                               descriptor.listener);
+        }
     }
 
     void fill_render(uint32_t rgba_value) {
@@ -234,6 +251,7 @@ protected:
     sp<SurfaceControl> mBackgroundLayer;
     sp<SurfaceControl> mContentLayer;
     sp<SurfaceControl> mTopLayer;
+    std::vector<gui::RegionSamplingDescriptor> mExistingListeners;
 
     uint32_t const rgba_green = 0xFF00FF00;
     float const luma_green = 0.7152;

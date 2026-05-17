@@ -18,6 +18,7 @@
 
 #include <android/gui/DropInputMode.h>
 #include <android/gui/ISurfaceComposerClient.h>
+#include <com_android_graphics_surfaceflinger_flags.h>
 #include <ftl/small_map.h>
 #include <gui/BufferQueue.h>
 #include <gui/LayerState.h>
@@ -44,6 +45,7 @@
 #include <scheduler/Seamlessness.h>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -52,6 +54,7 @@
 #include "FrameTracker.h"
 #include "LayerFE.h"
 #include "LayerVector.h"
+#include "Scheduler/FrameTimeline.h"
 #include "Scheduler/LayerInfo.h"
 #include "SurfaceFlinger.h"
 #include "TransactionCallbackInvoker.h"
@@ -71,9 +74,9 @@ class OutputLayer;
 struct LayerFECompositionState;
 }
 
-namespace frametimeline {
+namespace scheduler {
 class SurfaceFrame;
-} // namespace frametimeline
+} // namespace scheduler
 
 class Layer : public virtual RefBase {
 public:
@@ -95,26 +98,21 @@ public:
     struct State {
         int32_t sequence; // changes when visible regions can change
         // Crop is expressed in layer space coordinate.
-        Rect crop;
+        FloatRect crop;
         LayerMetadata metadata;
 
         ui::Dataspace dataspace;
 
         uint64_t frameNumber;
         uint64_t previousFrameNumber;
-        // high watermark framenumber to use to check for barriers to protect ourselves
-        // from out of order transactions
-        uint64_t barrierFrameNumber;
         ui::Transform transform;
 
         uint32_t producerId = 0;
-        // high watermark producerId to use to check for barriers to protect ourselves
-        // from out of order transactions
-        uint32_t barrierProducerId = 0;
 
         uint32_t bufferTransform;
         bool transformToDisplayInverse;
         Region transparentRegionHint;
+        std::weak_ptr<renderengine::ExternalTexture> previousBuffer;
         std::shared_ptr<renderengine::ExternalTexture> buffer;
         sp<Fence> acquireFence;
         std::shared_ptr<FenceTime> acquireFenceTime;
@@ -140,11 +138,11 @@ public:
         // such SurfaceFrame exists because only one buffer can be presented on the layer per vsync.
         // If multiple buffers are queued, the prior ones will be dropped, along with the
         // SurfaceFrame that's tracking them.
-        std::shared_ptr<frametimeline::SurfaceFrame> bufferSurfaceFrameTX;
+        std::shared_ptr<scheduler::SurfaceFrame> bufferSurfaceFrameTX;
         // A map of token(frametimelineVsyncId) to the SurfaceFrame that's tracking a transaction
         // that contains the token. Only one SurfaceFrame exisits for transactions that share the
         // same token, unless they are presented in different vsyncs.
-        std::unordered_map<int64_t, std::shared_ptr<frametimeline::SurfaceFrame>>
+        std::unordered_map<int64_t, std::shared_ptr<scheduler::SurfaceFrame>>
                 bufferlessSurfaceFramesTX;
         // An arbitrary threshold for the number of BufferlessSurfaceFrames in the state. Used to
         // trigger a warning if the number of SurfaceFrames crosses the threshold.
@@ -157,6 +155,7 @@ public:
         float desiredHdrSdrRatio = -1.f;
         int64_t latchedVsyncId = 0;
         bool useVsyncIdForRefreshRateSelection = false;
+        bool useLuts = false;
     };
 
     explicit Layer(const surfaceflinger::LayerCreationArgs& args);
@@ -172,7 +171,7 @@ public:
     // be delayed until the resize completes.
 
     // Buffer space
-    bool setCrop(const Rect& crop);
+    bool setCrop(const FloatRect& crop);
 
     bool setTransform(uint32_t /*transform*/);
     bool setTransformToDisplayInverse(bool /*transformToDisplayInverse*/);
@@ -184,6 +183,7 @@ public:
     bool setDataspace(ui::Dataspace /*dataspace*/);
     bool setExtendedRangeBrightness(float currentBufferRatio, float desiredRatio);
     bool setDesiredHdrHeadroom(float desiredRatio);
+    void setUseLuts(bool useLuts) { mDrawingState.useLuts = useLuts; }
     bool setSidebandStream(const sp<NativeHandle>& /*sidebandStream*/,
                            const FrameTimelineInfo& /* info*/, nsecs_t /* postTime */,
                            gui::GameMode gameMode);
@@ -196,9 +196,9 @@ public:
     // damage down to hardware composer. Otherwise, we must send a region with
     // one empty rect.
     Region getVisibleRegion(const DisplayDevice*) const;
-    void updateLastLatchTime(nsecs_t latchtime);
+    void updateFrameTimelinePastTimestamps(scheduler::SurfaceFrame::LastFrameTimestamps);
 
-    Rect getCrop(const Layer::State& s) const { return s.crop; }
+    Rect getCrop(const Layer::State& s) const { return Rect(s.crop); }
 
     // from graphics API
     static ui::Dataspace translateDataspace(ui::Dataspace dataspace);
@@ -218,8 +218,8 @@ public:
      * operation, so this should be set only if needed). Typically this is used
      * to figure out if the content or size of a surface has changed.
      */
-    bool latchBufferImpl(bool& /*recomputeVisibleRegions*/, nsecs_t /*latchTime*/,
-                         bool bgColorOnly);
+    bool latchBufferImpl(bool& recomputeVisibleRegions, nsecs_t latchTime,
+                         nsecs_t expectedPresentTime, bool bgColorOnly);
 
     sp<GraphicBuffer> getBuffer() const;
     /**
@@ -253,12 +253,13 @@ public:
     };
 
     BufferInfo mBufferInfo;
+    std::optional<SurfaceFlinger::LayerEvent> mLastLayerEvent;
+    std::chrono::steady_clock::time_point mTimeSinceLayerEventsUpdate =
+            std::chrono::steady_clock::time_point::min();
     std::shared_ptr<gui::BufferReleaseChannel::ProducerEndpoint> mBufferReleaseChannel;
 
     bool fenceHasSignaled() const;
     void onPreComposition(nsecs_t refreshStartTime);
-    void onLayerDisplayed(ftl::SharedFuture<FenceResult>, ui::LayerStack layerStack,
-                          std::function<FenceResult(FenceResult)>&& continuation = nullptr);
 
     // Tracks mLastClientCompositionFence and gets the callback handle for this layer.
     sp<CallbackHandle> findCallbackHandle();
@@ -286,7 +287,7 @@ public:
                                         bool leaveState);
 
     inline bool hasTrustedPresentationListener() {
-        return mTrustedPresentationListener.callbackInterface != nullptr;
+        return mTrustedPresentationListener.getCallback() != nullptr;
     }
 
     // Sets the masked bits.
@@ -330,15 +331,15 @@ public:
     void setFrameTimelineVsyncForBufferlessTransaction(const FrameTimelineInfo& info,
                                                        nsecs_t postTime, gui::GameMode gameMode);
 
-    void addSurfaceFrameDroppedForBuffer(std::shared_ptr<frametimeline::SurfaceFrame>& surfaceFrame,
+    void addSurfaceFrameDroppedForBuffer(std::shared_ptr<scheduler::SurfaceFrame>& surfaceFrame,
                                          nsecs_t dropTime);
-    void addSurfaceFramePresentedForBuffer(
-            std::shared_ptr<frametimeline::SurfaceFrame>& surfaceFrame, nsecs_t acquireFenceTime,
-            nsecs_t currentLatchTime);
+    void addSurfaceFramePresentedForBuffer(std::shared_ptr<scheduler::SurfaceFrame>& surfaceFrame,
+                                           nsecs_t acquireFenceTime, nsecs_t currentLatchTime,
+                                           nsecs_t expectedPresentTime);
 
-    std::shared_ptr<frametimeline::SurfaceFrame> createSurfaceFrameForTransaction(
+    std::shared_ptr<scheduler::SurfaceFrame> createSurfaceFrameForTransaction(
             const FrameTimelineInfo& info, nsecs_t postTime, gui::GameMode gameMode);
-    std::shared_ptr<frametimeline::SurfaceFrame> createSurfaceFrameForBuffer(
+    std::shared_ptr<scheduler::SurfaceFrame> createSurfaceFrameForBuffer(
             const FrameTimelineInfo& info, nsecs_t queueTime, std::string debugName,
             gui::GameMode gameMode);
     void setFrameTimelineVsyncForSkippedFrames(const FrameTimelineInfo& info, nsecs_t postTime,
@@ -369,7 +370,7 @@ public:
 
     // See mPendingBufferTransactions
     void decrementPendingBufferCount();
-    std::atomic<int32_t>* getPendingBufferCounter() { return &mPendingBufferTransactions; }
+    std::atomic<int32_t>* getPendingBufferCounter() { return &mPendingBuffers; }
     std::string getPendingBufferCounterName() { return mBlastTransactionName; }
     void callReleaseBufferCallback(const sp<ITransactionCompletedListener>& listener,
                                    const sp<GraphicBuffer>& buffer, uint64_t framenumber,
@@ -381,25 +382,13 @@ public:
     void setTransformHint(std::optional<ui::Transform::RotationFlags> transformHint) {
         mTransformHint = transformHint;
     }
+    void setCornerRadii(std::optional<gui::CornerRadii> cornerRadii) { mCornerRadii = cornerRadii; }
+
     void commitTransaction();
     // Keeps track of the previously presented layer stacks. This is used to get
     // the release fences from the correct displays when we release the last buffer
     // from the layer.
     std::vector<ui::LayerStack> mPreviouslyPresentedLayerStacks;
-
-    struct FenceAndContinuation {
-        ftl::SharedFuture<FenceResult> future;
-        std::function<FenceResult(FenceResult)> continuation;
-
-        ftl::SharedFuture<FenceResult> chain() const {
-            if (continuation) {
-                return ftl::Future(future).then(continuation).share();
-            } else {
-                return future;
-            }
-        }
-    };
-    std::vector<FenceAndContinuation> mPreviousReleaseFenceAndContinuations;
 
     // Release fences for buffers that have not yet received a release
     // callback. A release callback may not be given when capturing
@@ -447,8 +436,12 @@ protected:
 
     uint32_t mTransactionFlags{0};
 
+    // Leverages FrameTimeline to generate FrameStats. Since FrameTimeline already has the data,
+    // statistical history needs to only be tracked by count of frames.
+    // TODO: Deprecate the '--latency-clear' and get rid of this.
+    std::atomic<uint16_t> mFrameStatsHistorySize;
     // Timestamp history for UIAutomation. Thread safe.
-    FrameTracker mFrameTracker;
+    FrameTracker mDeprecatedFrameTracker;
 
     // main thread
     sp<NativeHandle> mSidebandStream;
@@ -475,9 +468,9 @@ protected:
 
     int32_t mOwnerAppId;
 
-    // Keeps track of the time SF latched the last buffer from this layer.
+    // Keeps track of the various timestamps for the last buffer from this layer.
     // Used in buffer stuffing analysis in FrameTimeline.
-    nsecs_t mLastLatchTime = 0;
+    scheduler::SurfaceFrame::LastFrameTimestamps mFrameTimelinePastTimestamps;
 
     sp<Fence> mLastClientCompositionFence;
     bool mClearClientCompositionFenceOnLayerDisplayed = false;
@@ -504,7 +497,7 @@ private:
     // Latch sideband stream and returns true if the dirty region should be updated.
     bool latchSidebandStream(bool& recomputeVisibleRegions);
 
-    void updateTexImage(nsecs_t latchTime, bool bgColorOnly = false);
+    void updateTexImage(nsecs_t latchTime, nsecs_t expectedPresentTime, bool bgColorOnly = false);
 
     // Crop that applies to the buffer
     Rect computeBufferCrop(const State& s);
@@ -524,11 +517,6 @@ private:
 
     bool mGetHandleCalled = false;
 
-    // The inherited shadow radius after taking into account the layer hierarchy. This is the
-    // final shadow radius for this layer. If a shadow is specified for a layer, then effective
-    // shadow radius is the set shadow radius, otherwise its the parent's shadow radius.
-    float mEffectiveShadowRadius = 0.f;
-
     // Game mode for the layer. Set by WindowManagerShell and recorded by SurfaceFlingerStats.
     gui::GameMode mGameMode = gui::GameMode::Unsupported;
 
@@ -542,6 +530,7 @@ private:
     // Transform hint provided to the producer. This must be accessed holding
     // the mStateLock.
     std::optional<ui::Transform::RotationFlags> mTransformHint = std::nullopt;
+    std::optional<gui::CornerRadii> mCornerRadii = std::nullopt;
 
     ReleaseCallbackId mPreviousReleaseCallbackId = ReleaseCallbackId::INVALID_ID;
     sp<IBinder> mPreviousReleaseBufferEndpoint;
@@ -562,7 +551,7 @@ private:
     //     - If the integer increases, a buffer arrived at the server.
     //     - If the integer decreases in latchBuffer, that buffer was latched
     //     - If the integer decreases in setBuffer, a buffer was dropped
-    std::atomic<int32_t> mPendingBufferTransactions{0};
+    std::atomic<int32_t> mPendingBuffers{0};
 
     // Contains requested position and matrix updates. This will be applied if the client does
     // not specify a destination frame.
@@ -570,6 +559,9 @@ private:
 
     std::vector<std::pair<frontend::LayerHierarchy::TraversalPath, sp<LayerFE>>> mLayerFEs;
     bool mHandleAlive = false;
+    std::optional<std::reference_wrapper<scheduler::FrameTimeline>> getTimeline() const {
+        return *mFlinger->mFrameTimeline;
+    }
 };
 
 std::ostream& operator<<(std::ostream& stream, const Layer::FrameRate& rate);

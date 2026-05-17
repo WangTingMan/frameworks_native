@@ -23,7 +23,9 @@
 #include <InputDevice.h>
 #include <InputMapper.h>
 #include <InputReader.h>
+#include <InputReaderTracer.h>
 #include <ThreadSafeFuzzedDataProvider.h>
+#include <input/Input.h>
 
 constexpr size_t kValidTypes[] = {EV_SW,
                                   EV_SYN,
@@ -33,6 +35,28 @@ constexpr size_t kValidTypes[] = {EV_SW,
                                   EV_REL,
                                   android::EventHubInterface::DEVICE_ADDED,
                                   android::EventHubInterface::DEVICE_REMOVED};
+
+static const android::InputDeviceClass kInputDeviceClasses[] = {
+        android::InputDeviceClass::KEYBOARD,
+        android::InputDeviceClass::ALPHAKEY,
+        android::InputDeviceClass::TOUCH,
+        android::InputDeviceClass::CURSOR,
+        android::InputDeviceClass::TOUCH_MT,
+        android::InputDeviceClass::DPAD,
+        android::InputDeviceClass::GAMEPAD,
+        android::InputDeviceClass::SWITCH,
+        android::InputDeviceClass::JOYSTICK,
+        android::InputDeviceClass::VIBRATOR,
+        android::InputDeviceClass::MIC,
+        android::InputDeviceClass::EXTERNAL_STYLUS,
+        android::InputDeviceClass::ROTARY_ENCODER,
+        android::InputDeviceClass::SENSOR,
+        android::InputDeviceClass::BATTERY,
+        android::InputDeviceClass::LIGHT,
+        android::InputDeviceClass::TOUCHPAD,
+        android::InputDeviceClass::VIRTUAL,
+        android::InputDeviceClass::EXTERNAL,
+};
 
 constexpr size_t kValidCodes[] = {
         SYN_REPORT,
@@ -104,8 +128,16 @@ public:
     ~FuzzEventHub() {}
     void addProperty(std::string key, std::string value) { mFuzzConfig.addProperty(key, value); }
 
+    void setTracer(std::shared_ptr<InputReaderTracer> tracer) override {}
+
     ftl::Flags<InputDeviceClass> getDeviceClasses(int32_t deviceId) const override {
-        return ftl::Flags<InputDeviceClass>(mFdp->ConsumeIntegral<uint32_t>());
+        uint32_t flags = 0;
+        for (auto inputDeviceClass : kInputDeviceClasses) {
+            if (mFdp->ConsumeBool()) {
+                flags |= static_cast<uint32_t>(inputDeviceClass);
+            }
+        }
+        return ftl::Flags<InputDeviceClass>(flags);
     }
     InputDeviceIdentifier getDeviceIdentifier(int32_t deviceId) const override {
         return mIdentifier;
@@ -268,7 +300,11 @@ public:
     bool isDeviceEnabled(int32_t deviceId) const override { return mFdp->ConsumeBool(); }
     status_t enableDevice(int32_t deviceId) override { return mFdp->ConsumeIntegral<status_t>(); }
     status_t disableDevice(int32_t deviceId) override { return mFdp->ConsumeIntegral<status_t>(); }
+    std::filesystem::path getSysfsRootPath(int32_t deviceId) const override { return {}; }
     void sysfsNodeChanged(const std::string& sysfsNodePath) override {}
+    bool setKernelWakeEnabled(int32_t deviceId, bool enabled) override {
+        return mFdp->ConsumeBool();
+    }
 };
 
 class FuzzInputReaderPolicy : public InputReaderPolicyInterface {
@@ -283,8 +319,9 @@ public:
     void getReaderConfiguration(InputReaderConfiguration* outConfig) override {}
     void notifyInputDevicesChanged(const std::vector<InputDeviceInfo>& inputDevices) override {}
     void notifyTouchpadHardwareState(const SelfContainedHardwareState& schs,
-                                     int32_t deviceId) override {}
-    void notifyTouchpadGestureInfo(GestureType type, int32_t deviceId) override {}
+                                     DeviceId deviceId) override {}
+    void notifyTouchpadGestureInfo(GestureType type, DeviceId deviceId) override {}
+    void notifyTouchpadThreeFingerTap() override {}
     std::shared_ptr<KeyCharacterMap> getKeyboardLayoutOverlay(
             const InputDeviceIdentifier& identifier,
             const std::optional<KeyboardLayoutInfo> layoutInfo) override {
@@ -298,7 +335,7 @@ public:
         return mTransform;
     }
     void setTouchAffineTransformation(const TouchAffineTransformation t) { mTransform = t; }
-    void notifyStylusGestureStarted(int32_t, nsecs_t) {}
+    void notifyStylusGestureStarted(DeviceId, nsecs_t) {}
     bool isInputMethodConnectionActive() override { return mFdp->ConsumeBool(); }
     std::optional<DisplayViewport> getPointerViewportForAssociatedDisplay(
             ui::LogicalDisplayId associatedDisplayId) override {
@@ -328,6 +365,7 @@ public:
                            std::shared_ptr<ThreadSafeFuzzedDataProvider> fdp)
           : mEventHub(eventHub), mPolicy(sp<FuzzInputReaderPolicy>::make(fdp)), mFdp(fdp) {}
     ~FuzzInputReaderContext() {}
+    std::string dump() { return "(dump from FuzzInputReaderContext)"; }
     void updateGlobalMetaState() override {}
     int32_t getGlobalMetaState() { return mFdp->ConsumeIntegral<int32_t>(); }
     void disableVirtualKeysUntil(nsecs_t time) override {}
@@ -342,7 +380,7 @@ public:
     }
     InputReaderPolicyInterface* getPolicy() override { return mPolicy.get(); }
     EventHubInterface* getEventHub() override { return mEventHub.get(); }
-    int32_t getNextId() override { return mFdp->ConsumeIntegral<int32_t>(); }
+    int32_t getNextId() const override { return mFdp->ConsumeIntegral<int32_t>(); }
 
     void updateLedMetaState(int32_t metaState) override{};
     int32_t getLedMetaState() override { return mFdp->ConsumeIntegral<int32_t>(); };
@@ -363,8 +401,8 @@ private:
 template <class Fdp>
 InputDevice getFuzzedInputDevice(Fdp& fdp, FuzzInputReaderContext* context) {
     InputDeviceIdentifier identifier;
-    identifier.name = fdp.ConsumeRandomLengthString(16);
-    identifier.location = fdp.ConsumeRandomLengthString(12);
+    identifier.name = fdp.ConsumeRandomLengthUtf8String(16);
+    identifier.location = fdp.ConsumeRandomLengthUtf8String(12);
     int32_t deviceID = fdp.ConsumeIntegralInRange(0, 5);
     int32_t deviceGeneration = fdp.ConsumeIntegralInRange(0, 5);
     return InputDevice(context, deviceID, deviceGeneration, identifier);
@@ -380,7 +418,7 @@ void configureAndResetDevice(Fdp& fdp, InputDevice& device) {
 
 template <class Fdp, class T, typename... Args>
 T& getMapperForDevice(Fdp& fdp, InputDevice& device, Args... args) {
-    int32_t eventhubId = fdp.template ConsumeIntegral<int32_t>();
+    RawDeviceId eventhubId = fdp.template ConsumeIntegral<int32_t>();
     // ensure a device entry exists for this eventHubId
     device.addEmptyEventHubDevice(eventhubId);
     configureAndResetDevice(fdp, device);

@@ -18,6 +18,8 @@
 
 #include <optional>
 
+#include <input/Input.h>
+
 #include "EventHub.h"
 #include "InputDevice.h"
 #include "InputListener.h"
@@ -66,11 +68,12 @@ public:
 
     virtual ~InputMapper();
 
-    inline int32_t getDeviceId() { return mDeviceContext.getId(); }
+    inline DeviceId getDeviceId() const { return mDeviceContext.getId(); }
     inline InputDeviceContext& getDeviceContext() { return mDeviceContext; }
     inline InputDeviceContext& getDeviceContext() const { return mDeviceContext; };
     inline const std::string getDeviceName() const { return mDeviceContext.getName(); }
     inline InputReaderContext* getContext() { return mDeviceContext.getContext(); }
+    inline const InputReaderContext* getContext() const { return mDeviceContext.getContext(); }
     inline InputReaderPolicyInterface* getPolicy() { return getContext()->getPolicy(); }
 
     virtual uint32_t getSources() const = 0;
@@ -111,15 +114,12 @@ public:
     virtual std::optional<int32_t> getLightPlayerId(int32_t lightId) { return std::nullopt; }
 
     virtual int32_t getMetaState();
-    /**
-     * Process the meta key and update the global meta state when changed.
-     * Return true if the meta key could be handled by the InputMapper.
-     */
-    virtual bool updateMetaState(int32_t keyCode);
 
     [[nodiscard]] virtual std::list<NotifyArgs> updateExternalStylusState(const StylusState& state);
 
-    virtual std::optional<ui::LogicalDisplayId> getAssociatedDisplayId() { return std::nullopt; }
+    virtual std::optional<ui::LogicalDisplayId> getAssociatedDisplayId() const {
+        return std::nullopt;
+    }
     virtual void updateLedState(bool reset) {}
 
     virtual std::optional<HardwareProperties> getTouchpadHardwareProperties();

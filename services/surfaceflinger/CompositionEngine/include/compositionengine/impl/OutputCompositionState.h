@@ -35,6 +35,7 @@
 #include <compositionengine/CompositionRefreshArgs.h>
 #include <compositionengine/ProjectionSpace.h>
 #include <ui/LayerStack.h>
+#include <ui/PictureProfileHandle.h>
 #include <ui/Rect.h>
 #include <ui/Region.h>
 #include <ui/Transform.h>
@@ -68,7 +69,7 @@ struct OutputCompositionState {
     bool reusedClientComposition{false};
 
     // The conditions for including a layer on this output
-    ui::LayerFilter layerFilter;
+    LayerFilter layerFilter;
 
     // The common space for all layers in the layer stack. layerStackSpace.content is the Rect
     // which gets projected on the display. The orientation of this space is always ROTATION_0.
@@ -169,6 +170,10 @@ struct OutputCompositionState {
     uint64_t outputLayerHash = 0;
 
     ICEPowerCallback* powerCallback = nullptr;
+
+    PictureProfileHandle pictureProfileHandle;
+
+    sp<GraphicBuffer> readbackBuffer = nullptr;
 
     // Debugging
     void dump(std::string& result) const;

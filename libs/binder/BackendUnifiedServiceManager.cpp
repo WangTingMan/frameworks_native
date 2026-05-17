@@ -13,11 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#define LOG_TAG "libbinder.BackendUnifiedServiceManager"
+
 #include "BackendUnifiedServiceManager.h"
 
+#include <android-base/strings.h>
 #include <android/os/IAccessor.h>
 #include <android/os/IServiceManager.h>
 #include <binder/RpcSession.h>
+#include <cutils/sockets.h>
+#ifndef _MSC_VER
+#include <sys/socket.h>
+#include <sys/un.h>
+#endif
 
 #include <cutils/threads.h>
 
@@ -26,6 +34,10 @@
 #endif
 
 namespace android {
+
+// This is similar to the kernel binder servicemanager's context 0. It's the
+// known socket that we expect the Unix Domain Socket servicemanager to be listening on.
+const char kUdsServiceManagerName[] = ANDROID_SOCKET_DIR "/rpc_servicemanager";
 
 #ifdef LIBBINDER_CLIENT_CACHE
 constexpr bool kUseCache = true;
@@ -48,6 +60,9 @@ constexpr bool kRemoveStaticList = false;
 using AidlServiceManager = android::os::IServiceManager;
 using android::os::IAccessor;
 using binder::Status;
+
+static const char* kUnsupportedOpNoServiceManager =
+        "Unsupported operation without a kernel binder servicemanager process";
 
 static const char* kStaticCachableList[] = {
         // go/keep-sorted start
@@ -126,9 +141,15 @@ os::ServiceWithMetadata createServiceWithMetadata(const sp<IBinder>& service, bo
     return out;
 }
 
-bool BinderCacheWithInvalidation::isClientSideCachingEnabled(const std::string& serviceName) {
+bool BinderCacheWithInvalidation::isClientSideCachingEnabled(const std::string& serviceName) const {
     sp<ProcessState> self = ProcessState::selfOrNull();
-    if (!self || self->getThreadPoolMaxTotalThreadCount() <= 0) {
+    // Should not cache if process state could not be found, or if thread pool
+    // max could is not greater than zero.
+    if (!self) {
+        ALOGW("Service retrieved before binder threads started. If they are to be started, "
+              "consider starting binder threads earlier.");
+        return false;
+    } else if (self->getThreadPoolMaxTotalThreadCount() <= 0) {
         ALOGW("Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be "
               "implemented. serviceName: %s",
               serviceName.c_str());
@@ -167,7 +188,7 @@ Status BackendUnifiedServiceManager::updateCache(const std::string& serviceName,
     if (atrace_is_tag_enabled(ATRACE_TAG_AIDL)) {
         traceStr = "BinderCacheWithInvalidation::updateCache : " + serviceName;
     }
-    binder::ScopedTrace aidlTrace(ATRACE_TAG_AIDL, traceStr.c_str());
+    binder::ScopedTrace outerAidlTrace(ATRACE_TAG_AIDL, traceStr.c_str());
     if (!binder) {
         binder::ScopedTrace
                 aidlTrace(ATRACE_TAG_AIDL,
@@ -213,7 +234,9 @@ Status BackendUnifiedServiceManager::getService(const ::std::string& name,
                                                 sp<IBinder>* _aidl_return) {
     os::Service service;
     Status status = getService2(name, &service);
-    *_aidl_return = service.get<os::Service::Tag::serviceWithMetadata>().service;
+    if (status.isOk()) {
+        *_aidl_return = service.get<os::Service::Tag::serviceWithMetadata>().service;
+    }
     return status;
 }
 
@@ -222,7 +245,10 @@ Status BackendUnifiedServiceManager::getService2(const ::std::string& name, os::
         return Status::ok();
     }
     os::Service service;
-    Status status = mTheRealServiceManager->getService2(name, &service);
+    Status status = Status::ok();
+    if (mTheRealServiceManager) {
+        status = mTheRealServiceManager->getService2(name, &service);
+    }
 
     if (status.isOk()) {
         status = toBinderService(name, service, _out);
@@ -247,7 +273,10 @@ Status BackendUnifiedServiceManager::checkService2(const ::std::string& name, os
         return Status::ok();
     }
 
-    Status status = mTheRealServiceManager->checkService2(name, &service);
+    Status status = Status::ok();
+    if (mTheRealServiceManager) {
+        status = mTheRealServiceManager->checkService2(name, &service);
+    }
     if (status.isOk()) {
         status = toBinderService(name, service, _out);
         if (status.isOk()) {
@@ -294,6 +323,20 @@ Status BackendUnifiedServiceManager::toBinderService(const ::std::string& name,
                         createServiceWithMetadata(nullptr, false));
                 return Status::ok();
             }
+            // Pre-flight check to handle transient connection errors.
+            os::ParcelFileDescriptor pfd;
+            if (Status status = accessor->addConnection(&pfd); !status.isOk()) {
+                if (status.serviceSpecificErrorCode() ==
+                    IAccessor::ERROR_FAILED_TO_CONNECT_TO_SOCKET) {
+                    ALOGW("Accessor failed with transient error, returning null to retry: %s",
+                          status.toString8().c_str());
+                    *_out = os::Service::make<os::Service::Tag::serviceWithMetadata>(
+                            createServiceWithMetadata(nullptr, false));
+                    return Status::ok();
+                }
+                ALOGE("Failed to add connection via accessor: %s", status.toString8().c_str());
+                return status;
+            }
             auto request = [=] {
                 os::ParcelFileDescriptor fd;
                 Status ret = accessor->addConnection(&fd);
@@ -305,7 +348,8 @@ Status BackendUnifiedServiceManager::toBinderService(const ::std::string& name,
                 }
             };
             auto session = RpcSession::make();
-            status_t status = session->setupPreconnectedClient(base::unique_fd{}, request);
+            status_t status =
+                    session->setupPreconnectedClient(base::unique_fd(pfd.release()), request);
             if (status != OK) {
                 ALOGE("Failed to set up preconnected binder RPC client: %s",
                       statusToString(status).c_str());
@@ -325,66 +369,181 @@ Status BackendUnifiedServiceManager::toBinderService(const ::std::string& name,
 Status BackendUnifiedServiceManager::addService(const ::std::string& name,
                                                 const sp<IBinder>& service, bool allowIsolated,
                                                 int32_t dumpPriority) {
-    Status status = mTheRealServiceManager->addService(name, service, allowIsolated, dumpPriority);
-    // mEnableAddServiceCache is true by default.
-    if (kUseCacheInAddService && mEnableAddServiceCache && status.isOk()) {
-        return updateCache(name, service,
-                           dumpPriority & android::os::IServiceManager::FLAG_IS_LAZY_SERVICE);
+    if (mTheRealServiceManager) {
+        Status status =
+                mTheRealServiceManager->addService(name, service, allowIsolated, dumpPriority);
+        // mEnableAddServiceCache is true by default.
+        if (kUseCacheInAddService && mEnableAddServiceCache && status.isOk()) {
+            return updateCache(name, service,
+                               dumpPriority & android::os::IServiceManager::FLAG_IS_LAZY_SERVICE);
+        }
+        return status;
     }
-    return status;
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::listServices(int32_t dumpPriority,
                                                   ::std::vector<::std::string>* _aidl_return) {
-    return mTheRealServiceManager->listServices(dumpPriority, _aidl_return);
+    Status status = Status::ok();
+    if (mTheRealServiceManager) {
+        status = mTheRealServiceManager->listServices(dumpPriority, _aidl_return);
+    }
+    if (!status.isOk()) return status;
+
+    appendInjectedAccessorServices(_aidl_return);
+
+    return status;
 }
 Status BackendUnifiedServiceManager::registerForNotifications(
         const ::std::string& name, const sp<os::IServiceCallback>& callback) {
-    return mTheRealServiceManager->registerForNotifications(name, callback);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->registerForNotifications(name, callback);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::unregisterForNotifications(
         const ::std::string& name, const sp<os::IServiceCallback>& callback) {
-    return mTheRealServiceManager->unregisterForNotifications(name, callback);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->unregisterForNotifications(name, callback);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::isDeclared(const ::std::string& name, bool* _aidl_return) {
-    return mTheRealServiceManager->isDeclared(name, _aidl_return);
+    Status status = Status::ok();
+    if (mTheRealServiceManager) {
+        status = mTheRealServiceManager->isDeclared(name, _aidl_return);
+    }
+    if (!status.isOk()) return status;
+
+    if (!*_aidl_return) {
+        forEachInjectedAccessorService([&](const std::string& instance) {
+            if (name == instance) {
+                *_aidl_return = true;
+            }
+        });
+    }
+
+    return status;
 }
 Status BackendUnifiedServiceManager::getDeclaredInstances(
         const ::std::string& iface, ::std::vector<::std::string>* _aidl_return) {
-    return mTheRealServiceManager->getDeclaredInstances(iface, _aidl_return);
+    Status status = Status::ok();
+    if (mTheRealServiceManager) {
+        status = mTheRealServiceManager->getDeclaredInstances(iface, _aidl_return);
+    }
+    if (!status.isOk()) return status;
+
+    forEachInjectedAccessorService([&](const std::string& instance) {
+        // Declared instances have the format
+        // <interface>/instance like foo.bar.ISomething/instance
+        // If it does not have that format, consider the instance to be ""
+        std::string_view name(instance);
+        if (base::ConsumePrefix(&name, iface + "/")) {
+            _aidl_return->emplace_back(name);
+        } else if (iface == instance) {
+            _aidl_return->push_back("");
+        }
+    });
+
+    return status;
 }
 Status BackendUnifiedServiceManager::updatableViaApex(
         const ::std::string& name, ::std::optional<::std::string>* _aidl_return) {
-    return mTheRealServiceManager->updatableViaApex(name, _aidl_return);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->updatableViaApex(name, _aidl_return);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::getUpdatableNames(const ::std::string& apexName,
                                                        ::std::vector<::std::string>* _aidl_return) {
-    return mTheRealServiceManager->getUpdatableNames(apexName, _aidl_return);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->getUpdatableNames(apexName, _aidl_return);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::getConnectionInfo(
         const ::std::string& name, ::std::optional<os::ConnectionInfo>* _aidl_return) {
-    return mTheRealServiceManager->getConnectionInfo(name, _aidl_return);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->getConnectionInfo(name, _aidl_return);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::registerClientCallback(
         const ::std::string& name, const sp<IBinder>& service,
         const sp<os::IClientCallback>& callback) {
-    return mTheRealServiceManager->registerClientCallback(name, service, callback);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->registerClientCallback(name, service, callback);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::tryUnregisterService(const ::std::string& name,
                                                           const sp<IBinder>& service) {
-    return mTheRealServiceManager->tryUnregisterService(name, service);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->tryUnregisterService(name, service);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 Status BackendUnifiedServiceManager::getServiceDebugInfo(
         ::std::vector<os::ServiceDebugInfo>* _aidl_return) {
-    return mTheRealServiceManager->getServiceDebugInfo(_aidl_return);
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->getServiceDebugInfo(_aidl_return);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
+}
+
+Status BackendUnifiedServiceManager::checkServiceAccess(
+        const AidlServiceManager::CallerContext& callerCtx, const std::string& name,
+        const std::string& permission, bool* _aidl_return) {
+    if (mTheRealServiceManager) {
+        return mTheRealServiceManager->checkServiceAccess(callerCtx, name, permission,
+                                                          _aidl_return);
+    }
+    return Status::fromExceptionCode(Status::EX_UNSUPPORTED_OPERATION,
+                                     kUnsupportedOpNoServiceManager);
 }
 
 [[clang::no_destroy]] static std::once_flag gUSmOnce;
 [[clang::no_destroy]] static sp<BackendUnifiedServiceManager> gUnifiedServiceManager;
 
+static bool hasOutOfProcessServiceManager() {
+// We don't currently support kernel binder service management or UDS
+// service management on host or when libbinder is compiled without any
+// kernel binder suport. Please use setDefaultServiceManager for host
+// processes that want to use service manager APIs.
+#if !defined(BINDER_WITH_KERNEL_IPC) || !defined(__BIONIC__)
+    return false;
+#else
+#ifdef __ANDROID_VNDK__
+    return true;
+#else
+    return android::base::GetBoolProperty("servicemanager.installed", true);
+#endif
+#endif
+}
+
+static sp<AidlServiceManager> getUdsServiceManager() {
+    auto session = RpcSession::make();
+    session->setFileDescriptorTransportMode(RpcSession::FileDescriptorTransportMode::UNIX);
+    auto status = session->setupUnixDomainClient(kUdsServiceManagerName);
+    if (status == OK) {
+        return interface_cast<AidlServiceManager>(session->getRootObject());
+    }
+    return nullptr;
+}
+
 sp<BackendUnifiedServiceManager> getBackendUnifiedServiceManager() {
     std::call_once(gUSmOnce, []() {
 #if defined(__BIONIC__) && !defined(__ANDROID_VNDK__)
-        /* wait for service manager */ {
+        /* wait for service manager */
+        if (hasOutOfProcessServiceManager()) {
             using std::literals::chrono_literals::operator""s;
             using android::base::WaitForProperty;
             while (!WaitForProperty("servicemanager.ready", "true", 1s)) {
@@ -394,12 +553,23 @@ sp<BackendUnifiedServiceManager> getBackendUnifiedServiceManager() {
 #endif
 
         sp<AidlServiceManager> sm = nullptr;
-        while (sm == nullptr) {
-            sm = interface_cast<AidlServiceManager>(
-                    ProcessState::self()->getContextObject(nullptr));
+        while (hasOutOfProcessServiceManager() && sm == nullptr) {
+            // There is either a kernel binder service manager, or an RPC binder
+            // service manager
+            sp<ProcessState> ps = ProcessState::selfIfKernelBinderEnabled();
+            if (ps) {
+                // Service management over kernel binder
+                sm = interface_cast<AidlServiceManager>(ps->getContextObject(nullptr));
+            } else {
+                // Check for service management over Unix Domain Sockets
+                sm = getUdsServiceManager();
+            }
+
             if (sm == nullptr) {
-                ALOGE("Waiting 1s on context object on %s.",
-                      ProcessState::self()->getDriverName().c_str());
+                std::string contextObjectName = ps
+                        ? ps->getDriverName() + ", " + kUdsServiceManagerName
+                        : kUdsServiceManagerName;
+                ALOGE("Waiting 1s on context object(s) on %s.", contextObjectName.c_str());
                 sleep(1);
             }
         }

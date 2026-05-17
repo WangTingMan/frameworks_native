@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#define LOG_TAG "libbinder.libbinder_rpc_unstable"
 
 #include <binder_rpc_unstable.hpp>
 
@@ -81,6 +82,15 @@ extern "C" {
 ARpcServer* ARpcServer_newVsock(AIBinder* service, unsigned int cid, unsigned int port,
                                 unsigned int* assignedPort) {
     auto server = RpcServer::make();
+    if (const AIBinder_Class* serviceClass = AIBinder_getClass(service); serviceClass) {
+        // needed before NDK APIs are finalized in API level 37 for the new
+        // AIBinder_setMinRpcThreads to be available.
+        if (0 ==
+            strcmp(AIBinder_Class_getDescriptor(serviceClass),
+                   "com.android.isolated_storage_service.IIcingSearchEngine")) {
+            server->setMaxThreads(2);
+        }
+    }
 
     unsigned int bindCid = VMADDR_CID_ANY; // bind to the remote interface
     if (cid == VMADDR_CID_LOCAL) {
@@ -248,9 +258,18 @@ AIBinder* ARpcSession_setupInet(ARpcSession* handle, const char* address, unsign
 #endif // __TRUSTY__
 
 AIBinder* ARpcSession_setupPreconnectedClient(ARpcSession* handle, int (*requestFd)(void* param),
-                                              void* param) {
+                                              void* param, void (*paramDeleteFd)(void* param)) {
     auto session = handleToStrongPointer<RpcSession>(handle);
-    auto request = [=] { return unique_fd{requestFd(param)}; };
+    auto deleter = [=](void* param) {
+        if (paramDeleteFd) {
+            paramDeleteFd(param);
+        }
+    };
+    // TODO: use unique_ptr once setupPreconnectedClient uses std::move_only_function.
+    std::shared_ptr<void> sharedParam(param, deleter);
+    auto request = [=, sharedParam = std::move(sharedParam)] {
+        return unique_fd{requestFd(sharedParam.get())};
+    };
     if (status_t status = session->setupPreconnectedClient(unique_fd{}, request); status != OK) {
         ALOGE("Failed to set up preconnected client. error: %s", statusToString(status).c_str());
         return nullptr;

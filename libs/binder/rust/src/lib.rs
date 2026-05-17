@@ -99,6 +99,8 @@ mod binder_async;
 mod error;
 mod native;
 mod parcel;
+#[cfg(not(trusty))]
+mod persistable_bundle;
 mod proxy;
 #[cfg(not(any(trusty, android_ndk)))]
 mod service;
@@ -113,6 +115,8 @@ pub use crate::binder_async::{BinderAsyncPool, BoxFuture};
 pub use binder::{BinderFeatures, FromIBinder, IBinder, Interface, Strong, Weak};
 pub use error::{ExceptionCode, IntoBinderResult, Status, StatusCode};
 pub use parcel::{ParcelFileDescriptor, Parcelable, ParcelableHolder};
+#[cfg(not(trusty))]
+pub use persistable_bundle::{PersistableBundle, ValueType};
 pub use proxy::{DeathRecipient, SpIBinder, WpIBinder};
 #[cfg(not(any(trusty, android_ndk)))]
 pub use service::{
@@ -120,6 +124,14 @@ pub use service::{
     get_declared_instances, is_declared, is_handling_transaction, register_lazy_service,
     wait_for_interface, wait_for_service, LazyServiceGuard,
 };
+// TODO(b/402766978) Once LLDNK symbols are supported in rust, this can be along with the rest
+// of the service symbols in vendor variants.
+#[cfg(not(any(trusty, android_ndk, android_vendor, android_vndk)))]
+pub use service::{
+    check_service_access, CHECK_ACCESS_PERMISSION_ADD, CHECK_ACCESS_PERMISSION_FIND,
+    CHECK_ACCESS_PERMISSION_LIST,
+};
+
 #[cfg(not(any(trusty, android_ndk)))]
 #[allow(deprecated)]
 pub use service::{get_interface, get_service};

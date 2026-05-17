@@ -16,16 +16,19 @@
 
 #include "GaneshVkRenderEngine.h"
 
-#undef LOG_TAG
-#define LOG_TAG "RenderEngine"
+#include "ShaderCache.h"
 
 #include <include/gpu/ganesh/vk/GrVkBackendSemaphore.h>
 
+#include <android-base/stringprintf.h>
 #include <common/trace.h>
 #include <log/log_main.h>
 #include <sync/sync.h>
 
 namespace android::renderengine::skia {
+
+using base::StringAppendF;
+using uirenderer::skiapipeline::ShaderCache;
 
 std::unique_ptr<GaneshVkRenderEngine> GaneshVkRenderEngine::create(
         const RenderEngineCreationArgs& args) {
@@ -52,8 +55,10 @@ static void unref_semaphore(void* semaphore) {
 
 std::unique_ptr<SkiaGpuContext> GaneshVkRenderEngine::createContext(
         VulkanInterface& vulkanInterface) {
-    return SkiaGpuContext::MakeVulkan_Ganesh(vulkanInterface.getGaneshBackendContext(),
-                                             mSkSLCacheMonitor);
+    auto driverVersion = vulkanInterface.driverVersion();
+    auto& cache = persistentCache(&driverVersion, sizeof(driverVersion));
+    return SkiaGpuContext::MakeVulkan_Ganesh(vulkanInterface.createSkiaVulkanBackendContext(),
+                                             cache);
 }
 
 void GaneshVkRenderEngine::waitFence(SkiaGpuContext* context, base::borrowed_fd fenceFd) {
@@ -108,7 +113,13 @@ base::unique_fd GaneshVkRenderEngine::flushAndSubmit(SkiaGpuContext* context,
         flushInfo.fFinishedProc(destroySemaphoreInfo);
     }
     base::unique_fd res(drawFenceFd);
+    ShaderCache::get().onVkFrameFlushed(grContext.get());
     return res;
+}
+
+void GaneshVkRenderEngine::appendBackendSpecificInfoToDump(std::string& result) {
+    StringAppendF(&result, "\n ------------RE Vulkan (Ganesh)----------\n");
+    SkiaVkRenderEngine::appendBackendSpecificInfoToDump(result);
 }
 
 } // namespace android::renderengine::skia

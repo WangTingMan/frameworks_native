@@ -48,6 +48,9 @@ static std::string getPidcon(pid_t pid) {
     return str;
 #else
     android_errorWriteLog(0x534e4554, "121035042");
+    CHECK_EQ(nullptr, IPCThreadState::self()->getServingStackPointer())
+            << "Did not get context from PID " << pid
+            << ". We should always get contexts from other processes.";
 
     char* lookup = nullptr;
     if (getpidcon(pid, &lookup) < 0) {
