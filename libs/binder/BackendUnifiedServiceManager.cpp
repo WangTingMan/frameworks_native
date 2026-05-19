@@ -518,6 +518,10 @@ static bool hasOutOfProcessServiceManager() {
 // service management on host or when libbinder is compiled without any
 // kernel binder suport. Please use setDefaultServiceManager for host
 // processes that want to use service manager APIs.
+#ifdef _MSC_VER
+    return true;
+#endif
+
 #if !defined(BINDER_WITH_KERNEL_IPC) || !defined(__BIONIC__)
     return false;
 #else

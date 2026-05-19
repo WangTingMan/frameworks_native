@@ -135,7 +135,9 @@ sp<ProcessState> ProcessState::selfOrNull()
 }
 
 sp<ProcessState> ProcessState::selfIfKernelBinderEnabled() {
+#ifndef _MSC_VER
     if (access(kDefaultDriver, R_OK) == -1) return nullptr;
+#endif
     return init(kDefaultDriver, false /*requireDefault*/);
 }
 
