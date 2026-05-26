@@ -282,7 +282,7 @@ LIBBINDER_NDK_EXPORT bool AServiceManager_isDeclared(const char* instance) __INT
  * \param callback taking instance (e.g. 'foo') and context
  */
 LIBBINDER_NDK_EXPORT void AServiceManager_forEachDeclaredInstance(
-        const char* interface, void* context,
+        const char* _interface, void* context,
                                              void (*callback)(const char*, void*))
         __INTRODUCED_IN(31);
 
@@ -316,7 +316,7 @@ void AServiceManager_getUpdatableApexName(const char* instance, void* context,
  *
  * \return the result of dlopen of the specified HAL
  */
-void* AServiceManager_openDeclaredPassthroughHal(const char* interface, const char* instance,
+void* AServiceManager_openDeclaredPassthroughHal(const char* _interface, const char* instance,
                                                  int flag) __INTRODUCED_IN(__ANDROID_API_V__);
 
 /**
