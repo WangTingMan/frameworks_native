@@ -346,7 +346,8 @@ sp<IServiceManager> defaultServiceManager()
     std::call_once(gSmOnce, []() {
         gDefaultServiceManager = sp<CppBackendShim>::make(getBackendUnifiedServiceManager());
 #ifdef _MSC_VER
-        gDefaultServiceManager->setName( "[IServiceManager.cpp:167]gDefaultServiceManager = sp<ServiceManagerShim>::make(sm)" );
+        gDefaultServiceManager->setName(
+            "[IServiceManager.cpp:350]gDefaultServiceManager = sp<CppBackendShim>::make(getBackendUnifiedServiceManager())" );
 #endif
     });
 
